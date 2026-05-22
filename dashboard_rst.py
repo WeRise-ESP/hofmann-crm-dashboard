@@ -331,8 +331,45 @@ def fetch_matriculados_total() -> pd.DataFrame:
 
 
 PIPELINE_ID   = "default"
-STAGE_GANADO  = "closedwon"    # Cierre Ganado
-STAGE_PERDIDO = "closedlost"   # Cierre Perdido
+STAGE_GANADO  = "closedwon"
+STAGE_PERDIDO = "closedlost"
+
+PIPELINE_STAGES = {
+    "536469454":        "Pendiente de contactar",
+    "520725436":        "Ilocalizado",
+    "appointmentscheduled": "Contacto Inicial",
+    "qualifiedtobuy":   "Concertado",
+    "518154939":        "No se presenta",
+    "presentationscheduled": "Entrevista Realizada",
+    "decisionmakerboughtin": "Envío de Inscripción",
+    "closedwon":        "Cierre Ganado",
+    "closedlost":       "Cierre Perdido",
+    "388512980":        "Pendiente Transferencia",
+    "5154403562":       "Estudio Financiación",
+    "585451254":        "Cierre Ganado (histórico)",
+}
+
+PIPELINE_ORDEN = [
+    "Pendiente de contactar", "Contacto Inicial", "Concertado",
+    "Entrevista Realizada", "Envío de Inscripción", "Estudio Financiación",
+    "Pendiente Transferencia", "Cierre Ganado", "Cierre Ganado (histórico)",
+    "No se presenta", "Ilocalizado", "Cierre Perdido",
+]
+
+STAGE_COLORS = {
+    "Pendiente de contactar":  BARCA["ink20"],
+    "Contacto Inicial":        BARCA["blue_deep"],
+    "Concertado":              BARCA["blue"],
+    "Entrevista Realizada":    BARCA["gold"],
+    "Envío de Inscripción":    BARCA["yellow"],
+    "Estudio Financiación":    BARCA["garnet"],
+    "Pendiente Transferencia": BARCA["garnet_deep"],
+    "Cierre Ganado":           "#2E7D32",
+    "Cierre Ganado (histórico)": "#66BB6A",
+    "No se presenta":          BARCA["ink40"],
+    "Ilocalizado":             BARCA["ink60"],
+    "Cierre Perdido":          BARCA["garnet_deep"],
+}
 
 MOTIVOS_CIERRE_ORDEN = [
     "Motivos económicos", "Ilocalizado", "No se presenta a la reunión",
@@ -459,6 +496,57 @@ def fetch_negocios_cerrados() -> pd.DataFrame:
                 "fecha_cierre": info["fecha_cierre"],
                 "mes":          info["mes"],
             })
+
+    return pd.DataFrame(rows)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def fetch_pipeline() -> pd.DataFrame:
+    """Todos los deals del pipeline de ventas con su etapa, fecha y valor."""
+    rows = []
+    after = None
+    while True:
+        payload = {
+            "filterGroups": [{"filters": [
+                {"propertyName": "pipeline", "operator": "EQ", "value": PIPELINE_ID},
+            ]}],
+            "properties": ["dealname", "dealstage", "amount", "closedate",
+                           "createdate", "motivos_de_cierre_perdido_rst"],
+            "limit": 100,
+        }
+        if after:
+            payload["after"] = after
+        try:
+            r = requests.post(f"{BASE}/crm/v3/objects/deals/search",
+                              headers=HEADERS, json=payload, timeout=30)
+            if r.status_code != 200:
+                break
+            data = r.json()
+        except Exception:
+            break
+
+        for d in data.get("results", []):
+            p = d["properties"]
+            stage_id = p.get("dealstage", "")
+            etapa = PIPELINE_STAGES.get(stage_id, stage_id)
+            fecha = (p.get("closedate") or p.get("createdate") or "")[:10]
+            motivos_raw = (p.get("motivos_de_cierre_perdido_rst") or "Sin especificar").strip()
+            motivos = [m.strip() for m in motivos_raw.split(";") if m.strip()] or ["Sin especificar"]
+            amount = float(p.get("amount") or 0)
+            for motivo in motivos:
+                rows.append({
+                    "deal_id":  d["id"],
+                    "etapa":    etapa,
+                    "fecha":    fecha,
+                    "mes":      fecha[:7] if fecha else "",
+                    "amount":   amount,
+                    "motivo":   motivo,
+                })
+
+        pg = data.get("paging", {})
+        if not pg or "next" not in pg:
+            break
+        after = pg["next"]["after"]
 
     return pd.DataFrame(rows)
 
@@ -818,13 +906,15 @@ def main():
 
     # ── Carga en paralelo ──────────────────────────────────────────────────────
     with st.spinner("Cargando datos de HubSpot..."):
-        with ThreadPoolExecutor(max_workers=3) as ex:
-            fut_data  = ex.submit(fetch_data, str(fi), str(ff))
-            fut_mat   = ex.submit(fetch_matriculados_total)
-            fut_deals = ex.submit(fetch_negocios_cerrados)
-        df         = fut_data.result()
-        df_mat_all = fut_mat.result()
-        df_deals   = fut_deals.result()
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            fut_data     = ex.submit(fetch_data, str(fi), str(ff))
+            fut_mat      = ex.submit(fetch_matriculados_total)
+            fut_deals    = ex.submit(fetch_negocios_cerrados)
+            fut_pipeline = ex.submit(fetch_pipeline)
+        df           = fut_data.result()
+        df_mat_all   = fut_mat.result()
+        df_deals     = fut_deals.result()
+        df_pipeline  = fut_pipeline.result()
 
     if df.empty and df_mat_all.empty:
         st.warning("No hay datos para el período seleccionado.")
@@ -1101,6 +1191,82 @@ def main():
                              title="Matriculaciones por mes",
                              color_discrete_sequence=[BARCA["gold"]])
             barca_layout(fig, 360)
+            st.plotly_chart(fig, use_container_width=True)
+
+    # ── Pipeline de Ventas ────────────────────────────────────────────────────
+    st.markdown(f"""<hr style="border:1px solid {BARCA['line']};margin:32px 0 20px">""",
+                unsafe_allow_html=True)
+    st.markdown("## 📊 Pipeline de Ventas")
+
+    if df_pipeline.empty:
+        st.info("No hay negocios en el pipeline.")
+    else:
+        # KPIs del pipeline
+        total_deals   = df_pipeline["deal_id"].nunique()
+        ganados_pip   = df_pipeline[df_pipeline["etapa"] == "Cierre Ganado"]["deal_id"].nunique()
+        perdidos_pip  = df_pipeline[df_pipeline["etapa"] == "Cierre Perdido"]["deal_id"].nunique()
+        activos_pip   = total_deals - ganados_pip - perdidos_pip - \
+                        df_pipeline[df_pipeline["etapa"] == "Cierre Ganado (histórico)"]["deal_id"].nunique()
+        amount_ganado = df_pipeline[df_pipeline["etapa"] == "Cierre Ganado"] \
+                        .drop_duplicates("deal_id")["amount"].sum()
+
+        k1, k2, k3, k4, k5 = st.columns(5)
+        kpi_card(k1, "Total deals",     total_deals,                          BARCA["blue"])
+        kpi_card(k2, "Cierre Ganado",   ganados_pip,                          "#2E7D32")
+        kpi_card(k3, "Cierre Perdido",  perdidos_pip,                         BARCA["garnet"])
+        kpi_card(k4, "En proceso",      activos_pip,                          BARCA["blue_deep"])
+        kpi_card(k5, "Valor ganado",    f"€{amount_ganado:,.0f}",             BARCA["gold"])
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Deals por etapa — funnel + barra
+        col1, col2 = st.columns([1, 1])
+        with col1:
+            etapa_counts = (df_pipeline.drop_duplicates("deal_id")
+                            .groupby("etapa").size().reset_index(name="Deals"))
+            etapa_counts["orden"] = etapa_counts["etapa"].map(
+                {e: i for i, e in enumerate(PIPELINE_ORDEN)}).fillna(99)
+            etapa_counts = etapa_counts.sort_values("orden")
+            fig = px.funnel(etapa_counts, x="Deals", y="etapa",
+                            title="Embudo del pipeline",
+                            color="etapa",
+                            color_discrete_map=STAGE_COLORS)
+            barca_layout(fig, 420)
+            st.plotly_chart(fig, use_container_width=True)
+
+        with col2:
+            fig = px.bar(etapa_counts.sort_values("Deals", ascending=True),
+                         x="Deals", y="etapa", orientation="h",
+                         text_auto=True, title="Deals por etapa",
+                         color="etapa", color_discrete_map=STAGE_COLORS)
+            fig.update_layout(showlegend=False,
+                              yaxis=dict(categoryorder="total ascending"))
+            barca_layout(fig, 420)
+            st.plotly_chart(fig, use_container_width=True)
+
+        # Evolución mensual por etapa
+        if df_pipeline["mes"].nunique() > 1:
+            st.markdown("### Evolución mensual")
+            gm = (df_pipeline.drop_duplicates(["deal_id", "mes"])
+                  .groupby(["mes", "etapa"])["deal_id"].nunique().reset_index(name="Deals"))
+            fig = px.bar(gm, x="mes", y="Deals", color="etapa",
+                         barmode="stack", title="Deals por mes y etapa",
+                         color_discrete_map=STAGE_COLORS,
+                         category_orders={"etapa": PIPELINE_ORDEN})
+            fig.update_layout(legend=dict(orientation="h", y=-0.3, font_size=10))
+            barca_layout(fig, 360)
+            st.plotly_chart(fig, use_container_width=True)
+
+        # Motivos de cierre perdido
+        perdidos_df = df_pipeline[df_pipeline["etapa"] == "Cierre Perdido"]
+        if not perdidos_df.empty:
+            st.markdown("### Motivos de Cierre Perdido")
+            motivos_counts = perdidos_df.groupby("motivo").size().reset_index(name="Total")
+            motivos_counts = motivos_counts.sort_values("Total", ascending=True)
+            fig = px.bar(motivos_counts, x="Total", y="motivo", orientation="h",
+                         text_auto=True, title="Motivos de cierre perdido",
+                         color_discrete_sequence=[BARCA["garnet"]])
+            barca_layout(fig, max(280, len(motivos_counts) * 36 + 80))
             st.plotly_chart(fig, use_container_width=True)
 
     # ── Negocios cerrados — tabla y gráficos ──────────────────────────────────
