@@ -238,7 +238,9 @@ def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
             break
         after = pg["next"]["after"]
 
-    return pd.DataFrame(rows)
+    _COLS = ["email", "fecha", "mes", "pais", "lead_status", "lead_valido",
+             "intentos", "motivo_cierre", "fuente", "origen_fuente"]
+    return pd.DataFrame(rows, columns=_COLS) if rows else pd.DataFrame(columns=_COLS)
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -962,10 +964,10 @@ def main():
     df_deals_periodo = _apply(df_deals_periodo)
 
     total        = len(df)
-    n_mat        = len(df_mat)        # matriculados en el período (fecha real de matriculación)
-    n_cerrado    = (df["lead_status"] == "Negocio Abierto").sum()
-    n_contactado = (df["lead_status"] == "Conectado").sum()
-    n_mala       = (df["lead_valido"] == "No válido").sum()
+    n_mat        = len(df_mat)
+    n_cerrado    = int((df["lead_status"] == "Negocio Abierto").sum()) if not df.empty else 0
+    n_contactado = int((df["lead_status"] == "Conectado").sum())       if not df.empty else 0
+    n_mala       = int((df["lead_valido"] == "No válido").sum())        if not df.empty else 0
 
     periodo_txt = "Todos (desde 2024)" if fi == "todos" else \
                   f"{fi.strftime('%d/%m/%Y')} → {ff.strftime('%d/%m/%Y')}"
@@ -998,144 +1000,148 @@ def main():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── Distribución general ───────────────────────────────────────────────────
-    st.markdown("### Distribución general")
-    col1, col2, col3 = st.columns([1.2, 1.2, 1.6])
+    # ── Secciones que dependen de df (leads) ──────────────────────────────────
+    if df.empty:
+        st.info("No hay leads para el período y filtros seleccionados.")
+    else:
+        # ── Distribución general ───────────────────────────────────────────────
+        st.markdown("### Distribución general")
+        col1, col2, col3 = st.columns([1.2, 1.2, 1.6])
 
-    with col1:
-        st.plotly_chart(
-            chart_donut(df, "lead_status", "Por Estado de Lead", COLOR_ESTADOS),
-            use_container_width=True
-        )
-    with col2:
-        fuente_counts = df["fuente"].value_counts().reset_index()
-        fuente_counts.columns = ["fuente", "Total"]
-        fig = px.pie(fuente_counts, names="fuente", values="Total",
-                     title="Por Fuente de Tráfico", hole=0.55,
-                     color_discrete_sequence=COLOR_FUENTES)
-        fig.update_traces(textposition="outside", textinfo="percent+label",
-                          marker=dict(line=dict(color=BARCA["white"], width=2)))
-        barca_layout(fig, 320)
-        st.plotly_chart(fig, use_container_width=True)
-    with col3:
-        pais_top = (df.groupby("pais").size().reset_index(name="Total")
-                    .sort_values("Total", ascending=False).head(12))
-        fig = px.bar(pais_top, x="Total", y="pais", orientation="h",
-                     text_auto=True, title="Top 12 países",
-                     color="Total",
-                     color_continuous_scale=[BARCA["line2"], BARCA["blue_deep"],
-                                              BARCA["blue_ink"]])
-        fig.update_layout(coloraxis_showscale=False,
-                          yaxis=dict(categoryorder="total ascending"))
-        barca_layout(fig, 340)
-        st.plotly_chart(fig, use_container_width=True)
+        with col1:
+            st.plotly_chart(
+                chart_donut(df, "lead_status", "Por Estado de Lead", COLOR_ESTADOS),
+                use_container_width=True
+            )
+        with col2:
+            fuente_counts = df["fuente"].value_counts().reset_index()
+            fuente_counts.columns = ["fuente", "Total"]
+            fig = px.pie(fuente_counts, names="fuente", values="Total",
+                         title="Por Fuente de Tráfico", hole=0.55,
+                         color_discrete_sequence=COLOR_FUENTES)
+            fig.update_traces(textposition="outside", textinfo="percent+label",
+                              marker=dict(line=dict(color=BARCA["white"], width=2)))
+            barca_layout(fig, 320)
+            st.plotly_chart(fig, use_container_width=True)
+        with col3:
+            pais_top = (df.groupby("pais").size().reset_index(name="Total")
+                        .sort_values("Total", ascending=False).head(12))
+            fig = px.bar(pais_top, x="Total", y="pais", orientation="h",
+                         text_auto=True, title="Top 12 países",
+                         color="Total",
+                         color_continuous_scale=[BARCA["line2"], BARCA["blue_deep"],
+                                                  BARCA["blue_ink"]])
+            fig.update_layout(coloraxis_showscale=False,
+                              yaxis=dict(categoryorder="total ascending"))
+            barca_layout(fig, 340)
+            st.plotly_chart(fig, use_container_width=True)
 
-    # ── Lead Válido ────────────────────────────────────────────────────────────
-    st.markdown("### Calidad de leads")
-    col1, col2 = st.columns(2)
-    with col1:
-        valido_counts = df["lead_valido"].value_counts().reset_index()
-        valido_counts.columns = ["lead_valido", "Total"]
-        fig = px.pie(valido_counts, names="lead_valido", values="Total",
-                     title="Lead Válido", hole=0.55,
-                     color="lead_valido",
-                     color_discrete_map={
-                         "Válido":    BARCA["blue"],
-                         "No válido": BARCA["garnet"],
-                         "Sin datos": BARCA["line2"],
-                     })
-        fig.update_traces(textposition="outside", textinfo="percent+label",
-                          marker=dict(line=dict(color=BARCA["white"], width=2)))
-        barca_layout(fig, 320)
-        st.plotly_chart(fig, use_container_width=True)
-    with col2:
-        grp_v = df.groupby(["fuente", "lead_valido"]).size().reset_index(name="Total")
-        fig = px.bar(grp_v, x="fuente", y="Total", color="lead_valido",
-                     barmode="stack", title="Válido / No válido por fuente",
-                     color_discrete_map={
-                         "Válido":    BARCA["blue"],
-                         "No válido": BARCA["garnet"],
-                         "Sin datos": BARCA["line2"],
-                     })
-        fig.update_layout(legend=dict(orientation="h", y=-0.3))
-        barca_layout(fig, 320)
-        st.plotly_chart(fig, use_container_width=True)
-
-    # ── Fuente × Estado ────────────────────────────────────────────────────────
-    st.markdown("### Estado de lead por fuente de tráfico")
-    grp = df.groupby(["fuente", "lead_status"]).size().reset_index(name="Total")
-    col1, col2 = st.columns(2)
-    with col1:
-        fig = px.bar(grp, x="fuente", y="Total", color="lead_status",
-                     barmode="stack", title="Volumen absoluto por fuente",
-                     color_discrete_map=COLOR_ESTADOS,
-                     category_orders={"lead_status": ESTADOS_ORDEN})
-        fig.update_layout(legend=dict(orientation="h", y=-0.5, title="Estado",
-                                       font_size=10))
-        barca_layout(fig, 400)
-        st.plotly_chart(fig, use_container_width=True)
-    with col2:
-        tot_f = df.groupby("fuente").size().reset_index(name="Total_fuente")
-        grp2 = grp.merge(tot_f, on="fuente")
-        grp2["Pct"] = (grp2["Total"] / grp2["Total_fuente"] * 100).round(1)
-        fig = px.bar(grp2, x="fuente", y="Pct", color="lead_status",
-                     barmode="stack", title="Composición % por fuente",
-                     color_discrete_map=COLOR_ESTADOS,
-                     category_orders={"lead_status": ESTADOS_ORDEN})
-        fig.update_layout(yaxis_title="%",
-                          legend=dict(orientation="h", y=-0.5, title="Estado",
-                                       font_size=10))
-        barca_layout(fig, 400)
-        st.plotly_chart(fig, use_container_width=True)
-
-    # ── País × Estado ──────────────────────────────────────────────────────────
-    st.markdown("### Estado de lead por país (Top 10)")
-    top10 = df.groupby("pais").size().nlargest(10).index.tolist()
-    df_top = df[df["pais"].isin(top10)]
-    grp3 = df_top.groupby(["pais", "lead_status"]).size().reset_index(name="Total")
-    col1, col2 = st.columns(2)
-    with col1:
-        fig = px.bar(grp3, x="pais", y="Total", color="lead_status",
-                     barmode="stack", title="Volumen por país",
-                     color_discrete_map=COLOR_ESTADOS,
-                     category_orders={"lead_status": ESTADOS_ORDEN})
-        fig.update_layout(legend=dict(orientation="h", y=-0.5, font_size=10))
-        barca_layout(fig, 400)
-        st.plotly_chart(fig, use_container_width=True)
-    with col2:
-        tot_p = df_top.groupby("pais").size().reset_index(name="Total_pais")
-        grp4 = grp3.merge(tot_p, on="pais")
-        grp4["Pct"] = (grp4["Total"] / grp4["Total_pais"] * 100).round(1)
-        fig = px.bar(grp4, x="pais", y="Pct", color="lead_status",
-                     barmode="stack", title="Composición % por país",
-                     color_discrete_map=COLOR_ESTADOS,
-                     category_orders={"lead_status": ESTADOS_ORDEN})
-        fig.update_layout(yaxis_title="%",
-                          legend=dict(orientation="h", y=-0.5, font_size=10))
-        barca_layout(fig, 400)
-        st.plotly_chart(fig, use_container_width=True)
-
-    # ── Tendencia mensual ─────────────────────────────────────────────────────
-    if df["mes"].nunique() > 1:
-        st.markdown("### Tendencia mensual")
+        # ── Lead Válido ────────────────────────────────────────────────────────
+        st.markdown("### Calidad de leads")
         col1, col2 = st.columns(2)
         with col1:
-            gm = df.groupby(["mes", "lead_status"]).size().reset_index(name="Total")
-            fig = px.bar(gm, x="mes", y="Total", color="lead_status",
-                         barmode="stack", title="Evolución mensual por estado",
-                         color_discrete_map=COLOR_ESTADOS,
-                         category_orders={"lead_status": ESTADOS_ORDEN})
-            fig.update_layout(legend=dict(orientation="h", y=-0.45, font_size=10))
-            barca_layout(fig, 340)
+            valido_counts = df["lead_valido"].value_counts().reset_index()
+            valido_counts.columns = ["lead_valido", "Total"]
+            fig = px.pie(valido_counts, names="lead_valido", values="Total",
+                         title="Lead Válido", hole=0.55,
+                         color="lead_valido",
+                         color_discrete_map={
+                             "Válido":    BARCA["blue"],
+                             "No válido": BARCA["garnet"],
+                             "Sin datos": BARCA["line2"],
+                         })
+            fig.update_traces(textposition="outside", textinfo="percent+label",
+                              marker=dict(line=dict(color=BARCA["white"], width=2)))
+            barca_layout(fig, 320)
             st.plotly_chart(fig, use_container_width=True)
         with col2:
-            gm2 = df.groupby(["mes", "fuente"]).size().reset_index(name="Total")
-            fig = px.line(gm2, x="mes", y="Total", color="fuente",
-                          markers=True, title="Evolución por fuente de tráfico",
-                          color_discrete_sequence=COLOR_FUENTES)
-            fig.update_layout(legend=dict(orientation="h", y=-0.45, font_size=10))
-            barca_layout(fig, 340)
+            grp_v = df.groupby(["fuente", "lead_valido"]).size().reset_index(name="Total")
+            fig = px.bar(grp_v, x="fuente", y="Total", color="lead_valido",
+                         barmode="stack", title="Válido / No válido por fuente",
+                         color_discrete_map={
+                             "Válido":    BARCA["blue"],
+                             "No válido": BARCA["garnet"],
+                             "Sin datos": BARCA["line2"],
+                         })
+            fig.update_layout(legend=dict(orientation="h", y=-0.3))
+            barca_layout(fig, 320)
             st.plotly_chart(fig, use_container_width=True)
+
+        # ── Fuente × Estado ────────────────────────────────────────────────────
+        st.markdown("### Estado de lead por fuente de tráfico")
+        grp = df.groupby(["fuente", "lead_status"]).size().reset_index(name="Total")
+        col1, col2 = st.columns(2)
+        with col1:
+            fig = px.bar(grp, x="fuente", y="Total", color="lead_status",
+                         barmode="stack", title="Volumen absoluto por fuente",
+                         color_discrete_map=COLOR_ESTADOS,
+                         category_orders={"lead_status": ESTADOS_ORDEN})
+            fig.update_layout(legend=dict(orientation="h", y=-0.5, title="Estado",
+                                           font_size=10))
+            barca_layout(fig, 400)
+            st.plotly_chart(fig, use_container_width=True)
+        with col2:
+            tot_f = df.groupby("fuente").size().reset_index(name="Total_fuente")
+            grp2 = grp.merge(tot_f, on="fuente")
+            grp2["Pct"] = (grp2["Total"] / grp2["Total_fuente"] * 100).round(1)
+            fig = px.bar(grp2, x="fuente", y="Pct", color="lead_status",
+                         barmode="stack", title="Composición % por fuente",
+                         color_discrete_map=COLOR_ESTADOS,
+                         category_orders={"lead_status": ESTADOS_ORDEN})
+            fig.update_layout(yaxis_title="%",
+                              legend=dict(orientation="h", y=-0.5, title="Estado",
+                                           font_size=10))
+            barca_layout(fig, 400)
+            st.plotly_chart(fig, use_container_width=True)
+
+        # ── País × Estado ──────────────────────────────────────────────────────
+        st.markdown("### Estado de lead por país (Top 10)")
+        top10 = df.groupby("pais").size().nlargest(10).index.tolist()
+        df_top = df[df["pais"].isin(top10)]
+        grp3 = df_top.groupby(["pais", "lead_status"]).size().reset_index(name="Total")
+        col1, col2 = st.columns(2)
+        with col1:
+            fig = px.bar(grp3, x="pais", y="Total", color="lead_status",
+                         barmode="stack", title="Volumen por país",
+                         color_discrete_map=COLOR_ESTADOS,
+                         category_orders={"lead_status": ESTADOS_ORDEN})
+            fig.update_layout(legend=dict(orientation="h", y=-0.5, font_size=10))
+            barca_layout(fig, 400)
+            st.plotly_chart(fig, use_container_width=True)
+        with col2:
+            tot_p = df_top.groupby("pais").size().reset_index(name="Total_pais")
+            grp4 = grp3.merge(tot_p, on="pais")
+            grp4["Pct"] = (grp4["Total"] / grp4["Total_pais"] * 100).round(1)
+            fig = px.bar(grp4, x="pais", y="Pct", color="lead_status",
+                         barmode="stack", title="Composición % por país",
+                         color_discrete_map=COLOR_ESTADOS,
+                         category_orders={"lead_status": ESTADOS_ORDEN})
+            fig.update_layout(yaxis_title="%",
+                              legend=dict(orientation="h", y=-0.5, font_size=10))
+            barca_layout(fig, 400)
+            st.plotly_chart(fig, use_container_width=True)
+
+        # ── Tendencia mensual ──────────────────────────────────────────────────
+        if df["mes"].nunique() > 1:
+            st.markdown("### Tendencia mensual")
+            col1, col2 = st.columns(2)
+            with col1:
+                gm = df.groupby(["mes", "lead_status"]).size().reset_index(name="Total")
+                fig = px.bar(gm, x="mes", y="Total", color="lead_status",
+                             barmode="stack", title="Evolución mensual por estado",
+                             color_discrete_map=COLOR_ESTADOS,
+                             category_orders={"lead_status": ESTADOS_ORDEN})
+                fig.update_layout(legend=dict(orientation="h", y=-0.45, font_size=10))
+                barca_layout(fig, 340)
+                st.plotly_chart(fig, use_container_width=True)
+            with col2:
+                gm2 = df.groupby(["mes", "fuente"]).size().reset_index(name="Total")
+                fig = px.line(gm2, x="mes", y="Total", color="fuente",
+                              markers=True, title="Evolución por fuente de tráfico",
+                              color_discrete_sequence=COLOR_FUENTES)
+                fig.update_layout(legend=dict(orientation="h", y=-0.45, font_size=10))
+                barca_layout(fig, 340)
+                st.plotly_chart(fig, use_container_width=True)
 
     # ── Matriculaciones del período ────────────────────────────────────────────
     if not df_mat.empty:
@@ -1464,22 +1470,24 @@ def main():
             )
 
     # ── Análisis y conclusiones ────────────────────────────────────────────────
-    conclusiones(df, df_mat, df_deals_periodo)
+    if not df.empty:
+        conclusiones(df, df_mat, df_deals_periodo)
 
     # ── Tabla y descarga ───────────────────────────────────────────────────────
-    with st.expander("📋 Ver datos completos"):
-        st.dataframe(
-            df[["fecha", "mes", "pais", "fuente", "lead_status", "lead_valido",
-                "intentos", "motivo_cierre"]]
-            .sort_values(["fuente", "lead_status"]),
-            use_container_width=True, hide_index=True,
-        )
-        st.download_button(
-            "⬇️ Descargar CSV",
-            data=df.to_csv(index=False, encoding="utf-8-sig"),
-            file_name=f"{ACCOUNT_NAME.lower()}_rst_{fi}_{ff}.csv",
-            mime="text/csv",
-        )
+    if not df.empty:
+        with st.expander("📋 Ver datos completos"):
+            st.dataframe(
+                df[["fecha", "mes", "pais", "fuente", "lead_status", "lead_valido",
+                    "intentos", "motivo_cierre"]]
+                .sort_values(["fuente", "lead_status"]),
+                use_container_width=True, hide_index=True,
+            )
+            st.download_button(
+                "⬇️ Descargar CSV",
+                data=df.to_csv(index=False, encoding="utf-8-sig"),
+                file_name=f"{ACCOUNT_NAME.lower()}_rst_{fi}_{ff}.csv",
+                mime="text/csv",
+            )
 
     st.markdown(
         f"<br><div style='text-align:center;color:{BARCA['ink40']};font-size:12px'>"
