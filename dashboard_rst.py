@@ -874,9 +874,9 @@ def main():
 
     total        = len(df)
     n_mat        = len(df_mat)        # matriculados en el período (fecha real de matriculación)
-    n_cerrado    = (df["lead_status"] == "Negocio Cerrado").sum()
+    n_cerrado    = (df["lead_status"] == "Deal abierto").sum()
     n_contactado = (df["lead_status"] == "Contactado").sum()
-    n_mala       = df["lead_status"].isin(["No válido", "Ilocalizado", "No interés"]).sum()
+    n_mala       = (df["lead_status"] == "Perdido").sum()
 
     periodo_txt = "Todos (desde 2024)" if fi == "todos" else \
                   f"{fi.strftime('%d/%m/%Y')} → {ff.strftime('%d/%m/%Y')}"
@@ -893,9 +893,9 @@ def main():
     c1, c2, c3, c4, c5 = st.columns(5)
     kpi_card(c1, "Leads nuevos",    total,         BARCA["blue"])
     kpi_card(c2, "Cierre ganado",   n_mat,         BARCA["gold"])
-    kpi_card(c3, "Neg. Cerrados",   n_cerrado,     BARCA["garnet"])
+    kpi_card(c3, "Deal abierto",    n_cerrado,     BARCA["garnet"])
     kpi_card(c4, "Contactados",     n_contactado,  BARCA["blue_deep"])
-    kpi_card(c5, "Mala Calidad",
+    kpi_card(c5, "Perdidos",
              f"{n_mala} ({n_mala/total*100:.0f}%)" if total else "0",
              BARCA["garnet_deep"])
 
