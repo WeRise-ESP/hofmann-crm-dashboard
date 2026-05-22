@@ -51,13 +51,15 @@ BARCA = {
 }
 
 COLOR_ESTADOS = {
-    "Cierre ganado":        BARCA["gold"],
-    "Deal abierto":         BARCA["garnet"],
-    "Contactado":           BARCA["blue"],
-    "Intentando contactar": BARCA["yellow"],
-    "Nuevo":                BARCA["blue_deep"],
-    "Perdido":              BARCA["garnet_deep"],
-    "Sin estado":           BARCA["line2"],
+    "Cierre Ganado":   BARCA["gold"],
+    "Negocio Abierto": BARCA["garnet"],
+    "Conectado":       BARCA["blue"],
+    "En Curso":        BARCA["yellow"],
+    "Sin Respuesta":   BARCA["ink40"],
+    "Nuevo":           BARCA["blue_deep"],
+    "Perdido":         BARCA["garnet_deep"],
+    "No válido":       BARCA["ink20"],
+    "Sin estado":      BARCA["line2"],
 }
 
 COLOR_FUENTES = [
@@ -109,17 +111,18 @@ FUENTES_ES = {
 }
 
 LEAD_STATUS_NORM = {
-    "new":            "Nuevo",
-    "in_progress":    "Intentando contactar",
-    "connected":      "Contactado",
-    "open_deal":      "Deal abierto",
-    "cierre ganado":  "Cierre ganado",
-    "perdido":        "Perdido",
+    "new":                  "Nuevo",
+    "in_progress":          "En Curso",
+    "attempted_to_contact": "Sin Respuesta",
+    "connected":            "Conectado",
+    "open_deal":            "Negocio Abierto",
+    "cierre ganado":        "Cierre Ganado",
+    "perdido":              "Perdido",
 }
 
 ESTADOS_ORDEN = [
-    "Cierre ganado", "Deal abierto", "Contactado",
-    "Intentando contactar", "Nuevo",
+    "Cierre Ganado", "Negocio Abierto", "Conectado",
+    "En Curso", "Sin Respuesta", "Nuevo",
     "Perdido", "Sin estado",
 ]
 
@@ -127,7 +130,7 @@ CONTACT_PROPS = [
     "email",
     "pais_de_residencia", "ip_country", "country", "billing_country",
     "pais_de_la_ip_capabilia",
-    "hs_lead_status", "num_contacted_notes", "estado_de_lead_no_valido",
+    "hs_lead_status", "lead_valido", "num_contacted_notes",
     "motivos_de_cierre_perdido_rst",
     "hs_analytics_source", "hs_analytics_source_data_1",
     "hs_latest_source", "hs_latest_source_data_1",
@@ -217,16 +220,16 @@ def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
             fuente, origen = resolve_fuente(cp)
             createdate = (cp.get("createdate") or "")[:10]
             rows.append({
-                "email":            email,
-                "fecha":            createdate,
-                "mes":              createdate[:7] if createdate else "",
-                "pais":             resolve_pais(cp),
-                "lead_status":      norm_status(cp.get("hs_lead_status")),
-                "intentos":         int(cp.get("num_contacted_notes") or 0),
-                "motivo_no_valido": cp.get("estado_de_lead_no_valido") or "Sin especificar",
-                "motivo_cierre":    cp.get("motivos_de_cierre_perdido_rst") or "Sin especificar",
-                "fuente":           fuente,
-                "origen_fuente":    origen,
+                "email":       email,
+                "fecha":       createdate,
+                "mes":         createdate[:7] if createdate else "",
+                "pais":        resolve_pais(cp),
+                "lead_status": norm_status(cp.get("hs_lead_status")),
+                "lead_valido": cp.get("lead_valido") or "Sin datos",
+                "intentos":    int(cp.get("num_contacted_notes") or 0),
+                "motivo_cierre": cp.get("motivos_de_cierre_perdido_rst") or "Sin especificar",
+                "fuente":      fuente,
+                "origen_fuente": origen,
             })
 
         pg = data.get("paging", {})
@@ -313,16 +316,16 @@ def fetch_matriculados_total() -> pd.DataFrame:
         # Fecha de matriculación real; fallback a createdate si no hay historial
         fecha_mat = matriculation_dates.get(cid) or (cp.get("createdate") or "")[:10]
         rows.append({
-            "email":            (cp.get("email") or "").lower().strip(),
-            "fecha":            fecha_mat,
-            "mes":              fecha_mat[:7] if fecha_mat else "",
-            "pais":             resolve_pais(cp),
-            "lead_status":      "Cierre ganado",
-            "fuente":           fuente,
-            "origen_fuente":    origen,
-            "intentos":         int(cp.get("num_contacted_notes") or 0),
-            "motivo_no_valido": cp.get("estado_de_lead_no_valido") or "Sin especificar",
-            "motivo_cierre":    cp.get("motivos_de_cierre_perdido_rst") or "Sin especificar",
+            "email":       (cp.get("email") or "").lower().strip(),
+            "fecha":       fecha_mat,
+            "mes":         fecha_mat[:7] if fecha_mat else "",
+            "pais":        resolve_pais(cp),
+            "lead_status": "Cierre Ganado",
+            "lead_valido": "Válido",
+            "fuente":      fuente,
+            "origen_fuente": origen,
+            "intentos":    int(cp.get("num_contacted_notes") or 0),
+            "motivo_cierre": cp.get("motivos_de_cierre_perdido_rst") or "Sin especificar",
         })
     return pd.DataFrame(rows)
 
@@ -513,10 +516,9 @@ def conclusiones(df, df_mat, df_deals_periodo):
     if total == 0:
         return
 
-    perdido      = df[df["lead_status"] == "Perdido"]
-    contactados  = df[df["lead_status"] == "Contactado"]
-    intentando   = df[df["lead_status"] == "Intentando contactar"]
-    mala_calidad = perdido
+    contactados  = df[df["lead_status"] == "Conectado"]
+    intentando   = df[df["lead_status"].isin(["En Curso", "Sin Respuesta"])]
+    mala_calidad = df[df["lead_valido"] == "No válido"]
 
     # Cierres ganados y perdidos vienen de sus fuentes correctas
     n_mat          = len(df_mat)
@@ -874,9 +876,9 @@ def main():
 
     total        = len(df)
     n_mat        = len(df_mat)        # matriculados en el período (fecha real de matriculación)
-    n_cerrado    = (df["lead_status"] == "Deal abierto").sum()
-    n_contactado = (df["lead_status"] == "Contactado").sum()
-    n_mala       = (df["lead_status"] == "Perdido").sum()
+    n_cerrado    = (df["lead_status"] == "Negocio Abierto").sum()
+    n_contactado = (df["lead_status"] == "Conectado").sum()
+    n_mala       = (df["lead_valido"] == "No válido").sum()
 
     periodo_txt = "Todos (desde 2024)" if fi == "todos" else \
                   f"{fi.strftime('%d/%m/%Y')} → {ff.strftime('%d/%m/%Y')}"
@@ -892,10 +894,10 @@ def main():
     # ── KPIs ──────────────────────────────────────────────────────────────────
     c1, c2, c3, c4, c5 = st.columns(5)
     kpi_card(c1, "Leads nuevos",    total,         BARCA["blue"])
-    kpi_card(c2, "Cierre ganado",   n_mat,         BARCA["gold"])
-    kpi_card(c3, "Deal abierto",    n_cerrado,     BARCA["garnet"])
-    kpi_card(c4, "Contactados",     n_contactado,  BARCA["blue_deep"])
-    kpi_card(c5, "Perdidos",
+    kpi_card(c2, "Cierre Ganado",   n_mat,         BARCA["gold"])
+    kpi_card(c3, "Negocio Abierto", n_cerrado,     BARCA["garnet"])
+    kpi_card(c4, "Conectados",      n_contactado,  BARCA["blue_deep"])
+    kpi_card(c5, "No Válidos",
              f"{n_mala} ({n_mala/total*100:.0f}%)" if total else "0",
              BARCA["garnet_deep"])
 
@@ -939,6 +941,37 @@ def main():
         fig.update_layout(coloraxis_showscale=False,
                           yaxis=dict(categoryorder="total ascending"))
         barca_layout(fig, 340)
+        st.plotly_chart(fig, use_container_width=True)
+
+    # ── Lead Válido ────────────────────────────────────────────────────────────
+    st.markdown("### Calidad de leads")
+    col1, col2 = st.columns(2)
+    with col1:
+        valido_counts = df["lead_valido"].value_counts().reset_index()
+        valido_counts.columns = ["lead_valido", "Total"]
+        fig = px.pie(valido_counts, names="lead_valido", values="Total",
+                     title="Lead Válido", hole=0.55,
+                     color="lead_valido",
+                     color_discrete_map={
+                         "Válido":    BARCA["blue"],
+                         "No válido": BARCA["garnet"],
+                         "Sin datos": BARCA["line2"],
+                     })
+        fig.update_traces(textposition="outside", textinfo="percent+label",
+                          marker=dict(line=dict(color=BARCA["white"], width=2)))
+        barca_layout(fig, 320)
+        st.plotly_chart(fig, use_container_width=True)
+    with col2:
+        grp_v = df.groupby(["fuente", "lead_valido"]).size().reset_index(name="Total")
+        fig = px.bar(grp_v, x="fuente", y="Total", color="lead_valido",
+                     barmode="stack", title="Válido / No válido por fuente",
+                     color_discrete_map={
+                         "Válido":    BARCA["blue"],
+                         "No válido": BARCA["garnet"],
+                         "Sin datos": BARCA["line2"],
+                     })
+        fig.update_layout(legend=dict(orientation="h", y=-0.3))
+        barca_layout(fig, 320)
         st.plotly_chart(fig, use_container_width=True)
 
     # ── Fuente × Estado ────────────────────────────────────────────────────────
@@ -1233,8 +1266,8 @@ def main():
     # ── Tabla y descarga ───────────────────────────────────────────────────────
     with st.expander("📋 Ver datos completos"):
         st.dataframe(
-            df[["fecha", "mes", "pais", "fuente", "lead_status",
-                "intentos", "motivo_no_valido", "motivo_cierre"]]
+            df[["fecha", "mes", "pais", "fuente", "lead_status", "lead_valido",
+                "intentos", "motivo_cierre"]]
             .sort_values(["fuente", "lead_status"]),
             use_container_width=True, hide_index=True,
         )
