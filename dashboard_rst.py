@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 import os
+import time
 
 load_dotenv()
 
@@ -97,6 +98,27 @@ st.markdown(f"""
 
 HEADERS = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
 BASE = "https://api.hubapi.com"
+
+
+def _hs_search(path, payload, max_retries=5):
+    """POST a HubSpot search con reintentos automáticos en 429 (rate limit)."""
+    for attempt in range(max_retries):
+        try:
+            r = requests.post(f"{BASE}{path}", headers=HEADERS,
+                              json=payload, timeout=30)
+            if r.status_code == 429:
+                wait = int(r.headers.get("Retry-After", 2 ** attempt))
+                time.sleep(wait)
+                continue
+            if r.status_code == 200:
+                return r.json()
+            return None
+        except Exception:
+            if attempt < max_retries - 1:
+                time.sleep(1)
+            continue
+    return None
+
 
 FUENTES_ES = {
     "ORGANIC_SEARCH":  "Búsqueda orgánica",
@@ -204,13 +226,8 @@ def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
         }
         if after:
             payload["after"] = after
-        try:
-            r = requests.post(f"{BASE}/crm/v3/objects/contacts/search",
-                              headers=HEADERS, json=payload, timeout=30)
-            if r.status_code != 200:
-                break
-            data = r.json()
-        except Exception:
+        data = _hs_search("/crm/v3/objects/contacts/search", payload)
+        if data is None:
             break
 
         for c in data.get("results", []):
@@ -264,13 +281,8 @@ def fetch_matriculados_total() -> pd.DataFrame:
         }
         if after:
             payload["after"] = after
-        try:
-            r = requests.post(f"{BASE}/crm/v3/objects/contacts/search",
-                              headers=HEADERS, json=payload, timeout=30)
-            if r.status_code != 200:
-                break
-            data = r.json()
-        except Exception:
+        data = _hs_search("/crm/v3/objects/contacts/search", payload)
+        if data is None:
             break
         for c in data.get("results", []):
             contact_ids.append(c["id"])
@@ -404,13 +416,8 @@ def fetch_negocios_cerrados() -> pd.DataFrame:
             }
             if after:
                 payload["after"] = after
-            try:
-                r = requests.post(f"{BASE}/crm/v3/objects/deals/search",
-                                  headers=HEADERS, json=payload, timeout=30)
-                if r.status_code != 200:
-                    break
-                data = r.json()
-            except Exception:
+            data = _hs_search("/crm/v3/objects/deals/search", payload)
+            if data is None:
                 break
 
             for d in data.get("results", []):
@@ -515,13 +522,8 @@ def fetch_pipeline() -> pd.DataFrame:
         }
         if after:
             payload["after"] = after
-        try:
-            r = requests.post(f"{BASE}/crm/v3/objects/deals/search",
-                              headers=HEADERS, json=payload, timeout=30)
-            if r.status_code != 200:
-                break
-            data = r.json()
-        except Exception:
+        data = _hs_search("/crm/v3/objects/deals/search", payload)
+        if data is None:
             break
 
         for d in data.get("results", []):
