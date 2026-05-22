@@ -528,16 +528,18 @@ def fetch_pipeline() -> pd.DataFrame:
             p = d["properties"]
             stage_id = p.get("dealstage", "")
             etapa = PIPELINE_STAGES.get(stage_id, stage_id)
-            fecha = (p.get("closedate") or p.get("createdate") or "")[:10]
+            fecha_creacion = (p.get("createdate") or "")[:10]
+            fecha = (p.get("closedate") or fecha_creacion)
             motivo_cierre = (p.get("motivo_de_cierre_del_negocio") or "Sin especificar").strip()
             amount = float(p.get("amount") or 0)
             rows.append({
-                "deal_id":       d["id"],
-                "etapa":         etapa,
-                "fecha":         fecha,
-                "mes":           fecha[:7] if fecha else "",
-                "amount":        amount,
-                "motivo_cierre": motivo_cierre,
+                "deal_id":        d["id"],
+                "etapa":          etapa,
+                "fecha_creacion": fecha_creacion,
+                "fecha":          fecha,
+                "mes":            fecha[:7] if fecha else "",
+                "amount":         amount,
+                "motivo_cierre":  motivo_cierre,
             })
 
         pg = data.get("paging", {})
@@ -935,6 +937,15 @@ def main():
             (df_deals["fecha_cierre"] <= str(ff))
         ]
 
+    # Filtrar pipeline por fecha de creación del deal
+    if fi == "todos" or df_pipeline.empty:
+        df_pipeline_periodo = df_pipeline
+    else:
+        df_pipeline_periodo = df_pipeline[
+            (df_pipeline["fecha_creacion"] >= str(fi)) &
+            (df_pipeline["fecha_creacion"] <= str(ff))
+        ]
+
     # ── Sidebar — bloque 2: países dinámicos (unión de los tres datasets) ───────
     with st.sidebar:
         # Combinar países de leads, matriculados y deals para la lista completa
@@ -1197,31 +1208,28 @@ def main():
                 unsafe_allow_html=True)
     st.markdown("## 📊 Pipeline de Ventas")
 
-    if df_pipeline.empty:
-        st.info("No hay negocios en el pipeline.")
+    if df_pipeline_periodo.empty:
+        st.info("No hay negocios en el pipeline para el período seleccionado.")
     else:
         # KPIs del pipeline
-        total_deals   = df_pipeline["deal_id"].nunique()
-        ganados_pip   = df_pipeline[df_pipeline["etapa"] == "Cierre Ganado"]["deal_id"].nunique()
-        perdidos_pip  = df_pipeline[df_pipeline["etapa"] == "Cierre Perdido"]["deal_id"].nunique()
-        activos_pip   = total_deals - ganados_pip - perdidos_pip - \
-                        df_pipeline[df_pipeline["etapa"] == "Cierre Ganado (histórico)"]["deal_id"].nunique()
-        amount_ganado = df_pipeline[df_pipeline["etapa"] == "Cierre Ganado"] \
-                        .drop_duplicates("deal_id")["amount"].sum()
+        total_deals  = df_pipeline_periodo["deal_id"].nunique()
+        ganados_pip  = df_pipeline_periodo[df_pipeline_periodo["etapa"] == "Cierre Ganado"]["deal_id"].nunique()
+        perdidos_pip = df_pipeline_periodo[df_pipeline_periodo["etapa"] == "Cierre Perdido"]["deal_id"].nunique()
+        activos_pip  = total_deals - ganados_pip - perdidos_pip - \
+                       df_pipeline_periodo[df_pipeline_periodo["etapa"] == "Cierre Ganado (histórico)"]["deal_id"].nunique()
 
-        k1, k2, k3, k4, k5 = st.columns(5)
-        kpi_card(k1, "Total deals",     total_deals,                          BARCA["blue"])
-        kpi_card(k2, "Cierre Ganado",   ganados_pip,                          "#2E7D32")
-        kpi_card(k3, "Cierre Perdido",  perdidos_pip,                         BARCA["garnet"])
-        kpi_card(k4, "En proceso",      activos_pip,                          BARCA["blue_deep"])
-        kpi_card(k5, "Valor ganado",    f"€{amount_ganado:,.0f}",             BARCA["gold"])
+        k1, k2, k3, k4 = st.columns(4)
+        kpi_card(k1, "Total deals",    total_deals,  BARCA["blue"])
+        kpi_card(k2, "Cierre Ganado",  ganados_pip,  "#2E7D32")
+        kpi_card(k3, "Cierre Perdido", perdidos_pip, BARCA["garnet"])
+        kpi_card(k4, "En proceso",     activos_pip,  BARCA["blue_deep"])
 
         st.markdown("<br>", unsafe_allow_html=True)
 
         # Deals por etapa — funnel + barra
         col1, col2 = st.columns([1, 1])
         with col1:
-            etapa_counts = (df_pipeline.drop_duplicates("deal_id")
+            etapa_counts = (df_pipeline_periodo.drop_duplicates("deal_id")
                             .groupby("etapa").size().reset_index(name="Deals"))
             etapa_counts["orden"] = etapa_counts["etapa"].map(
                 {e: i for i, e in enumerate(PIPELINE_ORDEN)}).fillna(99)
@@ -1244,9 +1252,9 @@ def main():
             st.plotly_chart(fig, use_container_width=True)
 
         # Evolución mensual por etapa
-        if df_pipeline["mes"].nunique() > 1:
+        if df_pipeline_periodo["mes"].nunique() > 1:
             st.markdown("### Evolución mensual")
-            gm = (df_pipeline.drop_duplicates(["deal_id", "mes"])
+            gm = (df_pipeline_periodo.drop_duplicates(["deal_id", "mes"])
                   .groupby(["mes", "etapa"])["deal_id"].nunique().reset_index(name="Deals"))
             fig = px.bar(gm, x="mes", y="Deals", color="etapa",
                          barmode="stack", title="Deals por mes y etapa",
@@ -1258,14 +1266,14 @@ def main():
 
         # Motivos de cierre
         st.markdown("### Motivo de cierre del negocio")
-        cerrados_df = df_pipeline[df_pipeline["etapa"].isin(
+        cerrados_df = df_pipeline_periodo[df_pipeline_periodo["etapa"].isin(
             ["Cierre Ganado", "Cierre Perdido", "Cierre Ganado (histórico)"]
         )]
         if not cerrados_df.empty:
             col1, col2 = st.columns(2)
 
-            perdidos_df = df_pipeline[df_pipeline["etapa"] == "Cierre Perdido"]
-            ganados_df  = df_pipeline[df_pipeline["etapa"].isin(
+            perdidos_df = df_pipeline_periodo[df_pipeline_periodo["etapa"] == "Cierre Perdido"]
+            ganados_df  = df_pipeline_periodo[df_pipeline_periodo["etapa"].isin(
                 ["Cierre Ganado", "Cierre Ganado (histórico)"]
             )]
 
