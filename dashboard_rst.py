@@ -16,6 +16,41 @@ import time
 
 load_dotenv()
 
+# ── Autenticación por contraseña ──────────────────────────────────────────────
+def _check_password():
+    if st.session_state.get("autenticado"):
+        return True
+
+    try:
+        pwd_correcta = st.secrets["APP_PASSWORD"]
+    except Exception:
+        pwd_correcta = os.getenv("APP_PASSWORD", "")
+
+    st.markdown("""
+    <div style="max-width:380px;margin:80px auto 0;text-align:center">
+        <h2 style="margin-bottom:8px">🔒 Hofmann CRM Dashboard</h2>
+        <p style="color:#555;font-size:14px;margin-bottom:24px">
+            Acceso restringido — introduce la contraseña para continuar
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    col_l, col_c, col_r = st.columns([1, 2, 1])
+    with col_c:
+        pwd = st.text_input("Contraseña", type="password", label_visibility="collapsed",
+                            placeholder="Contraseña...")
+        if st.button("Entrar", use_container_width=True, type="primary"):
+            if pwd and pwd == pwd_correcta:
+                st.session_state["autenticado"] = True
+                st.rerun()
+            else:
+                st.error("Contraseña incorrecta")
+    return False
+
+if not _check_password():
+    st.stop()
+
+# ── Credenciales HubSpot ──────────────────────────────────────────────────────
 try:
     TOKEN = st.secrets["HUBSPOT_TOKEN"]
 except Exception:
