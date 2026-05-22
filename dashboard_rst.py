@@ -216,8 +216,6 @@ def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
         for c in data.get("results", []):
             cp = c["properties"]
             email = (cp.get("email") or "").lower().strip()
-            if not email:
-                continue
             fuente, origen = resolve_fuente(cp)
             createdate = (cp.get("createdate") or "")[:10]
             rows.append({
