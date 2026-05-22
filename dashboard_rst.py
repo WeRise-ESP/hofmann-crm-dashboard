@@ -964,7 +964,7 @@ def main():
     df_deals_periodo = _apply(df_deals_periodo)
 
     total        = len(df)
-    n_mat        = len(df_mat)
+    n_mat        = int((df["lead_status"] == "Cierre Ganado").sum())   if not df.empty else 0
     n_cerrado    = int((df["lead_status"] == "Negocio Abierto").sum()) if not df.empty else 0
     n_contactado = int((df["lead_status"] == "Conectado").sum())       if not df.empty else 0
     n_mala       = int((df["lead_valido"] == "No válido").sum())        if not df.empty else 0
@@ -992,9 +992,7 @@ def main():
 
     st.markdown(
         f"<div style='font-size:12px;color:{BARCA['ink40']};margin-top:6px'>"
-        f"ℹ️ <b>Leads nuevos</b>: contactos creados en el período · "
-        f"<b>Cierre ganado</b>: fecha real en que pasaron a ese estado "
-        f"(el contacto puede haber llegado en otro momento)</div>",
+        f"ℹ️ Estado actual de los contactos creados en el período seleccionado</div>",
         unsafe_allow_html=True
     )
 
