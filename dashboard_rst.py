@@ -529,15 +529,17 @@ def fetch_pipeline() -> pd.DataFrame:
             stage_id = p.get("dealstage", "")
             etapa = PIPELINE_STAGES.get(stage_id, stage_id)
             fecha_creacion = (p.get("createdate") or "")[:10]
-            fecha = (p.get("closedate") or fecha_creacion)
+            fecha_cierre   = (p.get("closedate") or "")[:10]
+            fecha_ref      = fecha_cierre or fecha_creacion
             motivo_cierre = (p.get("motivo_de_cierre_del_negocio") or "Sin especificar").strip()
             amount = float(p.get("amount") or 0)
             rows.append({
                 "deal_id":        d["id"],
                 "etapa":          etapa,
                 "fecha_creacion": fecha_creacion,
-                "fecha":          fecha,
-                "mes":            fecha[:7] if fecha else "",
+                "fecha_cierre":   fecha_cierre,
+                "fecha":          fecha_ref,
+                "mes":            fecha_ref[:7] if fecha_ref else "",
                 "amount":         amount,
                 "motivo_cierre":  motivo_cierre,
             })
@@ -937,13 +939,20 @@ def main():
             (df_deals["fecha_cierre"] <= str(ff))
         ]
 
-    # Filtrar pipeline por fecha de creación del deal
+    # Filtrar pipeline: deals activos o cerrados en el período
+    # Un deal entra si fue creado antes del fin del período
+    # Y no fue cerrado antes del inicio del período
     if fi == "todos" or df_pipeline.empty:
         df_pipeline_periodo = df_pipeline
     else:
+        fi_str = str(fi)
+        ff_str = str(ff)
         df_pipeline_periodo = df_pipeline[
-            (df_pipeline["fecha_creacion"] >= str(fi)) &
-            (df_pipeline["fecha_creacion"] <= str(ff))
+            (df_pipeline["fecha_creacion"] <= ff_str) &
+            (
+                (df_pipeline["fecha_cierre"] == "") |
+                (df_pipeline["fecha_cierre"] >= fi_str)
+            )
         ]
 
     # ── Sidebar — bloque 2: países dinámicos (unión de los tres datasets) ───────
