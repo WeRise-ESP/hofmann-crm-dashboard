@@ -29,26 +29,27 @@ if not TOKEN:
     st.error("❌ HUBSPOT_TOKEN no encontrado. Configúralo en Streamlit Cloud → Settings → Secrets.")
     st.stop()
 
-# ── Paleta oficial Barça ───────────────────────────────────────────────────────
-BARCA = {
-    "blue":         "#004D98",
-    "blue_deep":    "#003B7A",
-    "blue_ink":     "#001A40",
-    "garnet":       "#A50044",
-    "garnet_deep":  "#850036",
-    "gold":         "#EDBB00",
-    "yellow":       "#FFED02",
+# ── Paleta Hofmann ────────────────────────────────────────────────────────────
+HOFMANN = {
+    "blue":         "#0053B3",   # azul medio (gráficos)
+    "blue_deep":    "#001E8C",   # azul oscuro
+    "blue_ink":     "#000a3f",   # navy brand (sidebar, headers)
+    "garnet":       "#D95F02",   # naranja-rojo (negativos / pérdidas)
+    "garnet_deep":  "#A63D00",   # naranja-rojo oscuro
+    "gold":         "#ECAB0F",   # naranja brand (ganancias, botones)
+    "yellow":       "#F5C842",   # naranja-amarillo suave
     "white":        "#FFFFFF",
-    "paper":        "#FAFAFA",
-    "bone":         "#F4F2EE",
-    "line":         "#E5E5E5",
-    "line2":        "#D9D9D9",
+    "paper":        "#F8FBFD",   # fondo casi blanco
+    "bone":         "#e6f3fb",   # azul claro brand
+    "line":         "#D4EBFA",   # borde claro
+    "line2":        "#C8E2F5",   # borde medio
     "ink100":       "#111111",
     "ink80":        "#2A2A2A",
     "ink60":        "#555555",
     "ink40":        "#8A8A8A",
     "ink20":        "#BFBFBF",
 }
+BARCA = HOFMANN  # alias para compatibilidad interna
 
 COLOR_ESTADOS = {
     "Cierre Ganado":   BARCA["gold"],
@@ -71,7 +72,7 @@ COLOR_FUENTES = [
 
 st.set_page_config(
     page_title=f"RST Dashboard — {ACCOUNT_NAME}",
-    page_icon="🔵",
+    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
 )
