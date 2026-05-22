@@ -697,71 +697,50 @@ def conclusiones(df, df_mat, df_deals_periodo):
         st.markdown("### 🎓 Fuente y país de los cierres ganados del período")
         col1, col2 = st.columns(2)
         with col1:
-            mat_f = df_mat.groupby("fuente").size().reset_index(name="Matriculados")
-            fig = px.bar(mat_f.sort_values("Matriculados", ascending=True),
-                         x="Matriculados", y="fuente", orientation="h",
-                         text_auto=True, title="Matriculados por fuente",
+            mat_f = df_mat.groupby("fuente").size().reset_index(name="Cierre ganado")
+            fig = px.bar(mat_f.sort_values("Cierre ganado", ascending=True),
+                         x="Cierre ganado", y="fuente", orientation="h",
+                         text_auto=True, title="Cierre ganado por fuente",
                          color_discrete_sequence=[BARCA["gold"]])
             fig.update_layout(yaxis=dict(categoryorder="total ascending"))
             barca_layout(fig, 300)
             st.plotly_chart(fig, use_container_width=True)
         with col2:
-            mat_p = (df_mat.groupby("pais").size().reset_index(name="Matriculados")
-                     .sort_values("Matriculados", ascending=False).head(10))
-            fig = px.bar(mat_p.sort_values("Matriculados", ascending=True),
-                         x="Matriculados", y="pais", orientation="h",
-                         text_auto=True, title="Matriculados por país (Top 10)",
+            mat_p = (df_mat.groupby("pais").size().reset_index(name="Cierre ganado")
+                     .sort_values("Cierre ganado", ascending=False).head(10))
+            fig = px.bar(mat_p.sort_values("Cierre ganado", ascending=True),
+                         x="Cierre ganado", y="pais", orientation="h",
+                         text_auto=True, title="Cierre ganado por país (Top 10)",
                          color_discrete_sequence=[BARCA["gold"]])
             fig.update_layout(yaxis=dict(categoryorder="total ascending"))
             barca_layout(fig, 300)
             st.plotly_chart(fig, use_container_width=True)
 
-    # ── Motivos de leads no válidos por fuente ────────────────────────────────
-    if len(no_valido) > 0:
-        st.markdown("### ❌ Leads No Válidos por fuente")
-
-        # ── Tabla: fuente × volumen absoluto y % ──────────────────────────────
-        tot_fuente   = df.groupby("fuente").size().reset_index(name="Total leads")
-        nv_fuente    = no_valido.groupby("fuente").size().reset_index(name="No válidos")
-        tabla_nv     = tot_fuente.merge(nv_fuente, on="fuente", how="left").fillna(0)
-        tabla_nv["No válidos"] = tabla_nv["No válidos"].astype(int)
-        tabla_nv["% No válidos"] = (tabla_nv["No válidos"] / tabla_nv["Total leads"] * 100).round(1)
-        tabla_nv = tabla_nv.sort_values("No válidos", ascending=False).rename(
+    # ── Leads Perdidos por fuente ──────────────────────────────────────────────
+    if len(mala_calidad) > 0:
+        st.markdown("### ❌ Leads Perdidos por fuente")
+        tot_fuente = df.groupby("fuente").size().reset_index(name="Total leads")
+        perd_fuente = mala_calidad.groupby("fuente").size().reset_index(name="Perdidos")
+        tabla_p = tot_fuente.merge(perd_fuente, on="fuente", how="left").fillna(0)
+        tabla_p["Perdidos"] = tabla_p["Perdidos"].astype(int)
+        tabla_p["% Perdidos"] = (tabla_p["Perdidos"] / tabla_p["Total leads"] * 100).round(1)
+        tabla_p = tabla_p.sort_values("Perdidos", ascending=False).rename(
             columns={"fuente": "Fuente de tráfico"})
 
         col_g, col_t = st.columns([3, 2])
         with col_g:
-            # Gráfico: todos los no válidos por fuente (incluye sin motivo)
-            nv_por_fuente = (no_valido.groupby(["fuente", "motivo_no_valido"])
-                             .size().reset_index(name="Total"))
-            orden_fuentes = (nv_por_fuente.groupby("fuente")["Total"]
-                             .sum().sort_values(ascending=False).index.tolist())
-            fig = px.bar(nv_por_fuente, x="fuente", y="Total",
-                         color="motivo_no_valido", barmode="stack",
-                         text_auto=True,
-                         title="Leads No Válidos por fuente (todos)",
-                         category_orders={"fuente": orden_fuentes},
-                         color_discrete_sequence=[BARCA["garnet_deep"], BARCA["garnet"],
-                                                   BARCA["gold"], BARCA["blue_deep"],
-                                                   BARCA["ink60"], BARCA["ink40"],
-                                                   BARCA["line2"]])
-            fig.update_layout(legend=dict(orientation="h", y=-0.45, title="Motivo"))
-            barca_layout(fig, 380)
+            fig = px.bar(tabla_p, x="Fuente de tráfico", y="Perdidos",
+                         text_auto=True, title="Leads Perdidos por fuente",
+                         color_discrete_sequence=[BARCA["garnet"]])
+            barca_layout(fig, 320)
             st.plotly_chart(fig, use_container_width=True)
-
         with col_t:
-            _c = BARCA["blue_ink"]
-            st.markdown(f"<div style='font-size:13px;font-weight:700;"
-                        f"color:{_c};margin-bottom:8px'>Resumen por fuente</div>",
-                        unsafe_allow_html=True)
             st.dataframe(
-                tabla_nv[["Fuente de tráfico", "Total leads", "No válidos", "% No válidos"]]
-                .style.background_gradient(subset=["% No válidos"],
-                                           cmap="Reds", vmin=0, vmax=100)
-                .format({"% No válidos": "{:.1f}%"}),
-                use_container_width=True,
-                hide_index=True,
-                height=min(420, len(tabla_nv) * 36 + 40),
+                tabla_p[["Fuente de tráfico", "Total leads", "Perdidos", "% Perdidos"]]
+                .style.background_gradient(subset=["% Perdidos"], cmap="Reds", vmin=0, vmax=100)
+                .format({"% Perdidos": "{:.1f}%"}),
+                use_container_width=True, hide_index=True,
+                height=min(420, len(tabla_p) * 36 + 40),
             )
 
 
