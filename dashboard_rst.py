@@ -15,6 +15,20 @@ import os
 
 load_dotenv()
 
+try:
+    TOKEN = st.secrets["HUBSPOT_TOKEN"]
+except Exception:
+    TOKEN = os.getenv("HUBSPOT_TOKEN", "")
+
+try:
+    ACCOUNT_NAME = st.secrets["ACCOUNT_NAME"]
+except Exception:
+    ACCOUNT_NAME = os.getenv("ACCOUNT_NAME", "Hofmann")
+
+if not TOKEN:
+    st.error("❌ HUBSPOT_TOKEN no encontrado. Configúralo en Streamlit Cloud → Settings → Secrets.")
+    st.stop()
+
 # ── Paleta oficial Barça ───────────────────────────────────────────────────────
 BARCA = {
     "blue":         "#004D98",
@@ -79,20 +93,6 @@ st.markdown(f"""
   hr {{ border-color:{BARCA['line']}; }}
 </style>
 """, unsafe_allow_html=True)
-
-try:
-    TOKEN = st.secrets["HUBSPOT_TOKEN"]
-except Exception:
-    TOKEN = os.getenv("HUBSPOT_TOKEN", "")
-
-try:
-    ACCOUNT_NAME = st.secrets["ACCOUNT_NAME"]
-except Exception:
-    ACCOUNT_NAME = os.getenv("ACCOUNT_NAME", "Hofmann")
-
-if not TOKEN:
-    st.error("❌ HUBSPOT_TOKEN no encontrado. Configúralo en Streamlit Cloud → Settings → Secrets.")
-    st.stop()
 
 HEADERS = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
 BASE = "https://api.hubapi.com"
