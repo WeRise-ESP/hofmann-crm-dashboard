@@ -836,14 +836,15 @@ def main():
         st.markdown(f"<small style='color:{BARCA['ink20']}'>Cache 5 min · "
                     f"Fuente: HubSpot CRM</small>", unsafe_allow_html=True)
 
-    # ── Carga ──────────────────────────────────────────────────────────────────
-    if fi == "todos":
-        st.info("⏳ Cargando todos los envíos de formulario desde 2024. "
-                "La primera carga puede tardar 1-2 min...", icon="ℹ️")
+    # ── Carga en paralelo ──────────────────────────────────────────────────────
     with st.spinner("Cargando datos de HubSpot..."):
-        df         = fetch_data(str(fi), str(ff))
-        df_mat_all = fetch_matriculados_total()          # fecha = día real de matriculación
-        df_deals   = fetch_negocios_cerrados()           # todos los deals cerrados
+        with ThreadPoolExecutor(max_workers=3) as ex:
+            fut_data  = ex.submit(fetch_data, str(fi), str(ff))
+            fut_mat   = ex.submit(fetch_matriculados_total)
+            fut_deals = ex.submit(fetch_negocios_cerrados)
+        df         = fut_data.result()
+        df_mat_all = fut_mat.result()
+        df_deals   = fut_deals.result()
 
     if df.empty and df_mat_all.empty:
         st.warning("No hay datos para el período seleccionado.")
