@@ -316,7 +316,6 @@ def fetch_matriculados_total() -> pd.DataFrame:
             "email":            (cp.get("email") or "").lower().strip(),
             "fecha":            fecha_mat,
             "mes":              fecha_mat[:7] if fecha_mat else "",
-            "form":             "HighTicket",
             "pais":             resolve_pais(cp),
             "lead_status":      "Cierre ganado",
             "fuente":           fuente,
@@ -963,28 +962,6 @@ def main():
         barca_layout(fig, 340)
         st.plotly_chart(fig, use_container_width=True)
 
-    # ── Por formulario ─────────────────────────────────────────────────────────
-    st.markdown("### Distribución por formulario")
-    col1, col2 = st.columns(2)
-    with col1:
-        form_counts = df["form"].value_counts().reset_index()
-        form_counts.columns = ["form", "Total"]
-        fig = px.bar(form_counts, x="form", y="Total", text_auto=True,
-                     title="Contactos por formulario",
-                     color="form",
-                     color_discrete_sequence=[BARCA["blue"], BARCA["garnet"], BARCA["gold"]])
-        barca_layout(fig, 300)
-        st.plotly_chart(fig, use_container_width=True)
-    with col2:
-        grp_form = df.groupby(["form", "lead_status"]).size().reset_index(name="Total")
-        fig = px.bar(grp_form, x="form", y="Total", color="lead_status",
-                     barmode="stack", title="Estado de lead por formulario",
-                     color_discrete_map=COLOR_ESTADOS,
-                     category_orders={"lead_status": ESTADOS_ORDEN})
-        fig.update_layout(legend=dict(orientation="h", y=-0.45, font_size=10))
-        barca_layout(fig, 300)
-        st.plotly_chart(fig, use_container_width=True)
-
     # ── Fuente × Estado ────────────────────────────────────────────────────────
     st.markdown("### Estado de lead por fuente de tráfico")
     grp = df.groupby(["fuente", "lead_status"]).size().reset_index(name="Total")
@@ -1277,7 +1254,7 @@ def main():
     # ── Tabla y descarga ───────────────────────────────────────────────────────
     with st.expander("📋 Ver datos completos"):
         st.dataframe(
-            df[["fecha", "mes", "form", "pais", "fuente", "lead_status",
+            df[["fecha", "mes", "pais", "fuente", "lead_status",
                 "intentos", "motivo_no_valido", "motivo_cierre"]]
             .sort_values(["fuente", "lead_status"]),
             use_container_width=True, hide_index=True,
