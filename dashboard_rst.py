@@ -51,14 +51,12 @@ BARCA = {
 }
 
 COLOR_ESTADOS = {
-    "Matriculado":          BARCA["gold"],
-    "Negocio Cerrado":      BARCA["garnet"],
+    "Cierre ganado":        BARCA["gold"],
+    "Deal abierto":         BARCA["garnet"],
     "Contactado":           BARCA["blue"],
     "Intentando contactar": BARCA["yellow"],
     "Nuevo":                BARCA["blue_deep"],
-    "No interés":           BARCA["ink40"],
-    "No válido":            BARCA["garnet_deep"],
-    "Ilocalizado":          BARCA["ink20"],
+    "Perdido":              BARCA["garnet_deep"],
     "Sin estado":           BARCA["line2"],
 }
 
@@ -97,16 +95,6 @@ st.markdown(f"""
 HEADERS = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"}
 BASE = "https://api.hubapi.com"
 
-# Formularios HighTicket RST
-FORM_IDS = {
-    "HighTicket_CA": "521575d3-3389-4e84-a5af-d1af996290ae",
-    "HighTicket_EN": "ce0b4ef5-a89d-4b0a-8fb1-332448cd603f",
-    "HighTicket_ES": "761b873b-b7f4-4880-be61-ad1e00241676",
-}
-
-# Mínimo histórico: 2024-01-01 en ms
-MIN_TS_MS = 1704067200000
-
 FUENTES_ES = {
     "ORGANIC_SEARCH":  "Búsqueda orgánica",
     "PAID_SEARCH":     "Búsqueda pagada",
@@ -121,20 +109,18 @@ FUENTES_ES = {
 }
 
 LEAD_STATUS_NORM = {
-    "new": "Nuevo", "nuevo": "Nuevo",
-    "in_progress": "Intentando contactar", "intentando contactar": "Intentando contactar",
-    "connected": "Contactado", "contactado": "Contactado",
-    "bad timing": "No interés", "no interés": "No interés", "no interes": "No interés",
-    "unqualified": "No válido", "no válido": "No válido", "no valido": "No válido",
-    "matriculado": "Matriculado",
-    "negocio cerrado": "Negocio Cerrado", "closed": "Negocio Cerrado",
-    "ilocalizado": "Ilocalizado", "uncontacted": "Ilocalizado",
+    "new":            "Nuevo",
+    "in_progress":    "Intentando contactar",
+    "connected":      "Contactado",
+    "open_deal":      "Deal abierto",
+    "cierre ganado":  "Cierre ganado",
+    "perdido":        "Perdido",
 }
 
 ESTADOS_ORDEN = [
-    "Matriculado", "Negocio Cerrado", "Contactado",
+    "Cierre ganado", "Deal abierto", "Contactado",
     "Intentando contactar", "Nuevo",
-    "No interés", "No válido", "Ilocalizado", "Sin estado",
+    "Perdido", "Sin estado",
 ]
 
 CONTACT_PROPS = [
@@ -183,147 +169,71 @@ def norm_status(raw):
     return LEAD_STATUS_NORM.get(raw.lower().strip(), raw.strip().title())
 
 
-# ── Fetching de formularios (con caché) ───────────────────────────────────────
-
-@st.cache_data(ttl=300, show_spinner=False)
-def fetch_form_submissions(min_ts_ms: int) -> list:
-    """
-    Fetch all submissions from the 3 HighTicket forms since min_ts_ms.
-    Returns list of dicts: {email, submitted_at, form, pais_form}.
-    Fetches all 3 forms in parallel and stops pagination once past min_ts_ms.
-    """
-    def _fetch_one(form_name, form_id):
-        subs = []
-        after = None
-        while True:
-            url = f"{BASE}/form-integrations/v1/submissions/forms/{form_id}?limit=50"
-            if after:
-                url += f"&after={after}"
-            try:
-                r = requests.get(url, headers={"Authorization": f"Bearer {TOKEN}"},
-                                 timeout=30)
-                if r.status_code != 200:
-                    break
-                data = r.json()
-            except Exception:
-                break
-
-            results = data.get("results", [])
-            stop = False
-            for sub in results:
-                ts = sub.get("submittedAt", 0)
-                if ts < min_ts_ms:
-                    stop = True
-                    break
-                fields = {v["name"]: v.get("value", "")
-                          for v in sub.get("values", []) if v.get("value")}
-                email = fields.get("email", "").lower().strip()
-                if email:
-                    subs.append({
-                        "email": email,
-                        "submitted_at": ts,
-                        "form": form_name,
-                        "pais_form": fields.get("pais_de_residencia", ""),
-                    })
-            paging = data.get("paging", {})
-            if stop or "next" not in paging:
-                break
-            after = paging["next"]["after"]
-        return subs
-
-    all_subs = []
-    with ThreadPoolExecutor(max_workers=3) as ex:
-        futures = {ex.submit(_fetch_one, name, fid): name
-                   for name, fid in FORM_IDS.items()}
-        for fut in as_completed(futures):
-            all_subs.extend(fut.result())
-    return all_subs
-
-
-@st.cache_data(ttl=300, show_spinner=False)
-def fetch_contacts_by_emails(emails: tuple) -> dict:
-    """
-    Batch read contact properties for the given emails.
-    Returns {email_lower: properties_dict}.
-    """
-    contacts = {}
-    email_list = list(emails)
-    for i in range(0, len(email_list), 100):
-        batch = email_list[i:i + 100]
-        try:
-            r = requests.post(
-                f"{BASE}/crm/v3/objects/contacts/batch/read",
-                headers=HEADERS,
-                json={
-                    "inputs": [{"id": e} for e in batch],
-                    "properties": CONTACT_PROPS,
-                    "idProperty": "email",
-                },
-                timeout=30,
-            )
-            if r.status_code == 200:
-                for c in r.json().get("results", []):
-                    email = (c["properties"].get("email") or "").lower().strip()
-                    if email:
-                        contacts[email] = c["properties"]
-        except Exception:
-            pass
-    return contacts
-
+# ── Fetching de contactos (con caché) ─────────────────────────────────────────
 
 @st.cache_data(ttl=300, show_spinner=False)
 def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
-    # Token check
     test = requests.get(f"{BASE}/crm/v3/objects/contacts?limit=1", headers=HEADERS)
     if test.status_code == 401:
         st.error("❌ Token de HubSpot inválido. Revisa el Secret HUBSPOT_TOKEN.")
         st.stop()
 
-    # 1. Get all form submissions (cached per min_ts)
-    all_subs = fetch_form_submissions(MIN_TS_MS)
-
-    # 2. Filter by selected date range (on submittedAt)
+    filters = []
     if fecha_inicio != "todos":
         fi_ts = int(datetime.fromisoformat(fecha_inicio)
                     .replace(tzinfo=timezone.utc).timestamp() * 1000)
         ff_ts = (int(datetime.fromisoformat(fecha_fin)
                      .replace(tzinfo=timezone.utc).timestamp() * 1000)
                  + 86_400_000 - 1)
-        all_subs = [s for s in all_subs if fi_ts <= s["submitted_at"] <= ff_ts]
+        filters = [
+            {"propertyName": "createdate", "operator": "GTE", "value": str(fi_ts)},
+            {"propertyName": "createdate", "operator": "LTE", "value": str(ff_ts)},
+        ]
 
-    if not all_subs:
-        return pd.DataFrame()
-
-    # 3. Deduplicate: one row per email, keep earliest submission in the period
-    seen: dict = {}
-    for sub in sorted(all_subs, key=lambda x: x["submitted_at"]):
-        if sub["email"] not in seen:
-            seen[sub["email"]] = sub
-
-    # 4. Batch read contact properties
-    unique_emails = tuple(sorted(seen.keys()))
-    contacts = fetch_contacts_by_emails(unique_emails)
-
-    # 5. Build dataframe
     rows = []
-    for email, sub in seen.items():
-        cp = contacts.get(email, {})
-        fuente, origen = resolve_fuente(cp)
-        dt = datetime.fromtimestamp(sub["submitted_at"] / 1000, tz=timezone.utc)
-        fecha_str = dt.strftime("%Y-%m-%d")
-        rows.append({
-            "email":            email,
-            "fecha":            fecha_str,
-            "mes":              fecha_str[:7],
-            "form":             sub["form"],
-            "pais":             resolve_pais_form(sub, cp),
-            "lead_status":      norm_status(cp.get("hs_lead_status")),
-            "intentos":         int(cp.get("num_contacted_notes") or 0),
-            "motivo_no_valido": cp.get("estado_de_lead_no_valido") or "Sin especificar",
-            "motivo_cierre":    cp.get("motivos_de_cierre_perdido_rst") or "Sin especificar",
-            "fuente":           fuente,
-            "origen_fuente":    origen,
-        })
+    after = None
+    while True:
+        payload = {
+            "filterGroups": [{"filters": filters}],
+            "properties": CONTACT_PROPS + ["createdate"],
+            "limit": 100,
+        }
+        if after:
+            payload["after"] = after
+        try:
+            r = requests.post(f"{BASE}/crm/v3/objects/contacts/search",
+                              headers=HEADERS, json=payload, timeout=30)
+            if r.status_code != 200:
+                break
+            data = r.json()
+        except Exception:
+            break
+
+        for c in data.get("results", []):
+            cp = c["properties"]
+            email = (cp.get("email") or "").lower().strip()
+            if not email:
+                continue
+            fuente, origen = resolve_fuente(cp)
+            createdate = (cp.get("createdate") or "")[:10]
+            rows.append({
+                "email":            email,
+                "fecha":            createdate,
+                "mes":              createdate[:7] if createdate else "",
+                "pais":             resolve_pais(cp),
+                "lead_status":      norm_status(cp.get("hs_lead_status")),
+                "intentos":         int(cp.get("num_contacted_notes") or 0),
+                "motivo_no_valido": cp.get("estado_de_lead_no_valido") or "Sin especificar",
+                "motivo_cierre":    cp.get("motivos_de_cierre_perdido_rst") or "Sin especificar",
+                "fuente":           fuente,
+                "origen_fuente":    origen,
+            })
+
+        pg = data.get("paging", {})
+        if not pg or "next" not in pg:
+            break
+        after = pg["next"]["after"]
+
     return pd.DataFrame(rows)
 
 
@@ -342,8 +252,7 @@ def fetch_matriculados_total() -> pd.DataFrame:
         payload = {
             "filterGroups": [{
                 "filters": [
-                    {"propertyName": "equipo",         "operator": "EQ", "value": "RST"},
-                    {"propertyName": "hs_lead_status", "operator": "EQ", "value": "Matriculado"},
+                    {"propertyName": "hs_lead_status", "operator": "EQ", "value": "Cierre ganado"},
                 ]
             }],
             "properties": CONTACT_PROPS,
@@ -390,7 +299,7 @@ def fetch_matriculados_total() -> pd.DataFrame:
             for c in r.json().get("results", []):
                 history = (c.get("propertiesWithHistory") or {}).get("hs_lead_status", [])
                 for change in history:
-                    if change.get("value") == "Matriculado":
+                    if change.get("value") == "Cierre ganado":
                         matriculation_dates[c["id"]] = (change.get("timestamp") or "")[:10]
                         break
         except Exception:
@@ -409,7 +318,7 @@ def fetch_matriculados_total() -> pd.DataFrame:
             "mes":              fecha_mat[:7] if fecha_mat else "",
             "form":             "HighTicket",
             "pais":             resolve_pais(cp),
-            "lead_status":      "Matriculado",
+            "lead_status":      "Cierre ganado",
             "fuente":           fuente,
             "origen_fuente":    origen,
             "intentos":         int(cp.get("num_contacted_notes") or 0),
@@ -419,9 +328,9 @@ def fetch_matriculados_total() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-RST_PIPELINE_ID = "1688043709"
-STAGE_GANADO  = "2289712323"   # Cierre ganado
-STAGE_PERDIDO = "2289712324"   # Cierre perdido
+PIPELINE_ID   = "default"
+STAGE_GANADO  = "closedwon"    # Cierre Ganado
+STAGE_PERDIDO = "closedlost"   # Cierre Perdido
 
 MOTIVOS_CIERRE_ORDEN = [
     "Motivos económicos", "Ilocalizado", "No se presenta a la reunión",
@@ -446,7 +355,7 @@ def fetch_negocios_cerrados() -> pd.DataFrame:
         while True:
             payload = {
                 "filterGroups": [{"filters": [
-                    {"propertyName": "pipeline",  "operator": "EQ", "value": RST_PIPELINE_ID},
+                    {"propertyName": "pipeline",  "operator": "EQ", "value": PIPELINE_ID},
                     {"propertyName": "dealstage", "operator": "EQ", "value": stage_id},
                 ]}],
                 "properties": ["dealname", "closedate", "createdate",
@@ -605,14 +514,12 @@ def conclusiones(df, df_mat, df_deals_periodo):
     if total == 0:
         return
 
-    no_valido    = df[df["lead_status"] == "No válido"]
-    ilocal       = df[df["lead_status"] == "Ilocalizado"]
-    no_interes   = df[df["lead_status"] == "No interés"]
+    perdido      = df[df["lead_status"] == "Perdido"]
     contactados  = df[df["lead_status"] == "Contactado"]
     intentando   = df[df["lead_status"] == "Intentando contactar"]
-    mala_calidad = pd.concat([no_valido, ilocal, no_interes])
+    mala_calidad = perdido
 
-    # Matriculados y cierre perdido vienen de sus fuentes correctas
+    # Cierres ganados y perdidos vienen de sus fuentes correctas
     n_mat          = len(df_mat)
     tasa_mala      = len(mala_calidad) / total * 100
     tasa_mat       = n_mat / total * 100 if total else 0
@@ -632,9 +539,9 @@ def conclusiones(df, df_mat, df_deals_periodo):
         st.markdown("### 📌 Resumen ejecutivo")
         st.markdown(f"""
 - **Leads nuevos en el período:** {total}
-- **Matriculados en el período:** **{n_mat}** (fecha real de matriculación)
-- **Tasa de conversión leads → matriculados:** **{tasa_mat:.1f}%**
-- **Tasa de mala calidad** (No válido + Ilocalizado + No interés): **{tasa_mala:.1f}%** ({len(mala_calidad)})
+- **Cierre ganado en el período:** **{n_mat}** (fecha real de cierre)
+- **Tasa de conversión leads → cierre ganado:** **{tasa_mat:.1f}%**
+- **Tasa de perdidos:** **{tasa_mala:.1f}%** ({len(mala_calidad)})
 - **Cierre perdido:** {len(perdidos)} deals · **Cierre ganado:** {len(ganados)} deals
 """)
 
@@ -645,7 +552,7 @@ def conclusiones(df, df_mat, df_deals_periodo):
                 f"Leads nuevos ({total})",
                 f"Contactados ({len(contactados) + n_mat})",
                 f"Intentando contactar ({len(intentando)})",
-                f"Matriculados ({n_mat})",
+                f"Cierre ganado ({n_mat})",
             ],
             "Cantidad": [
                 total,
@@ -788,7 +695,7 @@ def conclusiones(df, df_mat, df_deals_periodo):
 
     # ── Matriculados del período: desglose por fuente y país ──────────────────
     if n_mat > 0:
-        st.markdown("### 🎓 Fuente y país de los matriculados del período")
+        st.markdown("### 🎓 Fuente y país de los cierres ganados del período")
         col1, col2 = st.columns(2)
         with col1:
             mat_f = df_mat.groupby("fuente").size().reset_index(name="Matriculados")
@@ -875,7 +782,7 @@ def main():
                     Dashboard RST — {ACCOUNT_NAME}
                 </h1>
                 <p style="color:{BARCA['line']};margin:5px 0 0;font-size:14px">
-                    Análisis de calidad de leads · Formularios HighTicket (CA / EN / ES) · HubSpot CRM
+                    Análisis de calidad de leads · HubSpot CRM
                 </p>
             </div>
         </div>
@@ -920,7 +827,6 @@ def main():
             "Tráfico directo", "Otras campañas", "Redes sociales",
             "Offline", "Referencias", "Referral IA", "Email marketing", "Sin datos"
         ])
-        filtro_form = st.multiselect("Formulario", options=list(FORM_IDS.keys()))
 
         st.markdown("---")
         if st.button("🔄 Actualizar datos", use_container_width=True):
@@ -928,7 +834,7 @@ def main():
             st.rerun()
 
         st.markdown(f"<small style='color:{BARCA['ink20']}'>Cache 5 min · "
-                    f"Fuente: formularios HighTicket</small>", unsafe_allow_html=True)
+                    f"Fuente: HubSpot CRM</small>", unsafe_allow_html=True)
 
     # ── Carga ──────────────────────────────────────────────────────────────────
     if fi == "todos":
@@ -974,20 +880,18 @@ def main():
         filtro_pais = st.multiselect("País", options=paises_opts)
 
     # ── Aplicar filtros a los TRES datasets ───────────────────────────────────
-    def _apply(frame, fuente=True, pais=True, form=False):
+    def _apply(frame):
         if frame.empty:
             return frame
-        if fuente and filtro_fuente and "fuente" in frame.columns:
+        if filtro_fuente and "fuente" in frame.columns:
             frame = frame[frame["fuente"].isin(filtro_fuente)]
-        if pais and filtro_pais and "pais" in frame.columns:
+        if filtro_pais and "pais" in frame.columns:
             frame = frame[frame["pais"].isin(filtro_pais)]
-        if form and filtro_form and "form" in frame.columns:
-            frame = frame[frame["form"].isin(filtro_form)]
         return frame
 
-    df              = _apply(df,              fuente=True, pais=True, form=True)
-    df_mat          = _apply(df_mat,          fuente=True, pais=True, form=False)
-    df_deals_periodo = _apply(df_deals_periodo, fuente=True, pais=True, form=False)
+    df               = _apply(df)
+    df_mat           = _apply(df_mat)
+    df_deals_periodo = _apply(df_deals_periodo)
 
     total        = len(df)
     n_mat        = len(df_mat)        # matriculados en el período (fecha real de matriculación)
@@ -1000,7 +904,7 @@ def main():
     st.markdown(
         f"<span style='color:{BARCA['ink60']};font-size:13px'>"
         f"📅 <b>{periodo_txt}</b> · "
-        f"<b>{total}</b> leads nuevos · <b>{n_mat}</b> matriculados en el período · "
+        f"<b>{total}</b> leads nuevos · <b>{n_mat}</b> cierres ganados en el período · "
         f"{df['pais'].nunique()} países</span>",
         unsafe_allow_html=True
     )
@@ -1009,7 +913,7 @@ def main():
     # ── KPIs ──────────────────────────────────────────────────────────────────
     c1, c2, c3, c4, c5 = st.columns(5)
     kpi_card(c1, "Leads nuevos",    total,         BARCA["blue"])
-    kpi_card(c2, "Matriculados",    n_mat,         BARCA["gold"])
+    kpi_card(c2, "Cierre ganado",   n_mat,         BARCA["gold"])
     kpi_card(c3, "Neg. Cerrados",   n_cerrado,     BARCA["garnet"])
     kpi_card(c4, "Contactados",     n_contactado,  BARCA["blue_deep"])
     kpi_card(c5, "Mala Calidad",
@@ -1018,8 +922,8 @@ def main():
 
     st.markdown(
         f"<div style='font-size:12px;color:{BARCA['ink40']};margin-top:6px'>"
-        f"ℹ️ <b>Leads nuevos</b>: formulario enviado en el período · "
-        f"<b>Matriculados</b>: fecha real de matriculación en el período "
+        f"ℹ️ <b>Leads nuevos</b>: contactos creados en el período · "
+        f"<b>Cierre ganado</b>: fecha real en que pasaron a ese estado "
         f"(el contacto puede haber llegado en otro momento)</div>",
         unsafe_allow_html=True
     )
