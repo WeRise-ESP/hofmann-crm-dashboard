@@ -398,7 +398,7 @@ def fetch_negocios_cerrados() -> pd.DataFrame:
                     {"propertyName": "dealstage", "operator": "EQ", "value": stage_id},
                 ]}],
                 "properties": ["dealname", "closedate", "createdate",
-                               "motivos_de_cierre_perdido_rst"],
+                               "motivo_de_cierre_del_negocio"],
                 "limit": 100,
             }
             if after:
@@ -415,11 +415,10 @@ def fetch_negocios_cerrados() -> pd.DataFrame:
             for d in data.get("results", []):
                 p = d["properties"]
                 fecha_cierre = (p.get("closedate") or p.get("createdate") or "")[:10]
-                raw_motivos  = (p.get("motivos_de_cierre_perdido_rst") or "Sin especificar").strip()
-                motivos = [m.strip() for m in raw_motivos.split(";") if m.strip()] or ["Sin especificar"]
+                motivo = (p.get("motivo_de_cierre_del_negocio") or "Sin especificar").strip()
                 deal_map[d["id"]] = {
                     "etapa":        stage_label,
-                    "motivos":      motivos,
+                    "motivo_cierre": motivo,
                     "fecha_cierre": fecha_cierre,
                     "mes":          fecha_cierre[:7] if fecha_cierre else "",
                 }
@@ -481,21 +480,20 @@ def fetch_negocios_cerrados() -> pd.DataFrame:
         except Exception:
             pass
 
-    # 4. Construir dataframe expandiendo motivos múltiples
+    # 4. Construir dataframe
     rows = []
     for did, info in deal_map.items():
         cid  = deal_to_contact.get(did, "")
         data = contact_data.get(cid, {"fuente": "Sin datos", "pais": "Sin datos"})
-        for motivo in info["motivos"]:
-            rows.append({
-                "deal_id":      did,
-                "etapa":        info["etapa"],
-                "motivo":       motivo,
-                "fuente":       data["fuente"],
-                "pais":         data["pais"],
-                "fecha_cierre": info["fecha_cierre"],
-                "mes":          info["mes"],
-            })
+        rows.append({
+            "deal_id":       did,
+            "etapa":         info["etapa"],
+            "motivo_cierre": info["motivo_cierre"],
+            "fuente":        data["fuente"],
+            "pais":          data["pais"],
+            "fecha_cierre":  info["fecha_cierre"],
+            "mes":           info["mes"],
+        })
 
     return pd.DataFrame(rows)
 
@@ -511,7 +509,7 @@ def fetch_pipeline() -> pd.DataFrame:
                 {"propertyName": "pipeline", "operator": "EQ", "value": PIPELINE_ID},
             ]}],
             "properties": ["dealname", "dealstage", "amount", "closedate",
-                           "createdate", "motivos_de_cierre_perdido_rst"],
+                           "createdate", "motivo_de_cierre_del_negocio"],
             "limit": 100,
         }
         if after:
@@ -530,18 +528,16 @@ def fetch_pipeline() -> pd.DataFrame:
             stage_id = p.get("dealstage", "")
             etapa = PIPELINE_STAGES.get(stage_id, stage_id)
             fecha = (p.get("closedate") or p.get("createdate") or "")[:10]
-            motivos_raw = (p.get("motivos_de_cierre_perdido_rst") or "Sin especificar").strip()
-            motivos = [m.strip() for m in motivos_raw.split(";") if m.strip()] or ["Sin especificar"]
+            motivo_cierre = (p.get("motivo_de_cierre_del_negocio") or "Sin especificar").strip()
             amount = float(p.get("amount") or 0)
-            for motivo in motivos:
-                rows.append({
-                    "deal_id":  d["id"],
-                    "etapa":    etapa,
-                    "fecha":    fecha,
-                    "mes":      fecha[:7] if fecha else "",
-                    "amount":   amount,
-                    "motivo":   motivo,
-                })
+            rows.append({
+                "deal_id":       d["id"],
+                "etapa":         etapa,
+                "fecha":         fecha,
+                "mes":           fecha[:7] if fecha else "",
+                "amount":        amount,
+                "motivo_cierre": motivo_cierre,
+            })
 
         pg = data.get("paging", {})
         if not pg or "next" not in pg:
@@ -1257,17 +1253,57 @@ def main():
             barca_layout(fig, 360)
             st.plotly_chart(fig, use_container_width=True)
 
-        # Motivos de cierre perdido
-        perdidos_df = df_pipeline[df_pipeline["etapa"] == "Cierre Perdido"]
-        if not perdidos_df.empty:
-            st.markdown("### Motivos de Cierre Perdido")
-            motivos_counts = perdidos_df.groupby("motivo").size().reset_index(name="Total")
-            motivos_counts = motivos_counts.sort_values("Total", ascending=True)
-            fig = px.bar(motivos_counts, x="Total", y="motivo", orientation="h",
-                         text_auto=True, title="Motivos de cierre perdido",
-                         color_discrete_sequence=[BARCA["garnet"]])
-            barca_layout(fig, max(280, len(motivos_counts) * 36 + 80))
-            st.plotly_chart(fig, use_container_width=True)
+        # Motivos de cierre
+        st.markdown("### Motivo de cierre del negocio")
+        cerrados_df = df_pipeline[df_pipeline["etapa"].isin(
+            ["Cierre Ganado", "Cierre Perdido", "Cierre Ganado (histórico)"]
+        )]
+        if not cerrados_df.empty:
+            col1, col2 = st.columns(2)
+
+            perdidos_df = df_pipeline[df_pipeline["etapa"] == "Cierre Perdido"]
+            ganados_df  = df_pipeline[df_pipeline["etapa"].isin(
+                ["Cierre Ganado", "Cierre Ganado (histórico)"]
+            )]
+
+            with col1:
+                if not perdidos_df.empty:
+                    mc = (perdidos_df.groupby("motivo_cierre").size()
+                          .reset_index(name="Total")
+                          .sort_values("Total", ascending=True))
+                    fig = px.bar(mc, x="Total", y="motivo_cierre", orientation="h",
+                                 text_auto=True, title="Motivos — Cierre Perdido",
+                                 color_discrete_sequence=[BARCA["garnet"]])
+                    fig.update_layout(yaxis_title="")
+                    barca_layout(fig, max(320, len(mc) * 28 + 80))
+                    st.plotly_chart(fig, use_container_width=True)
+
+            with col2:
+                if not ganados_df.empty:
+                    mc_g = (ganados_df.groupby("motivo_cierre").size()
+                            .reset_index(name="Total")
+                            .sort_values("Total", ascending=True))
+                    fig = px.bar(mc_g, x="Total", y="motivo_cierre", orientation="h",
+                                 text_auto=True, title="Motivos — Cierre Ganado",
+                                 color_discrete_sequence=["#2E7D32"])
+                    fig.update_layout(yaxis_title="")
+                    barca_layout(fig, max(320, len(mc_g) * 28 + 80))
+                    st.plotly_chart(fig, use_container_width=True)
+
+            # Tabla resumen: todos los motivos con etapa
+            st.markdown("#### Detalle por motivo y etapa")
+            tabla_m = (cerrados_df.groupby(["motivo_cierre", "etapa"]).size()
+                       .reset_index(name="Deals")
+                       .pivot(index="motivo_cierre", columns="etapa", values="Deals")
+                       .fillna(0).astype(int))
+            tabla_m.insert(0, "Total", tabla_m.sum(axis=1))
+            tabla_m = tabla_m.sort_values("Total", ascending=False)
+            tabla_m.index.name = "Motivo"
+            st.dataframe(
+                tabla_m.style.background_gradient(subset=["Total"], cmap="Blues"),
+                use_container_width=True,
+                height=min(600, len(tabla_m) * 36 + 40),
+            )
 
     # ── Negocios cerrados — tabla y gráficos ──────────────────────────────────
     st.markdown(f"""<hr style="border:1px solid {BARCA['line']};margin:32px 0 20px">""",
@@ -1291,10 +1327,10 @@ def main():
         # ── Gráfico: Motivos de cierre perdido ────────────────────────────────
         with col1:
             if not perdidos.empty:
-                mp = (perdidos.groupby("motivo")["deal_id"]
+                mp = (perdidos.groupby("motivo_cierre")["deal_id"]
                       .nunique().reset_index(name="Deals")
                       .sort_values("Deals", ascending=True))
-                fig = px.bar(mp, x="Deals", y="motivo", orientation="h",
+                fig = px.bar(mp, x="Deals", y="motivo_cierre", orientation="h",
                              text_auto=True,
                              title=f"Motivos — Cierre perdido ({perdidos['deal_id'].nunique()} deals)",
                              color="Deals",
@@ -1328,9 +1364,9 @@ def main():
         if not perdidos.empty:
             col3, col4 = st.columns(2)
             with col3:
-                mp_pie = (perdidos.groupby("motivo")["deal_id"]
+                mp_pie = (perdidos.groupby("motivo_cierre")["deal_id"]
                           .nunique().reset_index(name="Deals"))
-                fig = px.pie(mp_pie, names="motivo", values="Deals",
+                fig = px.pie(mp_pie, names="motivo_cierre", values="Deals",
                              title="Distribución motivos cierre perdido",
                              hole=0.5,
                              color_discrete_sequence=[
@@ -1345,10 +1381,10 @@ def main():
 
             with col4:
                 if not ganados.empty:
-                    mg = (ganados.groupby("motivo")["deal_id"]
+                    mg = (ganados.groupby("motivo_cierre")["deal_id"]
                           .nunique().reset_index(name="Deals")
                           .sort_values("Deals", ascending=True))
-                    fig = px.bar(mg, x="Deals", y="motivo", orientation="h",
+                    fig = px.bar(mg, x="Deals", y="motivo_cierre", orientation="h",
                                  text_auto=True,
                                  title=f"Motivos — Cierre ganado ({ganados['deal_id'].nunique()} deals)",
                                  color_discrete_sequence=[BARCA["gold"]])
@@ -1373,16 +1409,16 @@ def main():
             col_g, col_t = st.columns([3, 2])
 
             with col_g:
-                grp = (subset.groupby(["motivo", "fuente"])["deal_id"]
+                grp = (subset.groupby(["motivo_cierre", "fuente"])["deal_id"]
                        .nunique().reset_index(name="Deals"))
                 # ordenar motivos por total
-                orden_motivos = (grp.groupby("motivo")["Deals"]
+                orden_motivos = (grp.groupby("motivo_cierre")["Deals"]
                                  .sum().sort_values(ascending=False).index.tolist())
                 fig = px.bar(
-                    grp, x="Deals", y="motivo", color="fuente",
+                    grp, x="Deals", y="motivo_cierre", color="fuente",
                     barmode="stack", orientation="h",
                     title=f"{etapa_label} — Motivo × Fuente",
-                    category_orders={"motivo": orden_motivos},
+                    category_orders={"motivo_cierre": orden_motivos},
                     color_discrete_sequence=[
                         BARCA["blue_ink"], BARCA["blue_deep"], BARCA["blue"],
                         BARCA["garnet_deep"], BARCA["garnet"],
@@ -1398,7 +1434,7 @@ def main():
                 st.plotly_chart(fig, use_container_width=True)
 
             with col_t:
-                tabla_mf = (subset.groupby(["motivo", "fuente"])["deal_id"]
+                tabla_mf = (subset.groupby(["motivo_cierre", "fuente"])["deal_id"]
                             .nunique().reset_index(name="Deals")
                             .sort_values(["Deals"], ascending=False))
                 total_etapa = tabla_mf["Deals"].sum()
@@ -1410,7 +1446,7 @@ def main():
         # ── Tabla resumen general ──────────────────────────────────────────────
         with st.expander("📋 Ver tabla completa de negocios cerrados"):
             tabla = (df_deals_periodo
-                     .groupby(["etapa", "motivo", "fuente"])["deal_id"]
+                     .groupby(["etapa", "motivo_cierre", "fuente"])["deal_id"]
                      .nunique()
                      .reset_index(name="Nº Deals")
                      .sort_values(["etapa", "Nº Deals"], ascending=[True, False]))
