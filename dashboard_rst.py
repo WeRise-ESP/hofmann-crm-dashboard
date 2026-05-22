@@ -157,6 +157,7 @@ CONTACT_PROPS = [
     "motivos_de_cierre_perdido_rst",
     "hs_analytics_source", "hs_analytics_source_data_1",
     "hs_latest_source", "hs_latest_source_data_1",
+    "modalidad_curso",
 ]
 
 
@@ -246,6 +247,7 @@ def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
                 "motivo_cierre": cp.get("motivos_de_cierre_perdido_rst") or "Sin especificar",
                 "fuente":      fuente,
                 "origen_fuente": origen,
+                "modalidad":   (cp.get("modalidad_curso") or "Sin modalidad").strip().title(),
             })
 
         pg = data.get("paging", {})
@@ -254,7 +256,7 @@ def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
         after = pg["next"]["after"]
 
     _COLS = ["email", "fecha", "mes", "pais", "lead_status", "lead_valido",
-             "intentos", "motivo_cierre", "fuente", "origen_fuente"]
+             "intentos", "motivo_cierre", "fuente", "origen_fuente", "modalidad"]
     return pd.DataFrame(rows, columns=_COLS) if rows else pd.DataFrame(columns=_COLS)
 
 
@@ -517,7 +519,7 @@ def fetch_pipeline() -> pd.DataFrame:
                 {"propertyName": "pipeline", "operator": "EQ", "value": PIPELINE_ID},
             ]}],
             "properties": ["dealname", "dealstage", "amount", "closedate",
-                           "createdate", "motivo_de_cierre_del_negocio"],
+                           "createdate", "motivo_de_cierre_del_negocio", "modalidad"],
             "limit": 100,
         }
         if after:
@@ -544,6 +546,7 @@ def fetch_pipeline() -> pd.DataFrame:
                 "mes":            fecha_ref[:7] if fecha_ref else "",
                 "amount":         amount,
                 "motivo_cierre":  motivo_cierre,
+                "modalidad":      (p.get("modalidad") or "Sin modalidad").strip().title(),
             })
 
         pg = data.get("paging", {})
@@ -900,6 +903,16 @@ def main():
         ])
 
         st.markdown("---")
+        filtro_modalidad_contacto = st.multiselect(
+            "Modalidad contacto",
+            options=["Presencial", "Online", "Sin modalidad"],
+        )
+        filtro_modalidad_negocio = st.multiselect(
+            "Modalidad negocio",
+            options=["Presencial", "Online", "Sin modalidad"],
+        )
+
+        st.markdown("---")
         if st.button("🔄 Actualizar datos", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
@@ -969,7 +982,7 @@ def main():
             paises_opts.append("Sin datos")
         filtro_pais = st.multiselect("País", options=paises_opts)
 
-    # ── Aplicar filtros a los TRES datasets ───────────────────────────────────
+    # ── Aplicar filtros a los datasets de contactos ───────────────────────────
     def _apply(frame):
         if frame.empty:
             return frame
@@ -977,11 +990,19 @@ def main():
             frame = frame[frame["fuente"].isin(filtro_fuente)]
         if filtro_pais and "pais" in frame.columns:
             frame = frame[frame["pais"].isin(filtro_pais)]
+        if filtro_modalidad_contacto and "modalidad" in frame.columns:
+            frame = frame[frame["modalidad"].isin(filtro_modalidad_contacto)]
         return frame
 
     df               = _apply(df)
     df_mat           = _apply(df_mat)
     df_deals_periodo = _apply(df_deals_periodo)
+
+    # Aplicar filtro de modalidad de negocio al pipeline
+    if filtro_modalidad_negocio and not df_pipeline_periodo.empty:
+        df_pipeline_periodo = df_pipeline_periodo[
+            df_pipeline_periodo["modalidad"].isin(filtro_modalidad_negocio)
+        ]
 
     total        = len(df)
     n_mat        = int((df["lead_status"] == "Cierre Ganado").sum())   if not df.empty else 0
@@ -1084,6 +1105,48 @@ def main():
             fig.update_layout(legend=dict(orientation="h", y=-0.3))
             barca_layout(fig, 320)
             st.plotly_chart(fig, use_container_width=True)
+
+        # ── Modalidad de Contacto ──────────────────────────────────────────────
+        st.markdown("### Modalidad de contacto")
+        COLOR_MODALIDAD = {
+            "Presencial":    BARCA["blue_ink"],
+            "Online":        BARCA["gold"],
+            "Sin modalidad": BARCA["line2"],
+        }
+        col1, col2 = st.columns(2)
+        with col1:
+            mod_counts = df["modalidad"].value_counts().reset_index()
+            mod_counts.columns = ["modalidad", "Total"]
+            fig = px.pie(mod_counts, names="modalidad", values="Total",
+                         title="Distribución por modalidad", hole=0.55,
+                         color="modalidad", color_discrete_map=COLOR_MODALIDAD)
+            fig.update_traces(textposition="outside", textinfo="percent+label",
+                              marker=dict(line=dict(color=BARCA["white"], width=2)))
+            barca_layout(fig, 320)
+            st.plotly_chart(fig, use_container_width=True)
+        with col2:
+            grp_mf = df.groupby(["modalidad", "fuente"]).size().reset_index(name="Leads")
+            fig = px.bar(grp_mf, x="fuente", y="Leads", color="modalidad",
+                         barmode="stack", title="Modalidad por fuente de tráfico",
+                         color_discrete_map=COLOR_MODALIDAD)
+            fig.update_layout(legend=dict(orientation="h", y=-0.3))
+            barca_layout(fig, 320)
+            st.plotly_chart(fig, use_container_width=True)
+
+        # Tabla: leads por modalidad × fuente
+        st.markdown("#### Leads por modalidad y fuente de tráfico")
+        pivot_mod = (df.groupby(["modalidad", "fuente"])
+                     .size().reset_index(name="Leads")
+                     .pivot(index="modalidad", columns="fuente", values="Leads")
+                     .fillna(0).astype(int))
+        pivot_mod.insert(0, "Total", pivot_mod.sum(axis=1))
+        pivot_mod = pivot_mod.sort_values("Total", ascending=False)
+        pivot_mod.index.name = "Modalidad"
+        st.dataframe(
+            pivot_mod.style.background_gradient(subset=["Total"], cmap="Blues"),
+            use_container_width=True,
+            height=min(300, len(pivot_mod) * 36 + 50),
+        )
 
         # ── Fuente × Estado ────────────────────────────────────────────────────
         st.markdown("### Estado de lead por fuente de tráfico")
@@ -1274,6 +1337,54 @@ def main():
             fig.update_layout(legend=dict(orientation="h", y=-0.3, font_size=10))
             barca_layout(fig, 360)
             st.plotly_chart(fig, use_container_width=True)
+
+        # ── Modalidad de Negocio ───────────────────────────────────────────────
+        st.markdown("### Modalidad de negocio")
+        COLOR_MODALIDAD_N = {
+            "Presencial":    BARCA["blue_ink"],
+            "Online":        BARCA["gold"],
+            "Sin modalidad": BARCA["line2"],
+        }
+        col1, col2 = st.columns(2)
+        with col1:
+            mod_pip = (df_pipeline_periodo.drop_duplicates("deal_id")
+                       ["modalidad"].value_counts().reset_index())
+            mod_pip.columns = ["modalidad", "Deals"]
+            fig = px.pie(mod_pip, names="modalidad", values="Deals",
+                         title="Deals por modalidad", hole=0.55,
+                         color="modalidad", color_discrete_map=COLOR_MODALIDAD_N)
+            fig.update_traces(textposition="outside", textinfo="percent+label",
+                              marker=dict(line=dict(color=BARCA["white"], width=2)))
+            barca_layout(fig, 320)
+            st.plotly_chart(fig, use_container_width=True)
+        with col2:
+            grp_me = (df_pipeline_periodo.drop_duplicates("deal_id")
+                      .groupby(["modalidad", "etapa"])["deal_id"]
+                      .nunique().reset_index(name="Deals"))
+            fig = px.bar(grp_me, x="etapa", y="Deals", color="modalidad",
+                         barmode="stack", title="Modalidad por etapa del pipeline",
+                         color_discrete_map=COLOR_MODALIDAD_N,
+                         category_orders={"etapa": PIPELINE_ORDEN})
+            fig.update_layout(legend=dict(orientation="h", y=-0.3),
+                              xaxis_tickangle=-30)
+            barca_layout(fig, 340)
+            st.plotly_chart(fig, use_container_width=True)
+
+        # Tabla: deals por modalidad × etapa
+        st.markdown("#### Deals por modalidad y etapa")
+        pivot_mn = (df_pipeline_periodo.drop_duplicates("deal_id")
+                    .groupby(["modalidad", "etapa"])["deal_id"]
+                    .nunique().reset_index(name="Deals")
+                    .pivot(index="modalidad", columns="etapa", values="Deals")
+                    .fillna(0).astype(int))
+        pivot_mn.insert(0, "Total", pivot_mn.sum(axis=1))
+        pivot_mn = pivot_mn.sort_values("Total", ascending=False)
+        pivot_mn.index.name = "Modalidad"
+        st.dataframe(
+            pivot_mn.style.background_gradient(subset=["Total"], cmap="Blues"),
+            use_container_width=True,
+            height=min(300, len(pivot_mn) * 36 + 50),
+        )
 
         # Motivos de cierre
         st.markdown("### Motivo de cierre del negocio")
