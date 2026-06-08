@@ -906,26 +906,28 @@ def main():
 
         if modo == "Período predefinido":
             hoy = date.today()
+            mes_inicio = date(hoy.year, hoy.month, 1)
             periodo = st.selectbox("Período", [
-                "Últimos 30 días", "Últimos 60 días", "Últimos 90 días",
-                "Abril 2026", "Mayo 2026", "Abril + Mayo 2026",
-                "Enero–Mayo 2026", "2025 completo",
+                "Este mes",
+                "Últimos 7 días", "Últimos 30 días", "Últimos 60 días", "Últimos 90 días",
+                "Abril 2026", "Mayo 2026",
+                "2025 completo",
                 "Todos (desde 2024)",
             ], index=0)
             mapa = {
-                "Últimos 30 días":   (hoy - timedelta(30), hoy),
-                "Últimos 60 días":   (hoy - timedelta(60), hoy),
-                "Últimos 90 días":   (hoy - timedelta(90), hoy),
-                "Abril 2026":        (date(2026, 4, 1),  date(2026, 4, 30)),
-                "Mayo 2026":         (date(2026, 5, 1),  date(2026, 5, 31)),
-                "Abril + Mayo 2026": (date(2026, 4, 1),  date(2026, 5, 31)),
-                "Enero–Mayo 2026":   (date(2026, 1, 1),  date(2026, 5, 31)),
-                "2025 completo":     (date(2025, 1, 1),  date(2025, 12, 31)),
+                "Este mes":        (mes_inicio, hoy),
+                "Últimos 7 días":  (hoy - timedelta(7), hoy),
+                "Últimos 30 días": (hoy - timedelta(30), hoy),
+                "Últimos 60 días": (hoy - timedelta(60), hoy),
+                "Últimos 90 días": (hoy - timedelta(90), hoy),
+                "Abril 2026":      (date(2026, 4, 1), date(2026, 4, 30)),
+                "Mayo 2026":       (date(2026, 5, 1), date(2026, 5, 31)),
+                "2025 completo":   (date(2025, 1, 1), date(2025, 12, 31)),
             }
             if periodo == "Todos (desde 2024)":
                 fi, ff = "todos", "todos"
             else:
-                fi, ff = mapa.get(periodo, (hoy - timedelta(30), hoy))
+                fi, ff = mapa.get(periodo, (mes_inicio, hoy))
         else:
             fi = st.date_input("Desde", value=date(2026, 1, 1))
             ff = st.date_input("Hasta",  value=date.today())
