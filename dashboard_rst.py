@@ -233,7 +233,7 @@ def norm_status(raw):
 
 # ── Fetching de contactos (con caché) ─────────────────────────────────────────
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
     test = requests.get(f"{BASE}/crm/v3/objects/contacts?limit=1", headers=HEADERS)
     if test.status_code == 401:
@@ -295,24 +295,34 @@ def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=_COLS) if rows else pd.DataFrame(columns=_COLS)
 
 
-@st.cache_data(ttl=300, show_spinner=False)
-def fetch_matriculados_total() -> pd.DataFrame:
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_matriculados_total(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
     """
-    Todos los contactos Matriculados del equipo RST.
-    Usa el historial de la propiedad hs_lead_status para obtener la fecha
-    EXACTA en que cada contacto pasó a estado 'Matriculado'.
+    Contactos Matriculados (Cierre ganado) del equipo RST.
+    Filtra por createdate en una ventana amplia para limitar el volumen,
+    luego usa el historial para obtener la fecha EXACTA de matriculación.
     """
-    # 1. Obtener todos los contactos con status=Matriculado
+    # 1. Obtener contactos con status=Cierre ganado, acotados por fecha
+    filters_mat = [{"propertyName": "hs_lead_status", "operator": "EQ", "value": "Cierre ganado"}]
+    if fecha_inicio != "todos":
+        # Ventana ampliada: 18 meses antes del inicio para capturar conversiones tardías
+        fi_dt = datetime.fromisoformat(fecha_inicio)
+        fi_amplio = (fi_dt - timedelta(days=548)).replace(tzinfo=timezone.utc)
+        ff_dt = (datetime.fromisoformat(fecha_fin)
+                 .replace(tzinfo=timezone.utc) + timedelta(days=1))
+        filters_mat += [
+            {"propertyName": "createdate", "operator": "GTE",
+             "value": str(int(fi_amplio.timestamp() * 1000))},
+            {"propertyName": "createdate", "operator": "LTE",
+             "value": str(int(ff_dt.timestamp() * 1000))},
+        ]
+
     contact_ids = []
     contact_props_map = {}
     after = None
     while True:
         payload = {
-            "filterGroups": [{
-                "filters": [
-                    {"propertyName": "hs_lead_status", "operator": "EQ", "value": "Cierre ganado"},
-                ]
-            }],
+            "filterGroups": [{"filters": filters_mat}],
             "properties": CONTACT_PROPS,
             "limit": 100,
         }
@@ -428,23 +438,34 @@ MOTIVOS_CIERRE_ORDEN = [
 ]
 
 
-@st.cache_data(ttl=300, show_spinner=False)
-def fetch_negocios_cerrados() -> pd.DataFrame:
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_negocios_cerrados(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
     """
-    Todos los deals cerrados (ganado + perdido) del pipeline RST.
-    Enriquece cada deal con la fuente de tráfico del contacto asociado.
-    Fecha de filtrado: closedate del deal.
-    Los motivos múltiples (separados por ';') se expanden a una fila por motivo.
+    Deals cerrados (ganado + perdido) del pipeline RST en el período indicado.
+    Filtra por closedate a nivel de API para limitar el volumen.
     """
-    # 1. Recoger todos los deals cerrados con sus propiedades base
+    filters_base = [
+        {"propertyName": "pipeline", "operator": "EQ", "value": PIPELINE_ID},
+    ]
+    if fecha_inicio != "todos":
+        fi_ts = int(datetime.fromisoformat(fecha_inicio)
+                    .replace(tzinfo=timezone.utc).timestamp() * 1000)
+        ff_ts = (int(datetime.fromisoformat(fecha_fin)
+                     .replace(tzinfo=timezone.utc).timestamp() * 1000)
+                 + 86_400_000 - 1)
+        filters_base += [
+            {"propertyName": "closedate", "operator": "GTE", "value": str(fi_ts)},
+            {"propertyName": "closedate", "operator": "LTE", "value": str(ff_ts)},
+        ]
+
+    # 1. Recoger deals cerrados con sus propiedades base
     deal_map = {}   # deal_id → {etapa, motivos, fecha_cierre}
     for stage_id, stage_label in [(STAGE_GANADO, "Cierre ganado"),
                                    (STAGE_PERDIDO, "Cierre perdido")]:
         after = None
         while True:
             payload = {
-                "filterGroups": [{"filters": [
-                    {"propertyName": "pipeline",  "operator": "EQ", "value": PIPELINE_ID},
+                "filterGroups": [{"filters": filters_base + [
                     {"propertyName": "dealstage", "operator": "EQ", "value": stage_id},
                 ]}],
                 "properties": ["dealname", "closedate", "createdate",
@@ -543,16 +564,24 @@ def fetch_negocios_cerrados() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-@st.cache_data(ttl=300, show_spinner=False)
-def fetch_pipeline() -> pd.DataFrame:
-    """Todos los deals del pipeline de ventas con su etapa, fecha y valor."""
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_pipeline(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
+    """Deals del pipeline activos o cerrados en el período indicado."""
+    # Filtro API: creado antes del fin del período
+    filters = [{"propertyName": "pipeline", "operator": "EQ", "value": PIPELINE_ID}]
+    if fecha_inicio != "todos":
+        ff_ts = (int(datetime.fromisoformat(fecha_fin)
+                     .replace(tzinfo=timezone.utc).timestamp() * 1000)
+                 + 86_400_000 - 1)
+        # Solo deals creados antes o durante el período
+        filters.append({"propertyName": "createdate", "operator": "LTE",
+                         "value": str(ff_ts)})
+
     rows = []
     after = None
     while True:
         payload = {
-            "filterGroups": [{"filters": [
-                {"propertyName": "pipeline", "operator": "EQ", "value": PIPELINE_ID},
-            ]}],
+            "filterGroups": [{"filters": filters}],
             "properties": ["dealname", "dealstage", "amount", "closedate",
                            "createdate", "motivo_de_cierre_del_negocio", "modalidad"],
             "limit": 100,
@@ -960,10 +989,10 @@ def main():
     # ── Carga en paralelo ──────────────────────────────────────────────────────
     with st.spinner("Cargando datos de HubSpot..."):
         with ThreadPoolExecutor(max_workers=4) as ex:
-            fut_data     = ex.submit(fetch_data, str(fi), str(ff))
-            fut_mat      = ex.submit(fetch_matriculados_total)
-            fut_deals    = ex.submit(fetch_negocios_cerrados)
-            fut_pipeline = ex.submit(fetch_pipeline)
+            fut_data     = ex.submit(fetch_data,              str(fi), str(ff))
+            fut_mat      = ex.submit(fetch_matriculados_total, str(fi), str(ff))
+            fut_deals    = ex.submit(fetch_negocios_cerrados,  str(fi), str(ff))
+            fut_pipeline = ex.submit(fetch_pipeline,           str(fi), str(ff))
         df           = fut_data.result()
         df_mat_all   = fut_mat.result()
         df_deals     = fut_deals.result()
