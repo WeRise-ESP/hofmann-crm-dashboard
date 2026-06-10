@@ -644,9 +644,14 @@ def _email_list_ids(e):
     to = e.get("to") or {}
     result = []
     for section in ["contactLists", "contactIlsLists"]:
-        for item in (to.get(section) or {}).get("include") or []:
+        section_data = to.get(section)
+        if not isinstance(section_data, dict):
+            continue
+        for item in section_data.get("include") or []:
+            if not isinstance(item, dict):
+                continue
             lid = str(item.get("listId") or item.get("id") or "")
-            name = item.get("name") or item.get("listName") or ""
+            name = str(item.get("name") or item.get("listName") or "")
             if lid:
                 result.append((lid, name))
     return result
