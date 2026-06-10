@@ -648,10 +648,15 @@ def _email_list_ids(e):
         if not isinstance(section_data, dict):
             continue
         for item in section_data.get("include") or []:
-            if not isinstance(item, dict):
+            if isinstance(item, dict):
+                lid  = str(item.get("listId") or item.get("id") or "")
+                name = str(item.get("name") or item.get("listName") or "")
+            elif isinstance(item, (str, int)):
+                # API returns plain IDs: ["1103", "1079"]
+                lid  = str(item)
+                name = ""
+            else:
                 continue
-            lid = str(item.get("listId") or item.get("id") or "")
-            name = str(item.get("name") or item.get("listName") or "")
             if lid:
                 result.append((lid, name))
     return result
@@ -732,7 +737,8 @@ def fetch_emails_enviados(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
                            for lid, _ in _email_list_ids(e)) or "—"
         content   = e.get("content") or {}
         subject   = (e.get("subject") or content.get("subject") or e.get("name") or "")
-        from_name = ((content.get("from") or {}).get("fromName") or "")
+        from_name = ((e.get("from") or {}).get("fromName") or
+                     (content.get("from") or {}).get("fromName") or "")
         pub_date  = _pub(e)
         sent      = int(stats.get("sent",         0) or 0)
         delivered = int(stats.get("delivered",    0) or 0)
@@ -832,7 +838,8 @@ def fetch_emails_programados() -> pd.DataFrame:
 
         content   = e.get("content") or {}
         subject   = (e.get("subject") or content.get("subject") or e.get("name") or "")
-        from_name = ((content.get("from") or {}).get("fromName") or "")
+        from_name = ((e.get("from") or {}).get("fromName") or
+                     (content.get("from") or {}).get("fromName") or "")
         rows.append({
             "estado":           estado,
             "nombre":           e.get("name", ""),
