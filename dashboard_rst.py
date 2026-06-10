@@ -627,10 +627,18 @@ def fetch_pipeline(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
 def _fetch_list_names(list_ids_tuple: tuple) -> dict:
     def _get(lid):
         try:
+            # Try v1 first (regular contact lists)
             r = requests.get(f"{BASE}/contacts/v1/lists/{lid}",
                              headers=HEADERS, params={"count": 0}, timeout=10)
             if r.status_code == 200:
                 return lid, r.json().get("name", lid)
+            # Fall back to v3 for ILS lists (return 404 in v1)
+            if r.status_code == 404:
+                r2 = requests.get(f"{BASE}/crm/v3/lists/{lid}",
+                                  headers=HEADERS, timeout=10)
+                if r2.status_code == 200:
+                    name = r2.json().get("list", {}).get("name", lid)
+                    return lid, name
         except Exception:
             pass
         return lid, lid
@@ -747,6 +755,7 @@ def fetch_emails_enviados(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
         bounces   = int(stats.get("bounce",       0) or 0)
         unsubs    = int(stats.get("unsubscribed", 0) or 0)
         spam      = int(stats.get("spamreport",   0) or 0)
+        raw_ids = [lid for lid, _ in _email_list_ids(e)]
         rows.append({
             "campaign_id":   str(cid or ""),
             "nombre":        e.get("name", ""),
@@ -755,6 +764,7 @@ def fetch_emails_enviados(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
             "mes":           pub_date[:7] if pub_date else "",
             "remitente":     from_name,
             "listas":        listas,
+            "list_ids_raw":  ",".join(raw_ids),
             "enviados":      sent,
             "entregados":    delivered,
             "aperturas":     opens,
@@ -2451,10 +2461,37 @@ def main():
         with st.spinner("Cargando listas..."):
             df_lists = fetch_all_lists()
 
+        # Add ILS lists found in email campaigns that aren't in v1 lists
+        if not df_emails.empty and "list_ids_raw" in df_emails.columns:
+            known_ids = set(df_lists["list_id"].tolist()) if not df_lists.empty else set()
+            email_ids: set = set()
+            for ids_str in df_emails["list_ids_raw"].dropna():
+                for lid in str(ids_str).split(","):
+                    lid = lid.strip()
+                    if lid:
+                        email_ids.add(lid)
+            missing_ids = email_ids - known_ids
+            if missing_ids:
+                with st.spinner(f"Cargando {len(missing_ids)} listas adicionales (ILS)..."):
+                    ils_names = _fetch_list_names(tuple(sorted(missing_ids)))
+                ils_rows = []
+                for lid, name in ils_names.items():
+                    ils_rows.append({
+                        "list_id": lid, "nombre": name,
+                        "tipo": "ILS", "size": 0,
+                        "created": "", "updated": "",
+                    })
+                if ils_rows:
+                    df_ils = pd.DataFrame(ils_rows)
+                    df_lists = pd.concat([df_lists, df_ils], ignore_index=True)
+
         if df_lists.empty:
             st.info("No se pudieron obtener las listas.")
         else:
-            # Cross-reference lists with email sends
+            # Cross-reference lists with email sends using list names
+            def _avg(lst):
+                return round(sum(lst) / len(lst), 1) if lst else 0.0
+
             if not df_emails.empty:
                 list_stats: dict = {}
                 for _, row_e in df_emails.iterrows():
@@ -2462,15 +2499,12 @@ def main():
                     if listas_str and listas_str != "—":
                         for lname in listas_str.split(", "):
                             lname = lname.strip()
-                            if lname:
+                            if lname and lname != "—":
                                 if lname not in list_stats:
                                     list_stats[lname] = {"n": 0, "ap": [], "ctr": []}
                                 list_stats[lname]["n"] += 1
                                 list_stats[lname]["ap"].append(row_e["tasa_apertura"])
                                 list_stats[lname]["ctr"].append(row_e["ctr"])
-
-                def _avg(lst):
-                    return round(sum(lst) / len(lst), 1) if lst else 0.0
 
                 df_lists["emails_enviados"] = df_lists["nombre"].apply(
                     lambda n: list_stats.get(n, {}).get("n", 0))
@@ -2483,6 +2517,7 @@ def main():
                 df_lists["avg_apertura"]    = 0.0
                 df_lists["avg_ctr"]         = 0.0
 
+            # KPIs
             kl1, kl2, kl3 = st.columns(3)
             kpi_card(kl1, "Total listas/segmentos", len(df_lists), BARCA["blue"])
             kpi_card(kl2, "Total contactos",
@@ -2493,8 +2528,31 @@ def main():
                      BARCA["gold"])
             st.markdown("<br>", unsafe_allow_html=True)
 
-            sort_col = "emails_enviados" if "emails_enviados" in df_lists.columns else "size"
-            df_disp = df_lists.sort_values(sort_col, ascending=False)
+            # Filter controls
+            fcol1, fcol2, fcol3 = st.columns([3, 1, 1])
+            with fcol1:
+                busqueda = st.text_input("🔍 Buscar lista por nombre",
+                                         placeholder="Escribe para filtrar...",
+                                         key="busq_lista")
+            with fcol2:
+                solo_con_envios = st.checkbox("Solo con envíos", key="chk_envios")
+            with fcol3:
+                tipo_filtro = st.selectbox("Tipo", ["Todos", "DYNAMIC", "STATIC", "ILS"],
+                                           key="tipo_lista")
+
+            # Apply filters
+            df_disp = df_lists.copy()
+            if busqueda:
+                df_disp = df_disp[df_disp["nombre"].str.contains(busqueda, case=False, na=False)]
+            if solo_con_envios:
+                df_disp = df_disp[df_disp["emails_enviados"] > 0]
+            if tipo_filtro != "Todos":
+                df_disp = df_disp[df_disp["tipo"] == tipo_filtro]
+
+            df_disp = df_disp.sort_values("emails_enviados", ascending=False)
+
+            st.caption(f"Mostrando {len(df_disp)} de {len(df_lists)} listas")
+
             rename_lists = {
                 "nombre": "Nombre", "tipo": "Tipo", "size": "Contactos",
                 "emails_enviados": "Emails enviados",
@@ -2505,11 +2563,13 @@ def main():
             cols_disp = [c for c in rename_lists if c in df_disp.columns]
             st.dataframe(df_disp[cols_disp].rename(columns=rename_lists),
                          use_container_width=True, hide_index=True,
-                         height=min(600, len(df_disp) * 36 + 40))
+                         height=600)
 
             # Per-list email detail
             if not df_emails.empty:
-                listas_con_envios = df_lists[df_lists["emails_enviados"] > 0]["nombre"].tolist()
+                listas_con_envios = (df_lists[df_lists["emails_enviados"] > 0]
+                                     .sort_values("emails_enviados", ascending=False)["nombre"]
+                                     .tolist())
                 if listas_con_envios:
                     with st.expander("📧 Ver campañas asociadas a una lista"):
                         sel_lista = st.selectbox("Selecciona una lista:",
@@ -2518,8 +2578,8 @@ def main():
                             df_emails["listas"].str.contains(sel_lista, na=False, regex=False)
                         ]
                         if not emails_lista.empty:
-                            cols_em = [c for c in ["nombre","fecha","asunto","enviados",
-                                                    "tasa_apertura","ctr","ctor","bajas"]
+                            cols_em = [c for c in ["nombre", "fecha", "asunto", "enviados",
+                                                    "tasa_apertura", "ctr", "ctor", "bajas"]
                                        if c in emails_lista.columns]
                             ren_em = {"nombre": "Email", "fecha": "Fecha",
                                       "asunto": "Asunto", "enviados": "Enviados",
