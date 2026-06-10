@@ -926,6 +926,168 @@ def fetch_all_lists() -> pd.DataFrame:
     return pd.DataFrame(lists) if lists else pd.DataFrame()
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_workflows() -> pd.DataFrame:
+    r = requests.get(f"{BASE}/automation/v3/workflows", headers=HEADERS, timeout=20)
+    if r.status_code != 200:
+        return pd.DataFrame()
+    wfs_raw = r.json().get("workflows", [])
+
+    def _detail(wf):
+        wid = wf["id"]
+        r2 = requests.get(f"{BASE}/automation/v3/workflows/{wid}", headers=HEADERS, timeout=15)
+        return wid, r2.json() if r2.status_code == 200 else {}
+
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        futs = [ex.submit(_detail, w) for w in wfs_raw]
+    detail_map = dict(f.result() for f in futs)
+
+    email_id_set: set = set()
+    for d in detail_map.values():
+        for a in (d or {}).get("actions", []):
+            if a.get("type") == "EMAIL" and a.get("emailContentId"):
+                email_id_set.add(str(a["emailContentId"]))
+
+    def _ename(eid):
+        r = requests.get(f"{BASE}/marketing/v3/emails/{eid}", headers=HEADERS, timeout=10)
+        if r.status_code == 200:
+            return eid, r.json().get("name", eid)
+        return eid, eid
+
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        efuts = [ex.submit(_ename, eid) for eid in email_id_set]
+    ename_map = dict(f.result() for f in efuts)
+
+    ACTION_LABEL = {
+        "EMAIL":                "📧 Email",
+        "DEAL":                 "💼 Deal",
+        "SET_CONTACT_PROPERTY": "✏️ Prop. contacto",
+        "SET_COMPANY_PROPERTY": "✏️ Prop. empresa",
+        "SEQUENCE":             "🔗 Secuencia",
+        "TASK":                 "✅ Tarea",
+        "DELAY":                "⏱ Espera",
+        "ADD_TO_LIST":          "📋 Añadir a lista",
+        "REMOVE_FROM_LIST":     "📋 Quitar de lista",
+        "NOTIFICATION_EMAIL":   "🔔 Notif. interna",
+        "WEBHOOK":              "🔌 Webhook",
+    }
+
+    rows = []
+    for wf in wfs_raw:
+        wid     = wf["id"]
+        d       = detail_map.get(wid) or {}
+        ia      = int(wf.get("insertedAt") or 0)
+        ua      = int(wf.get("updatedAt")  or 0)
+        actions = d.get("actions", [])
+
+        seen_types: list = []
+        seen_set: set    = set()
+        for a in actions:
+            t = a.get("type", "")
+            if t and t not in seen_set:
+                seen_set.add(t)
+                seen_types.append(ACTION_LABEL.get(t, t))
+
+        email_names: list = []
+        for a in actions:
+            if a.get("type") == "EMAIL" and a.get("emailContentId"):
+                n = ename_map.get(str(a["emailContentId"]), str(a["emailContentId"]))
+                if n not in email_names:
+                    email_names.append(n)
+
+        rows.append({
+            "id":          wid,
+            "nombre":      wf.get("name", ""),
+            "activo":      bool(wf.get("enabled")),
+            "acciones":    ", ".join(seen_types) if seen_types else "—",
+            "emails":      "; ".join(email_names) if email_names else "—",
+            "n_emails":    len(email_names),
+            "creado":      datetime.fromtimestamp(ia / 1000).strftime("%Y-%m-%d") if ia else "",
+            "actualizado": datetime.fromtimestamp(ua / 1000).strftime("%Y-%m-%d") if ua else "",
+        })
+
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_sequences() -> pd.DataFrame:
+    r = requests.get(f"{BASE}/settings/v3/users", headers=HEADERS, timeout=15)
+    if r.status_code != 200:
+        return pd.DataFrame()
+    users = r.json().get("results", [])
+
+    seq_map: dict = {}
+    for u in users:
+        uid = u.get("id")
+        r2 = requests.get(f"{BASE}/automation/v4/sequences",
+                          headers=HEADERS,
+                          params={"userId": uid, "limit": 200},
+                          timeout=10)
+        if r2.status_code != 200:
+            continue
+        email_val = u.get("email", str(uid))
+        for s in r2.json().get("results", []):
+            sid = s.get("id")
+            if not sid:
+                continue
+            if sid not in seq_map:
+                seq_map[sid] = {"raw": s, "uid": uid, "owners": [email_val]}
+            elif email_val not in seq_map[sid]["owners"]:
+                seq_map[sid]["owners"].append(email_val)
+
+    def _seq_detail(sid, uid):
+        r = requests.get(f"{BASE}/automation/v4/sequences/{sid}",
+                         headers=HEADERS, params={"userId": uid}, timeout=10)
+        return sid, r.json() if r.status_code == 200 else None
+
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        sfuts = [ex.submit(_seq_detail, sid, info["uid"]) for sid, info in seq_map.items()]
+    sdetail_map = dict(f.result() for f in sfuts)
+
+    rows = []
+    for sid, info in seq_map.items():
+        d     = sdetail_map.get(sid) or info["raw"]
+        steps = d.get("steps", [])
+
+        n_email = sum(1 for s in steps if s.get("actionType") == "EMAIL")
+        n_task  = sum(1 for s in steps if s.get("actionType") == "TASK")
+
+        day_accum = 0
+        step_parts: list = []
+        for s in sorted(steps, key=lambda x: x.get("stepOrder", 0)):
+            atype    = s.get("actionType", "")
+            delay_ms = int(s.get("delayMillis") or 0)
+            if delay_ms:
+                day_accum += max(1, round(delay_ms / 86400000))
+            if atype == "EMAIL":
+                step_parts.append(f"Día {day_accum}: 📧 Email")
+            elif atype == "TASK":
+                tp   = ((s.get("taskPattern") or {}).get("taskType") or "TASK")
+                subj = ((s.get("taskPattern") or {}).get("subject") or "")[:35]
+                label = tp.replace("CALL", "Llamada").replace("TODO", "Tarea").replace("EMAIL", "Email")
+                step_parts.append(f"Día {day_accum}: ✅ {label}" + (f" – {subj}" if subj else ""))
+
+        ca = (d.get("createdAt") or "")[:10]
+        ua = (d.get("updatedAt") or "")[:10]
+
+        rows.append({
+            "id":          sid,
+            "nombre":      d.get("name", ""),
+            "total_pasos": n_email + n_task,
+            "emails":      n_email,
+            "tareas":      n_task,
+            "pasos":       " → ".join(step_parts) if step_parts else "—",
+            "responsables": ", ".join(sorted(info["owners"])),
+            "n_resp":      len(info["owners"]),
+            "creado":      ca,
+            "actualizado": ua,
+        })
+
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows).sort_values("nombre").reset_index(drop=True)
+
+
 # ── Helpers de gráficos ───────────────────────────────────────────────────────
 
 def barca_layout(fig, height=340):
@@ -2587,6 +2749,184 @@ def main():
                                       "ctor": "CTOR %", "bajas": "Bajas"}
                             st.dataframe(emails_lista[cols_em].rename(columns=ren_em),
                                          use_container_width=True, hide_index=True)
+
+    # ── WORKFLOWS & SECUENCIAS ─────────────────────────────────────────────────
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown(
+        f"<div style='border-top:2px solid {BARCA['gold']};margin:24px 0 16px 0'></div>",
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        f"<h2 style='color:{BARCA['blue_ink']};font-size:22px;font-weight:700;margin-bottom:4px'>"
+        "⚡ Workflows &amp; Secuencias</h2>"
+        f"<p style='color:{BARCA['ink60']};font-size:13px;margin-top:0'>"
+        "Automatizaciones activas en HubSpot – workflows de marketing y secuencias de ventas</p>",
+        unsafe_allow_html=True,
+    )
+
+    wf_tab1, wf_tab2 = st.tabs(["⚡ Workflows activos", "📨 Secuencias de ventas"])
+
+    with wf_tab1:
+        with st.spinner("Cargando workflows... (primera vez puede tardar ~10 s)"):
+            df_wf = fetch_workflows()
+
+        if df_wf.empty:
+            st.warning("No se pudieron obtener los workflows.")
+        else:
+            wf_total    = len(df_wf)
+            wf_active   = int(df_wf["activo"].sum())
+            wf_disabled = wf_total - wf_active
+            wf_email    = int((df_wf["n_emails"] > 0).sum())
+
+            wk1, wk2, wk3, wk4 = st.columns(4)
+            kpi_card(wk1, "Total workflows",   wf_total,    BARCA["blue"])
+            kpi_card(wk2, "Workflows activos", wf_active,   BARCA["gold"])
+            kpi_card(wk3, "Desactivados",      wf_disabled, BARCA["blue_deep"])
+            kpi_card(wk4, "Disparan email",    wf_email,    "#2e7d32")
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            wfc1, wfc2 = st.columns([2, 3])
+            with wfc1:
+                wf_estado = st.radio("Mostrar:", ["Activos", "Todos", "Desactivados"],
+                                     horizontal=True, key="wf_estado")
+            with wfc2:
+                wf_busq = st.text_input("🔍 Buscar por nombre o email", key="wf_busq")
+
+            df_wf_show = df_wf.copy()
+            if wf_estado == "Activos":
+                df_wf_show = df_wf_show[df_wf_show["activo"]]
+            elif wf_estado == "Desactivados":
+                df_wf_show = df_wf_show[~df_wf_show["activo"]]
+            if wf_busq:
+                wf_mask = (
+                    df_wf_show["nombre"].str.contains(wf_busq, case=False, na=False) |
+                    df_wf_show["emails"].str.contains(wf_busq, case=False, na=False)
+                )
+                df_wf_show = df_wf_show[wf_mask]
+
+            st.dataframe(
+                df_wf_show[["nombre", "activo", "acciones", "emails", "n_emails", "actualizado"]]
+                .rename(columns={
+                    "nombre":      "Nombre del Workflow",
+                    "activo":      "Activo",
+                    "acciones":    "Tipo de acción",
+                    "emails":      "Email(s) que dispara",
+                    "n_emails":    "# Emails",
+                    "actualizado": "Actualizado",
+                }),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            df_wf_email = df_wf_show[df_wf_show["n_emails"] > 0]
+            if not df_wf_email.empty:
+                with st.expander(
+                    f"📧 Detalle de {len(df_wf_email)} workflow(s) que disparan emails"
+                ):
+                    for _, wrow in df_wf_email.sort_values("nombre").iterrows():
+                        estado_icon = "✅ Activo" if wrow["activo"] else "⏸ Desactivado"
+                        st.markdown(
+                            f"**{wrow['nombre']}** &nbsp;·&nbsp; {estado_icon} &nbsp;·&nbsp; "
+                            f"{wrow['acciones']}",
+                            unsafe_allow_html=True,
+                        )
+                        for en in str(wrow["emails"]).split("; "):
+                            en = en.strip()
+                            if en and en != "—":
+                                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;📧 {en}")
+                        st.markdown(
+                            f"<small style='color:{BARCA['ink40']}'>Actualizado: {wrow['actualizado']}</small>",
+                            unsafe_allow_html=True,
+                        )
+                        st.markdown("---")
+
+            # Breakdown chart: workflows by action type
+            action_counts: dict = {}
+            for row_ac in df_wf_show["acciones"]:
+                for ac in str(row_ac).split(", "):
+                    ac = ac.strip()
+                    if ac and ac != "—":
+                        action_counts[ac] = action_counts.get(ac, 0) + 1
+            if action_counts:
+                import plotly.graph_objects as go
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.markdown(
+                    f"<p style='font-weight:600;color:{BARCA['blue_ink']};font-size:14px'>"
+                    "Distribución por tipo de acción</p>",
+                    unsafe_allow_html=True,
+                )
+                ac_df = pd.DataFrame(
+                    sorted(action_counts.items(), key=lambda x: x[1], reverse=True),
+                    columns=["Tipo", "Workflows"],
+                )
+                fig_ac = go.Figure(go.Bar(
+                    x=ac_df["Tipo"],
+                    y=ac_df["Workflows"],
+                    marker_color=BARCA["blue"],
+                    text=ac_df["Workflows"],
+                    textposition="outside",
+                ))
+                fig_ac = barca_layout(fig_ac, height=300)
+                fig_ac.update_layout(xaxis_title="", yaxis_title="Nº workflows")
+                st.plotly_chart(fig_ac, use_container_width=True)
+
+    with wf_tab2:
+        with st.spinner("Cargando secuencias... (primera vez puede tardar ~15 s)"):
+            df_seq = fetch_sequences()
+
+        if df_seq.empty:
+            st.info("No se encontraron secuencias de ventas.")
+        else:
+            sq1, sq2, sq3, sq4 = st.columns(4)
+            kpi_card(sq1, "Secuencias únicas",          len(df_seq),                BARCA["blue"])
+            kpi_card(sq2, "Total emails en secuencias", int(df_seq["emails"].sum()), BARCA["gold"])
+            kpi_card(sq3, "Total tareas en secuencias", int(df_seq["tareas"].sum()), BARCA["blue_deep"])
+            kpi_card(sq4, "Promedio pasos/secuencia",
+                     round(df_seq["total_pasos"].mean(), 1) if not df_seq.empty else 0,
+                     "#2e7d32")
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            seq_busq = st.text_input("🔍 Buscar secuencia", key="seq_busq")
+            df_seq_show = df_seq.copy()
+            if seq_busq:
+                df_seq_show = df_seq_show[
+                    df_seq_show["nombre"].str.contains(seq_busq, case=False, na=False)
+                ]
+
+            st.dataframe(
+                df_seq_show[["nombre", "total_pasos", "emails", "tareas", "n_resp", "creado"]]
+                .rename(columns={
+                    "nombre":      "Nombre de la secuencia",
+                    "total_pasos": "Total pasos",
+                    "emails":      "Emails",
+                    "tareas":      "Tareas",
+                    "n_resp":      "Comerciales asignados",
+                    "creado":      "Creada",
+                }),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+            with st.expander("🔍 Ver pasos completos de cada secuencia"):
+                for _, srow in df_seq_show.iterrows():
+                    st.markdown(
+                        f"**{srow['nombre']}** &nbsp;·&nbsp; "
+                        f"{srow['total_pasos']} pasos &nbsp;·&nbsp; "
+                        f"{srow['emails']} emails &nbsp;·&nbsp; "
+                        f"{srow['tareas']} tareas",
+                        unsafe_allow_html=True,
+                    )
+                    pasos_str = str(srow["pasos"])
+                    if pasos_str and pasos_str != "—":
+                        for p in pasos_str.split(" → "):
+                            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;→ {p.strip()}")
+                    owners_str = str(srow["responsables"])
+                    if owners_str:
+                        st.markdown(
+                            f"<small style='color:{BARCA['ink40']}'>Comerciales: {owners_str}</small>",
+                            unsafe_allow_html=True,
+                        )
+                    st.markdown("---")
 
     st.markdown(
         f"<br><div style='text-align:center;color:{BARCA['ink40']};font-size:12px'>"
