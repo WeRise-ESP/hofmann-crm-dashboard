@@ -740,7 +740,9 @@ def fetch_emails_enviados(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
         clicks    = int(stats.get("click",        0) or 0)
         bounces   = int(stats.get("bounce",       0) or 0)
         unsubs    = int(stats.get("unsubscribed", 0) or 0)
+        spam      = int(stats.get("spamreport",   0) or 0)
         rows.append({
+            "campaign_id":   str(cid or ""),
             "nombre":        e.get("name", ""),
             "asunto":        subject,
             "fecha":         pub_date,
@@ -756,6 +758,7 @@ def fetch_emails_enviados(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
             "ctor":          round(clicks / opens * 100, 1) if opens else 0.0,
             "rebotes":       bounces,
             "bajas":         unsubs,
+            "spam":          spam,
         })
 
     return pd.DataFrame(rows).sort_values("fecha", ascending=False) if rows else pd.DataFrame()
@@ -799,24 +802,111 @@ def fetch_emails_programados() -> pd.DataFrame:
     if unknown_ids:
         list_id_name_map.update(_fetch_list_names(tuple(sorted(unknown_ids))))
 
+    hoy_prog = date.today()
     rows = []
     for e in raw:
         listas = ", ".join(list_id_name_map.get(lid, lid)
                            for lid, _ in _email_list_ids(e)) or "—"
-        pub       = e.get("publishDate") or ""
-        fecha_str = pub[:16].replace("T", " ") if pub else "—"
+        pub = e.get("publishDate") or ""
+        if pub:
+            pub_date_str = pub[:10]
+            pub_display  = pub[:16].replace("T", " ")
+            try:
+                pub_d = date.fromisoformat(pub_date_str)
+                dias  = (pub_d - hoy_prog).days
+                if dias > 0:
+                    estado = f"Próximo ({dias}d)"
+                elif dias == 0:
+                    estado = "Hoy"
+                else:
+                    estado = f"Pendiente ({abs(dias)}d atrás)"
+            except Exception:
+                pub_date_str = ""
+                dias = None
+                estado = "—"
+        else:
+            pub_date_str = ""
+            pub_display  = "Sin fecha"
+            dias = None
+            estado = "Sin fecha"
+
         content   = e.get("content") or {}
         subject   = (e.get("subject") or content.get("subject") or e.get("name") or "")
         from_name = ((content.get("from") or {}).get("fromName") or "")
         rows.append({
+            "estado":           estado,
             "nombre":           e.get("name", ""),
             "asunto":           subject,
-            "fecha_programada": fecha_str,
+            "fecha_programada": pub_display,
+            "fecha_sort":       pub_date_str,
             "remitente":        from_name,
             "listas":           listas,
         })
 
-    return pd.DataFrame(rows) if rows else pd.DataFrame()
+    df_p = pd.DataFrame(rows) if rows else pd.DataFrame()
+    if not df_p.empty and "fecha_sort" in df_p.columns:
+        df_p = df_p.sort_values("fecha_sort")
+    return df_p
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_click_urls(campaign_id: str) -> list:
+    """Returns [(url, clicks)] sorted desc for a campaign."""
+    events: list = []
+    params: dict = {"campaignId": campaign_id, "eventType": "CLICK", "limit": 300}
+    for _ in range(5):
+        r = requests.get(f"{BASE}/email/public/v1/events",
+                         headers=HEADERS, params=params, timeout=20)
+        if r.status_code != 200:
+            break
+        data = r.json()
+        batch = data.get("events", [])
+        if not batch:
+            break
+        events.extend(batch)
+        if not data.get("hasMore"):
+            break
+        params["offset"] = data.get("offset", 0) + len(batch)
+
+    url_counts: dict = {}
+    for ev in events:
+        url = (ev.get("url") or "").strip()
+        if url and "unsubscribe" not in url.lower() and not url.startswith("mailto:"):
+            url_counts[url] = url_counts.get(url, 0) + 1
+    return sorted(url_counts.items(), key=lambda x: x[1], reverse=True)[:15]
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_all_lists() -> pd.DataFrame:
+    lists: list = []
+    offset = 0
+    while True:
+        r = requests.get(f"{BASE}/contacts/v1/lists",
+                         headers=HEADERS,
+                         params={"count": 250, "offset": offset},
+                         timeout=30)
+        if r.status_code != 200:
+            break
+        data = r.json()
+        batch = data.get("lists", [])
+        if not batch:
+            break
+        for lst in batch:
+            meta = lst.get("metaData") or {}
+            ca   = int(lst.get("createdAt") or 0)
+            ua   = int(lst.get("updatedAt") or 0)
+            lists.append({
+                "list_id": str(lst.get("listId", "")),
+                "nombre":  lst.get("name", ""),
+                "tipo":    lst.get("listType", ""),
+                "size":    int(meta.get("size", 0) or 0),
+                "created": datetime.fromtimestamp(ca / 1000).strftime("%Y-%m-%d") if ca else "",
+                "updated": datetime.fromtimestamp(ua / 1000).strftime("%Y-%m-%d") if ua else "",
+            })
+        if not data.get("has-more"):
+            break
+        offset += len(batch)
+    return pd.DataFrame(lists) if lists else pd.DataFrame()
 
 
 # ── Helpers de gráficos ───────────────────────────────────────────────────────
@@ -1896,157 +1986,540 @@ def main():
             📧 Email Marketing
         </h2>
         <p style="color:{BARCA['line']};margin:4px 0 0;font-size:13px">
-            Rendimiento de campañas · HubSpot · período seleccionado
+            Análisis completo de campañas · HubSpot · período seleccionado
         </p>
     </div>""", unsafe_allow_html=True)
 
-    if df_emails.empty:
-        st.info("No hay emails enviados en el período seleccionado.")
+    # ── Pre-compute aggregate stats (shared across tabs) ──────────────────────
+    if not df_emails.empty:
+        total_campanas   = len(df_emails)
+        total_enviados   = int(df_emails["enviados"].sum())
+        total_entregados = int(df_emails["entregados"].sum())
+        total_aperturas  = int(df_emails["aperturas"].sum())
+        total_clicks     = int(df_emails["clicks"].sum())
+        total_bajas      = int(df_emails["bajas"].sum())
+        total_rebotes    = int(df_emails["rebotes"].sum())
+        total_spam       = int(df_emails["spam"].sum()) if "spam" in df_emails.columns else 0
+        tasa_ap_global   = round(total_aperturas / total_enviados * 100, 1) if total_enviados else 0.0
+        ctr_global       = round(total_clicks    / total_enviados * 100, 1) if total_enviados else 0.0
+        ctor_global      = round(total_clicks    / total_aperturas * 100, 1) if total_aperturas else 0.0
+        tasa_baja_global = round(total_bajas     / total_enviados * 100, 2) if total_enviados else 0.0
+        bounce_rate      = round(total_rebotes   / total_enviados * 100, 2) if total_enviados else 0.0
     else:
-        # KPIs
-        total_campanas    = len(df_emails)
-        total_enviados    = int(df_emails["enviados"].sum())
-        total_entregados  = int(df_emails["entregados"].sum())
-        total_aperturas   = int(df_emails["aperturas"].sum())
-        total_clicks      = int(df_emails["clicks"].sum())
-        total_bajas       = int(df_emails["bajas"].sum())
-        total_rebotes     = int(df_emails["rebotes"].sum())
-        tasa_ap_global    = round(total_aperturas / total_enviados * 100, 1) if total_enviados else 0.0
-        ctr_global        = round(total_clicks    / total_enviados * 100, 1) if total_enviados else 0.0
-        ctor_global       = round(total_clicks    / total_aperturas * 100, 1) if total_aperturas else 0.0
-        tasa_baja_global  = round(total_bajas     / total_enviados * 100, 2) if total_enviados else 0.0
+        total_campanas = total_enviados = total_entregados = 0
+        total_aperturas = total_clicks = total_bajas = total_rebotes = total_spam = 0
+        tasa_ap_global = ctr_global = ctor_global = tasa_baja_global = bounce_rate = 0.0
 
-        ek1, ek2, ek3, ek4, ek5, ek6 = st.columns(6)
-        kpi_card(ek1, "Campañas enviadas",    total_campanas,               BARCA["blue"])
-        kpi_card(ek2, "Contactos impactados", f"{total_enviados:,}",        BARCA["blue_deep"])
-        kpi_card(ek3, "Tasa apertura",        f"{tasa_ap_global}%",         BARCA["gold"])
-        kpi_card(ek4, "CTR",                  f"{ctr_global}%",             BARCA["garnet"])
-        kpi_card(ek5, "CTOR",                 f"{ctor_global}%",            BARCA["blue"])
-        kpi_card(ek6, "Tasa de baja",         f"{tasa_baja_global}%",       BARCA["garnet_deep"])
+    em_tab1, em_tab2, em_tab3, em_tab4, em_tab5 = st.tabs([
+        "📊 Campañas enviadas",
+        "📈 Rendimiento",
+        "💡 Consejos",
+        "📅 Programados",
+        "📋 Listas y Segmentos",
+    ])
 
-        st.markdown("<br>", unsafe_allow_html=True)
+    # ── Tab 1: Campañas enviadas ───────────────────────────────────────────────
+    with em_tab1:
+        if df_emails.empty:
+            st.info("No hay emails enviados en el período seleccionado.")
+        else:
+            ek1, ek2, ek3, ek4, ek5, ek6 = st.columns(6)
+            kpi_card(ek1, "Campañas enviadas",    total_campanas,         BARCA["blue"])
+            kpi_card(ek2, "Contactos impactados", f"{total_enviados:,}",  BARCA["blue_deep"])
+            kpi_card(ek3, "Tasa apertura",        f"{tasa_ap_global}%",   BARCA["gold"])
+            kpi_card(ek4, "CTR",                  f"{ctr_global}%",       BARCA["garnet"])
+            kpi_card(ek5, "CTOR",                 f"{ctor_global}%",      BARCA["blue"])
+            kpi_card(ek6, "Tasa de baja",         f"{tasa_baja_global}%", BARCA["garnet_deep"])
+            st.markdown("<br>", unsafe_allow_html=True)
 
-        # Charts row 1: evolución mensual + top 10 por apertura
-        ec1, ec2 = st.columns(2)
+            ec1, ec2 = st.columns(2)
+            with ec1:
+                if df_emails["mes"].nunique() > 1:
+                    monthly = (df_emails.groupby("mes")
+                               .agg(Enviados=("enviados", "sum"),
+                                    Aperturas=("aperturas", "sum"),
+                                    Clicks=("clicks", "sum"))
+                               .reset_index().rename(columns={"mes": "Mes"}))
+                    fig = px.line(monthly, x="Mes", y=["Enviados", "Aperturas", "Clicks"],
+                                  title="Evolución mensual", markers=True,
+                                  color_discrete_sequence=[BARCA["blue"], BARCA["gold"],
+                                                            BARCA["garnet"]])
+                    barca_layout(fig, 340)
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    top_v = df_emails.nlargest(10, "enviados")
+                    fig = px.bar(top_v.sort_values("enviados"), x="enviados", y="nombre",
+                                 orientation="h", text_auto=True,
+                                 title="Emails por volumen enviado",
+                                 color_discrete_sequence=[BARCA["blue"]])
+                    fig.update_layout(yaxis=dict(categoryorder="total ascending"))
+                    barca_layout(fig, 340)
+                    st.plotly_chart(fig, use_container_width=True)
 
-        with ec1:
-            if df_emails["mes"].nunique() > 1:
-                monthly = (df_emails.groupby("mes")
-                           .agg(Enviados=("enviados", "sum"),
-                                Aperturas=("aperturas", "sum"),
-                                Clicks=("clicks", "sum"))
-                           .reset_index()
-                           .rename(columns={"mes": "Mes"}))
-                fig = px.line(monthly, x="Mes",
-                              y=["Enviados", "Aperturas", "Clicks"],
-                              title="Evolución mensual",
-                              markers=True,
-                              color_discrete_sequence=[BARCA["blue"],
-                                                       BARCA["gold"],
-                                                       BARCA["garnet"]])
+            with ec2:
+                top_open = df_emails[df_emails["enviados"] >= 10].nlargest(10, "tasa_apertura")
+                if not top_open.empty:
+                    fig = px.bar(top_open.sort_values("tasa_apertura"),
+                                 x="tasa_apertura", y="nombre", orientation="h",
+                                 text_auto=True, title="Top 10 por tasa de apertura (%)",
+                                 color="tasa_apertura",
+                                 color_continuous_scale=[BARCA["line2"], BARCA["gold"]])
+                    fig.update_layout(coloraxis_showscale=False,
+                                      yaxis=dict(categoryorder="total ascending"))
+                    barca_layout(fig, 340)
+                    st.plotly_chart(fig, use_container_width=True)
+
+            ec3, ec4 = st.columns([2, 1])
+            with ec3:
+                fig = px.scatter(df_emails[df_emails["enviados"] > 0],
+                                 x="tasa_apertura", y="ctr", hover_name="nombre",
+                                 size="enviados", size_max=40,
+                                 title="Apertura vs CTR (tamaño = enviados)",
+                                 labels={"tasa_apertura": "Apertura (%)", "ctr": "CTR (%)"},
+                                 color_discrete_sequence=[BARCA["blue"]])
+                barca_layout(fig, 340)
+                st.plotly_chart(fig, use_container_width=True)
+            with ec4:
+                st.markdown("#### Totales del período")
+                st.dataframe(pd.DataFrame([
+                    {"Métrica": "Campañas",      "Valor": f"{total_campanas}"},
+                    {"Métrica": "Enviados",      "Valor": f"{total_enviados:,}"},
+                    {"Métrica": "Entregados",    "Valor": f"{total_entregados:,}"},
+                    {"Métrica": "Aperturas",     "Valor": f"{total_aperturas:,}"},
+                    {"Métrica": "Tasa apertura", "Valor": f"{tasa_ap_global}%"},
+                    {"Métrica": "Clicks",        "Valor": f"{total_clicks:,}"},
+                    {"Métrica": "CTR",           "Valor": f"{ctr_global}%"},
+                    {"Métrica": "CTOR",          "Valor": f"{ctor_global}%"},
+                    {"Métrica": "Rebotes",       "Valor": f"{total_rebotes:,}"},
+                    {"Métrica": "Bajas",         "Valor": f"{total_bajas:,}"},
+                    {"Métrica": "Tasa baja",     "Valor": f"{tasa_baja_global}%"},
+                    {"Métrica": "Spam reports",  "Valor": f"{total_spam:,}"},
+                ]), use_container_width=True, hide_index=True, height=480)
+
+            # Full table
+            with st.expander("📋 Tabla completa de emails enviados"):
+                rename_em = {
+                    "nombre": "Nombre", "fecha": "Fecha", "asunto": "Asunto",
+                    "listas": "Listas", "enviados": "Enviados",
+                    "entregados": "Entregados", "aperturas": "Aperturas únicas",
+                    "tasa_apertura": "Apertura %", "clicks": "Clicks únicos",
+                    "ctr": "CTR %", "ctor": "CTOR %",
+                    "rebotes": "Rebotes", "bajas": "Bajas", "spam": "Spam",
+                }
+                cols_show = [c for c in rename_em if c in df_emails.columns]
+                tabla_em = df_emails[cols_show].rename(columns=rename_em)
+                st.dataframe(
+                    tabla_em.style
+                    .background_gradient(subset=["Apertura %", "CTR %"],
+                                         cmap="Blues", vmin=0, vmax=50)
+                    .format({"Apertura %": "{:.1f}%", "CTR %": "{:.1f}%",
+                             "CTOR %": "{:.1f}%"}),
+                    use_container_width=True, hide_index=True,
+                )
+                fi_label = str(fi) if fi != "todos" else "todos"
+                ff_label = str(ff) if ff != "todos" else "todos"
+                st.download_button("⬇️ Descargar CSV",
+                    data=tabla_em.to_csv(index=False, encoding="utf-8-sig"),
+                    file_name=f"email_marketing_{fi_label}_{ff_label}.csv",
+                    mime="text/csv", key="dl_emails")
+
+            # URL click breakdown (lazy per-campaign)
+            with st.expander("🔗 URLs más clickeadas por campaña"):
+                nombres_cid = (df_emails[df_emails["campaign_id"] != ""][["nombre", "campaign_id"]]
+                               .drop_duplicates("nombre") if "campaign_id" in df_emails.columns
+                               else pd.DataFrame())
+                if nombres_cid.empty:
+                    st.info("No hay datos de campañas disponibles.")
+                else:
+                    sel_email = st.selectbox("Selecciona un email:",
+                                             nombres_cid["nombre"].tolist(),
+                                             key="sel_url_email")
+                    row_cid = nombres_cid[nombres_cid["nombre"] == sel_email]
+                    if not row_cid.empty:
+                        cid_sel = row_cid["campaign_id"].values[0]
+                        with st.spinner("Cargando URLs clickeadas..."):
+                            urls = fetch_click_urls(str(cid_sel))
+                        if urls:
+                            df_urls = pd.DataFrame(urls, columns=["URL", "Clicks"])
+                            st.dataframe(df_urls, use_container_width=True, hide_index=True)
+                        else:
+                            st.info("No se encontraron clicks registrados para este email.")
+
+    # ── Tab 2: Rendimiento ─────────────────────────────────────────────────────
+    with em_tab2:
+        if df_emails.empty:
+            st.info("No hay datos suficientes para el análisis.")
+        else:
+            # Benchmarks
+            st.markdown("### 📊 Métricas vs Benchmarks del sector")
+            st.caption("Referencias para email marketing de formación/educación · fuente: Mailchimp / HubSpot Industry Benchmarks")
+            bench_rows = []
+            for metrica, actual, bench, unit, es_negativo in [
+                ("Tasa apertura",  tasa_ap_global,  25.0, "%", False),
+                ("CTR",            ctr_global,       2.6, "%", False),
+                ("CTOR",           ctor_global,     10.0, "%", False),
+                ("Tasa rebote",    bounce_rate,      0.63, "%", True),
+                ("Tasa de baja",   tasa_baja_global, 0.25, "%", True),
+            ]:
+                diff = round(actual - bench, 2)
+                if es_negativo:
+                    ok = actual <= bench
+                    estado = "✅ OK" if ok else "⚠️ Alto"
+                else:
+                    ok = actual >= bench
+                    estado = "✅ OK" if ok else "⚠️ Bajo"
+                bench_rows.append({
+                    "Métrica": metrica,
+                    "Actual": f"{actual}{unit}",
+                    "Benchmark": f"{bench}{unit}",
+                    "Diferencia": f"{'+' if diff >= 0 else ''}{diff}{unit}",
+                    "Estado": estado,
+                })
+            st.dataframe(pd.DataFrame(bench_rows), use_container_width=True, hide_index=True)
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # Top 5 / Bottom 5
+            st.markdown("### 🏆 Mejores y peores campañas")
+            valid_df = df_emails[df_emails["enviados"] >= 20].copy()
+            if len(valid_df) >= 4:
+                rb1, rb2 = st.columns(2)
+                with rb1:
+                    top5 = valid_df.nlargest(5, "tasa_apertura")
+                    fig = px.bar(top5.sort_values("tasa_apertura"),
+                                 x="tasa_apertura", y="nombre", orientation="h",
+                                 text_auto=True, title="🏆 Top 5 — Mayor apertura",
+                                 color_discrete_sequence=[BARCA["gold"]])
+                    fig.update_layout(yaxis=dict(categoryorder="total ascending"))
+                    barca_layout(fig, 300)
+                    st.plotly_chart(fig, use_container_width=True)
+                with rb2:
+                    bot5 = valid_df.nsmallest(5, "tasa_apertura")
+                    fig = px.bar(bot5.sort_values("tasa_apertura", ascending=False),
+                                 x="tasa_apertura", y="nombre", orientation="h",
+                                 text_auto=True, title="📉 Bottom 5 — Menor apertura",
+                                 color_discrete_sequence=[BARCA["garnet"]])
+                    fig.update_layout(yaxis=dict(categoryorder="total ascending"))
+                    barca_layout(fig, 300)
+                    st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info("Se necesitan al menos 4 campañas con >20 enviados para este análisis.")
+
+            # Day of week
+            if len(df_emails) >= 5:
+                st.markdown("### 📅 Rendimiento por día de la semana")
+                DIAS_ES = {0: "Lunes", 1: "Martes", 2: "Miércoles", 3: "Jueves",
+                           4: "Viernes", 5: "Sábado", 6: "Domingo"}
+                df_dow = df_emails[df_emails["fecha"] != ""].copy()
+                df_dow["dia_num"] = pd.to_datetime(df_dow["fecha"], errors="coerce").dt.dayofweek
+                df_dow = df_dow.dropna(subset=["dia_num"])
+                df_dow["dia_num"] = df_dow["dia_num"].astype(int)
+                df_dow["dia"] = df_dow["dia_num"].map(DIAS_ES)
+                dow_agg = (df_dow.groupby("dia_num")
+                           .agg(campanas=("nombre", "count"),
+                                avg_apertura=("tasa_apertura", "mean"),
+                                avg_ctr=("ctr", "mean"))
+                           .reset_index())
+                dow_agg["dia"] = dow_agg["dia_num"].map(DIAS_ES)
+                dow_agg["avg_apertura"] = dow_agg["avg_apertura"].round(1)
+                dow_agg = dow_agg.sort_values("dia_num")
+                rd1, rd2 = st.columns(2)
+                with rd1:
+                    fig = px.bar(dow_agg, x="dia", y="campanas",
+                                 title="Campañas enviadas por día de la semana",
+                                 color_discrete_sequence=[BARCA["blue"]])
+                    barca_layout(fig, 300)
+                    st.plotly_chart(fig, use_container_width=True)
+                with rd2:
+                    fig = px.bar(dow_agg, x="dia", y="avg_apertura",
+                                 title="Apertura promedio por día de la semana (%)",
+                                 color="avg_apertura",
+                                 color_continuous_scale=[BARCA["line2"], BARCA["gold"]])
+                    fig.update_layout(coloraxis_showscale=False)
+                    barca_layout(fig, 300)
+                    st.plotly_chart(fig, use_container_width=True)
+
+            # Subject length
+            st.markdown("### 📝 Longitud del asunto vs tasa de apertura")
+            df_subj = df_emails[(df_emails["asunto"] != "") & (df_emails["enviados"] >= 10)].copy()
+            if len(df_subj) >= 5:
+                df_subj["largo_asunto"] = df_subj["asunto"].str.len()
+                fig = px.scatter(df_subj, x="largo_asunto", y="tasa_apertura",
+                                 hover_name="nombre", size="enviados", size_max=30,
+                                 title="Nº caracteres del asunto vs Tasa de apertura",
+                                 labels={"largo_asunto": "Caracteres", "tasa_apertura": "Apertura (%)"},
+                                 color_discrete_sequence=[BARCA["blue_deep"]])
                 barca_layout(fig, 340)
                 st.plotly_chart(fig, use_container_width=True)
             else:
-                # Single month: bar chart of top emails by sent volume
-                top = df_emails.nlargest(10, "enviados")[["nombre", "enviados",
-                                                            "aperturas", "clicks"]]
-                fig = px.bar(top.sort_values("enviados"), x="enviados", y="nombre",
-                             orientation="h", text_auto=True,
-                             title="Emails por volumen enviado",
-                             color_discrete_sequence=[BARCA["blue"]])
-                fig.update_layout(yaxis=dict(categoryorder="total ascending"))
-                barca_layout(fig, 340)
-                st.plotly_chart(fig, use_container_width=True)
+                st.info("Se necesitan más campañas para este análisis.")
 
-        with ec2:
-            top_open = df_emails[df_emails["enviados"] >= 10].nlargest(10, "tasa_apertura")
-            if not top_open.empty:
-                fig = px.bar(top_open.sort_values("tasa_apertura"),
-                             x="tasa_apertura", y="nombre", orientation="h",
-                             text_auto=True,
-                             title="Top 10 emails por tasa de apertura (%)",
-                             color="tasa_apertura",
-                             color_continuous_scale=[BARCA["line2"], BARCA["gold"]])
-                fig.update_layout(coloraxis_showscale=False,
-                                  yaxis=dict(categoryorder="total ascending"))
-                barca_layout(fig, 340)
-                st.plotly_chart(fig, use_container_width=True)
+    # ── Tab 3: Consejos ────────────────────────────────────────────────────────
+    with em_tab3:
+        if df_emails.empty:
+            st.info("No hay datos para generar consejos.")
+        else:
+            st.markdown("### 💡 Diagnóstico del canal — basado en tus datos")
 
-        # Charts row 2: scatter apertura vs CTR
-        ec3, ec4 = st.columns([2, 1])
+            def _card_consejo(emoji, titulo, texto, color):
+                st.markdown(f"""
+                <div style="border-left:4px solid {color};padding:12px 16px;
+                            margin-bottom:12px;background:{BARCA['white']};
+                            border-radius:0 8px 8px 0;
+                            box-shadow:0 1px 3px rgba(0,0,0,.07)">
+                    <div style="font-weight:700;font-size:14px;
+                                color:{BARCA['blue_ink']};margin-bottom:4px">
+                        {emoji} {titulo}
+                    </div>
+                    <div style="font-size:13px;color:{BARCA['ink60']}">{texto}</div>
+                </div>""", unsafe_allow_html=True)
 
-        with ec3:
-            scatter_df = df_emails[df_emails["enviados"] > 0].copy()
-            fig = px.scatter(scatter_df,
-                             x="tasa_apertura", y="ctr",
-                             hover_name="nombre",
-                             size="enviados",
-                             size_max=40,
-                             title="Apertura vs CTR (tamaño = enviados)",
-                             labels={"tasa_apertura": "Tasa apertura (%)", "ctr": "CTR (%)"},
-                             color_discrete_sequence=[BARCA["blue"]])
-            barca_layout(fig, 340)
-            st.plotly_chart(fig, use_container_width=True)
+            # Open rate
+            if tasa_ap_global >= 30:
+                _card_consejo("✅", f"Tasa apertura excelente ({tasa_ap_global}%)",
+                    "Muy por encima del benchmark (25%). Continúa con la estrategia actual de asuntos y segmentación.",
+                    BARCA["gold"])
+            elif tasa_ap_global >= 20:
+                _card_consejo("🟡", f"Tasa apertura aceptable ({tasa_ap_global}%)",
+                    "Cerca del benchmark (25%). Prueba A/B testing en asuntos: preguntas, urgencia, emojis. "
+                    "También optimiza el nombre del remitente para que sea reconocible.",
+                    "#f0a500")
+            else:
+                _card_consejo("🔴", f"Tasa apertura baja ({tasa_ap_global}%)",
+                    "Por debajo del benchmark (25%). Acciones clave: 1) Mejora los asuntos, 2) Revisa la hora/día de envío, "
+                    "3) Limpia los contactos inactivos de tus listas.",
+                    BARCA["garnet"])
 
-        with ec4:
-            st.markdown(f"#### Totales del período")
-            resumen = pd.DataFrame([{
-                "Métrica": "Campañas",       "Valor": f"{total_campanas}"},
-                {"Métrica": "Enviados",      "Valor": f"{total_enviados:,}"},
-                {"Métrica": "Entregados",    "Valor": f"{total_entregados:,}"},
-                {"Métrica": "Aperturas",     "Valor": f"{total_aperturas:,}"},
-                {"Métrica": "Tasa apertura", "Valor": f"{tasa_ap_global}%"},
-                {"Métrica": "Clicks",        "Valor": f"{total_clicks:,}"},
-                {"Métrica": "CTR",           "Valor": f"{ctr_global}%"},
-                {"Métrica": "CTOR",          "Valor": f"{ctor_global}%"},
-                {"Métrica": "Rebotes",       "Valor": f"{total_rebotes:,}"},
-                {"Métrica": "Bajas",         "Valor": f"{total_bajas:,}"},
-                {"Métrica": "Tasa baja",     "Valor": f"{tasa_baja_global}%"},
-            ])
-            st.dataframe(resumen, use_container_width=True, hide_index=True,
-                         height=min(450, len(resumen) * 36 + 40))
+            # CTR
+            if ctr_global >= 3:
+                _card_consejo("✅", f"CTR sólido ({ctr_global}%)",
+                    "Por encima del benchmark (2.6%). Tu contenido y CTAs funcionan bien.",
+                    BARCA["gold"])
+            elif ctr_global >= 1.5:
+                _card_consejo("🟡", f"CTR mejorable ({ctr_global}%)",
+                    "Por debajo del benchmark (2.6%). Asegúrate de tener un CTA único, claro y con texto de acción: "
+                    "'Ver programa', 'Reservar plaza', 'Descubrir más'.",
+                    "#f0a500")
+            else:
+                _card_consejo("🔴", f"CTR bajo ({ctr_global}%)",
+                    "Significativamente bajo (benchmark 2.6%). Revisa: ¿hay un CTA visible above the fold? "
+                    "¿El diseño guía al lector hacia el click? ¿El CTA tiene contraste suficiente?",
+                    BARCA["garnet"])
 
-        # Full table
-        with st.expander("📋 Ver tabla completa de emails enviados"):
-            rename_em = {
-                "nombre": "Nombre", "fecha": "Fecha", "asunto": "Asunto",
-                "listas": "Listas", "enviados": "Enviados",
-                "entregados": "Entregados", "aperturas": "Aperturas únicas",
-                "tasa_apertura": "Apertura %", "clicks": "Clicks únicos",
-                "ctr": "CTR %", "ctor": "CTOR %",
-                "rebotes": "Rebotes", "bajas": "Bajas",
+            # CTOR
+            if ctor_global >= 12:
+                _card_consejo("✅", f"CTOR excelente ({ctor_global}%)",
+                    "Quien abre el email, hace click. El contenido es relevante y el CTA efectivo.",
+                    BARCA["gold"])
+            elif ctor_global >= 7:
+                _card_consejo("🟡", f"CTOR correcto ({ctor_global}%)",
+                    "Benchmark ~10%. Hay margen. Prueba a posicionar el CTA más arriba en el email "
+                    "y a reducir el texto previo al mismo.",
+                    "#f0a500")
+            else:
+                _card_consejo("🔴", f"CTOR bajo ({ctor_global}%)",
+                    "Quienes abren el email no hacen click. El contenido puede no conectar con la expectativa "
+                    "generada por el asunto, o el CTA no es lo suficientemente atractivo.",
+                    BARCA["garnet"])
+
+            # Bounce
+            if bounce_rate > 2:
+                _card_consejo("🔴", f"Tasa de rebote alta ({bounce_rate}%)",
+                    "Benchmark <0.63%. Urgente: limpia la lista eliminando emails inválidos. "
+                    "Un bounce alto afecta la reputación del dominio enviador.",
+                    BARCA["garnet"])
+            elif bounce_rate > 0.63:
+                _card_consejo("🟡", f"Tasa de rebote moderada ({bounce_rate}%)",
+                    "Por encima del benchmark. Considera limpiar listas periódicamente con un proceso de validación de emails.",
+                    "#f0a500")
+            else:
+                _card_consejo("✅", f"Tasa de rebote saludable ({bounce_rate}%)",
+                    "Dentro del rango óptimo (<0.63%). Las listas están en buen estado.",
+                    BARCA["gold"])
+
+            # Unsubscribe
+            if tasa_baja_global > 0.5:
+                _card_consejo("🔴", f"Tasa de bajas alta ({tasa_baja_global}%)",
+                    "Benchmark <0.25%. Causas frecuentes: frecuencia excesiva, contenido irrelevante o "
+                    "listas captadas sin double opt-in. Revisa el calendario y la segmentación.",
+                    BARCA["garnet"])
+            elif tasa_baja_global > 0.25:
+                _card_consejo("🟡", f"Tasa de bajas moderada ({tasa_baja_global}%)",
+                    "Ligeramente por encima del benchmark. Considera segmentar mejor el contenido "
+                    "por interés o programa.",
+                    "#f0a500")
+            else:
+                _card_consejo("✅", f"Tasa de bajas saludable ({tasa_baja_global}%)",
+                    "Dentro del rango óptimo (<0.25%). Los contactos valoran el contenido.",
+                    BARCA["gold"])
+
+            # Frequency
+            meses_activos = max(df_emails["mes"].nunique(), 1)
+            freq = round(total_campanas / meses_activos, 1)
+            if freq < 2:
+                _card_consejo("🟡", f"Frecuencia de envío baja (~{freq}/mes)",
+                    "Para mantener el engagement se recomienda al menos 2-4 envíos/mes. "
+                    "La presencia constante refuerza el recall de marca.",
+                    "#f0a500")
+            elif freq > 12:
+                _card_consejo("🟡", f"Alta frecuencia (~{freq}/mes)",
+                    "Más de 3 envíos/semana puede generar fatiga. Monitoriza la tasa de bajas "
+                    "y considera segmentar para no saturar a toda la base.",
+                    "#f0a500")
+            else:
+                _card_consejo("✅", f"Frecuencia adecuada (~{freq}/mes)",
+                    "Frecuencia saludable para mantener presencia sin saturar.",
+                    BARCA["gold"])
+
+            st.markdown("<br>")
+            st.markdown("### 🚀 Oportunidades de mejora")
+            oportunidades = [
+                ("🧪", "A/B Testing de asuntos",
+                 "Prueba 2 versiones de asunto en cada envío relevante. HubSpot permite A/B testing nativo "
+                 "en emails de marketing. Aprenderás qué estilo conecta mejor con tu audiencia."),
+                ("⏰", "Optimización del horario de envío",
+                 "Analiza el día y la hora con mejor apertura en tu historial (ver pestaña Rendimiento). "
+                 "Estandariza los envíos importantes en ese slot."),
+                ("🎯", "Segmentación avanzada",
+                 "En lugar de enviar a toda la lista, crea segmentos por comportamiento: "
+                 "abrieron los últimos 3 emails, hicieron click, visitaron la web de un programa concreto."),
+                ("♻️", "Campaña de re-engagement",
+                 "Identifica contactos sin actividad en >90 días. Envía una campaña de reactivación "
+                 "('¿Sigues ahí?'). Elimina los que no reaccionan para mantener la reputación del dominio."),
+                ("📊", "Lead scoring por email",
+                 "Asigna puntos en HubSpot a los contactos que abren y hacen click sistemáticamente. "
+                 "Prioriza estos leads en el CRM para el equipo de ventas."),
+                ("🔄", "Automatización post-formulario",
+                 "Crea una secuencia automática tras cada formulario: bienvenida → contenido de valor "
+                 "→ propuesta → seguimiento. Reduce la carga manual del equipo RST."),
+            ]
+            for icon, titulo, texto in oportunidades:
+                st.markdown(f"""
+                <div style="padding:12px 16px;margin-bottom:10px;
+                            background:{BARCA['white']};border-radius:8px;
+                            box-shadow:0 1px 3px rgba(0,0,0,.06)">
+                    <div style="font-weight:700;font-size:14px;
+                                color:{BARCA['blue_deep']};margin-bottom:4px">
+                        {icon} {titulo}
+                    </div>
+                    <div style="font-size:13px;color:{BARCA['ink60']}">{texto}</div>
+                </div>""", unsafe_allow_html=True)
+
+    # ── Tab 4: Programados ─────────────────────────────────────────────────────
+    with em_tab4:
+        st.markdown("### 📅 Emails Programados")
+        if df_prog.empty:
+            st.info("No hay emails programados actualmente.")
+        else:
+            hoy_str = str(date.today())
+            rename_prog = {
+                "estado": "Estado", "nombre": "Nombre",
+                "fecha_programada": "Fecha programada", "asunto": "Asunto",
+                "remitente": "Remitente", "listas": "Listas",
             }
-            cols_show = list(rename_em.keys())
-            tabla_em = df_emails[cols_show].rename(columns=rename_em)
-            st.dataframe(
-                tabla_em.style
-                .background_gradient(subset=["Apertura %", "CTR %"],
-                                     cmap="Blues", vmin=0, vmax=50)
-                .format({"Apertura %": "{:.1f}%", "CTR %": "{:.1f}%",
-                         "CTOR %": "{:.1f}%"}),
-                use_container_width=True, hide_index=True,
-            )
-            fi_label = str(fi) if fi != "todos" else "todos"
-            ff_label = str(ff) if ff != "todos" else "todos"
-            st.download_button(
-                "⬇️ Descargar CSV",
-                data=tabla_em.to_csv(index=False, encoding="utf-8-sig"),
-                file_name=f"email_marketing_{fi_label}_{ff_label}.csv",
-                mime="text/csv",
-                key="dl_emails",
-            )
+            disp_cols = [c for c in rename_prog if c in df_prog.columns]
 
-    # ── Emails programados ─────────────────────────────────────────────────────
-    st.markdown(f"### 📅 Emails Programados")
-    if df_prog.empty:
-        st.info("No hay emails programados actualmente.")
-    else:
-        rename_prog = {
-            "nombre": "Nombre", "fecha_programada": "Fecha programada",
-            "asunto": "Asunto", "remitente": "Remitente", "listas": "Listas",
-        }
-        st.dataframe(df_prog.rename(columns=rename_prog),
-                     use_container_width=True, hide_index=True)
+            if "fecha_sort" in df_prog.columns:
+                proximos = df_prog[df_prog["fecha_sort"] >= hoy_str]
+                pasados  = df_prog[df_prog["fecha_sort"] <  hoy_str]
+            else:
+                proximos = df_prog
+                pasados  = pd.DataFrame()
+
+            if not proximos.empty:
+                st.markdown(f"#### 🔜 Próximos envíos ({len(proximos)})")
+                st.dataframe(proximos[disp_cols].rename(columns=rename_prog),
+                             use_container_width=True, hide_index=True)
+            else:
+                st.info("No hay envíos futuros programados.")
+
+            if not pasados.empty:
+                st.markdown(f"#### ⚠️ Con fecha pasada — posiblemente pendientes ({len(pasados)})")
+                st.caption("Estos emails tienen fecha de envío en el pasado pero siguen en estado SCHEDULED.")
+                st.dataframe(pasados[disp_cols].rename(columns=rename_prog),
+                             use_container_width=True, hide_index=True)
+
+    # ── Tab 5: Listas y Segmentos ──────────────────────────────────────────────
+    with em_tab5:
+        st.markdown("### 📋 Listas y Segmentos de HubSpot")
+        with st.spinner("Cargando listas..."):
+            df_lists = fetch_all_lists()
+
+        if df_lists.empty:
+            st.info("No se pudieron obtener las listas.")
+        else:
+            # Cross-reference lists with email sends
+            if not df_emails.empty:
+                list_stats: dict = {}
+                for _, row_e in df_emails.iterrows():
+                    listas_str = str(row_e.get("listas") or "")
+                    if listas_str and listas_str != "—":
+                        for lname in listas_str.split(", "):
+                            lname = lname.strip()
+                            if lname:
+                                if lname not in list_stats:
+                                    list_stats[lname] = {"n": 0, "ap": [], "ctr": []}
+                                list_stats[lname]["n"] += 1
+                                list_stats[lname]["ap"].append(row_e["tasa_apertura"])
+                                list_stats[lname]["ctr"].append(row_e["ctr"])
+
+                def _avg(lst):
+                    return round(sum(lst) / len(lst), 1) if lst else 0.0
+
+                df_lists["emails_enviados"] = df_lists["nombre"].apply(
+                    lambda n: list_stats.get(n, {}).get("n", 0))
+                df_lists["avg_apertura"] = df_lists["nombre"].apply(
+                    lambda n: _avg(list_stats.get(n, {}).get("ap", [])))
+                df_lists["avg_ctr"] = df_lists["nombre"].apply(
+                    lambda n: _avg(list_stats.get(n, {}).get("ctr", [])))
+            else:
+                df_lists["emails_enviados"] = 0
+                df_lists["avg_apertura"]    = 0.0
+                df_lists["avg_ctr"]         = 0.0
+
+            kl1, kl2, kl3 = st.columns(3)
+            kpi_card(kl1, "Total listas/segmentos", len(df_lists), BARCA["blue"])
+            kpi_card(kl2, "Total contactos",
+                     f"{int(df_lists['size'].sum()):,}" if "size" in df_lists.columns else "—",
+                     BARCA["blue_deep"])
+            kpi_card(kl3, "Listas con envíos",
+                     int((df_lists["emails_enviados"] > 0).sum()),
+                     BARCA["gold"])
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            sort_col = "emails_enviados" if "emails_enviados" in df_lists.columns else "size"
+            df_disp = df_lists.sort_values(sort_col, ascending=False)
+            rename_lists = {
+                "nombre": "Nombre", "tipo": "Tipo", "size": "Contactos",
+                "emails_enviados": "Emails enviados",
+                "avg_apertura": "Apertura % prom.",
+                "avg_ctr": "CTR % prom.",
+                "created": "Creada", "updated": "Actualizada",
+            }
+            cols_disp = [c for c in rename_lists if c in df_disp.columns]
+            st.dataframe(df_disp[cols_disp].rename(columns=rename_lists),
+                         use_container_width=True, hide_index=True,
+                         height=min(600, len(df_disp) * 36 + 40))
+
+            # Per-list email detail
+            if not df_emails.empty:
+                listas_con_envios = df_lists[df_lists["emails_enviados"] > 0]["nombre"].tolist()
+                if listas_con_envios:
+                    with st.expander("📧 Ver campañas asociadas a una lista"):
+                        sel_lista = st.selectbox("Selecciona una lista:",
+                                                 listas_con_envios, key="sel_lista_email")
+                        emails_lista = df_emails[
+                            df_emails["listas"].str.contains(sel_lista, na=False, regex=False)
+                        ]
+                        if not emails_lista.empty:
+                            cols_em = [c for c in ["nombre","fecha","asunto","enviados",
+                                                    "tasa_apertura","ctr","ctor","bajas"]
+                                       if c in emails_lista.columns]
+                            ren_em = {"nombre": "Email", "fecha": "Fecha",
+                                      "asunto": "Asunto", "enviados": "Enviados",
+                                      "tasa_apertura": "Apertura %", "ctr": "CTR %",
+                                      "ctor": "CTOR %", "bajas": "Bajas"}
+                            st.dataframe(emails_lista[cols_em].rename(columns=ren_em),
+                                         use_container_width=True, hide_index=True)
 
     st.markdown(
         f"<br><div style='text-align:center;color:{BARCA['ink40']};font-size:12px'>"
