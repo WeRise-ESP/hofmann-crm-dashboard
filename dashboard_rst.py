@@ -928,6 +928,8 @@ def fetch_all_lists() -> pd.DataFrame:
 
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_workflows() -> pd.DataFrame:
+    import json as _json
+
     r = requests.get(f"{BASE}/automation/v3/workflows", headers=HEADERS, timeout=20)
     if r.status_code != 200:
         return pd.DataFrame()
@@ -942,11 +944,21 @@ def fetch_workflows() -> pd.DataFrame:
         futs = [ex.submit(_detail, w) for w in wfs_raw]
     detail_map = dict(f.result() for f in futs)
 
-    email_id_set: set = set()
+    # Collect unique emailContentId and emailCampaignId pairs
+    email_content_ids: set = set()
+    email_campaign_ids: set = set()
+    content_to_campaign: dict = {}
     for d in detail_map.values():
         for a in (d or {}).get("actions", []):
-            if a.get("type") == "EMAIL" and a.get("emailContentId"):
-                email_id_set.add(str(a["emailContentId"]))
+            if a.get("type") == "EMAIL":
+                eid = str(a.get("emailContentId") or "")
+                cid = str(a.get("emailCampaignId") or "")
+                if eid:
+                    email_content_ids.add(eid)
+                if cid:
+                    email_campaign_ids.add(cid)
+                if eid and cid:
+                    content_to_campaign[eid] = cid
 
     def _ename(eid):
         r = requests.get(f"{BASE}/marketing/v3/emails/{eid}", headers=HEADERS, timeout=10)
@@ -954,9 +966,34 @@ def fetch_workflows() -> pd.DataFrame:
             return eid, r.json().get("name", eid)
         return eid, eid
 
-    with ThreadPoolExecutor(max_workers=6) as ex:
-        efuts = [ex.submit(_ename, eid) for eid in email_id_set]
-    ename_map = dict(f.result() for f in efuts)
+    def _cstats(cid):
+        r = requests.get(f"{BASE}/email/public/v1/campaigns/{cid}",
+                         headers=HEADERS, timeout=10)
+        if r.status_code != 200:
+            return cid, None
+        c = r.json().get("counters", {})
+        sent     = int(c.get("sent",          0) or 0)
+        opens    = int(c.get("open",          0) or 0)
+        clicks   = int(c.get("click",         0) or 0)
+        bounces  = int(c.get("bounce",        0) or 0)
+        unsubs   = int(c.get("unsubscribed",  0) or 0)
+        return cid, {
+            "sent":           sent,
+            "opens":          opens,
+            "clicks":         clicks,
+            "bounces":        bounces,
+            "unsubs":         unsubs,
+            "tasa_apertura":  round(opens   / sent  * 100, 1) if sent  else 0.0,
+            "ctr":            round(clicks  / sent  * 100, 1) if sent  else 0.0,
+            "ctor":           round(clicks  / opens * 100, 1) if opens else 0.0,
+            "tasa_rebote":    round(bounces / sent  * 100, 1) if sent  else 0.0,
+        }
+
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        efuts = [ex.submit(_ename,   eid) for eid in email_content_ids]
+        cfuts = [ex.submit(_cstats,  cid) for cid in email_campaign_ids]
+    ename_map  = dict(f.result() for f in efuts)
+    cstats_map = dict(f.result() for f in cfuts)
 
     ACTION_LABEL = {
         "EMAIL":                "📧 Email",
@@ -988,22 +1025,51 @@ def fetch_workflows() -> pd.DataFrame:
                 seen_set.add(t)
                 seen_types.append(ACTION_LABEL.get(t, t))
 
-        email_names: list = []
+        # Per-email detail with stats
+        email_detail: list = []
+        seen_names: set = set()
         for a in actions:
             if a.get("type") == "EMAIL" and a.get("emailContentId"):
-                n = ename_map.get(str(a["emailContentId"]), str(a["emailContentId"]))
-                if n not in email_names:
-                    email_names.append(n)
+                eid  = str(a["emailContentId"])
+                name = ename_map.get(eid, eid)
+                if name in seen_names:
+                    continue
+                seen_names.add(name)
+                cid   = content_to_campaign.get(eid, "")
+                stats = cstats_map.get(cid) if cid else None
+                email_detail.append({
+                    "nombre":         name,
+                    "sent":           (stats or {}).get("sent",          0),
+                    "tasa_apertura":  (stats or {}).get("tasa_apertura", None),
+                    "ctr":            (stats or {}).get("ctr",           None),
+                    "ctor":           (stats or {}).get("ctor",          None),
+                    "tasa_rebote":    (stats or {}).get("tasa_rebote",   None),
+                    "unsubs":         (stats or {}).get("unsubs",        0),
+                })
+
+        email_names = [e["nombre"] for e in email_detail]
+
+        # Aggregate metrics for summary columns (only emails with sent > 0)
+        sent_emails = [e for e in email_detail if e["sent"] > 0]
+        avg_apertura = round(sum(e["tasa_apertura"] for e in sent_emails) / len(sent_emails), 1) if sent_emails else None
+        avg_ctr      = round(sum(e["ctr"]           for e in sent_emails) / len(sent_emails), 1) if sent_emails else None
+        avg_ctor     = round(sum(e["ctor"]          for e in sent_emails) / len(sent_emails), 1) if sent_emails else None
+        total_sent   = sum(e["sent"] for e in email_detail)
 
         rows.append({
-            "id":          wid,
-            "nombre":      wf.get("name", ""),
-            "activo":      bool(wf.get("enabled")),
-            "acciones":    ", ".join(seen_types) if seen_types else "—",
-            "emails":      "; ".join(email_names) if email_names else "—",
-            "n_emails":    len(email_names),
-            "creado":      datetime.fromtimestamp(ia / 1000).strftime("%Y-%m-%d") if ia else "",
-            "actualizado": datetime.fromtimestamp(ua / 1000).strftime("%Y-%m-%d") if ua else "",
+            "id":            wid,
+            "nombre":        wf.get("name", ""),
+            "activo":        bool(wf.get("enabled")),
+            "acciones":      ", ".join(seen_types) if seen_types else "—",
+            "emails":        "; ".join(email_names) if email_names else "—",
+            "n_emails":      len(email_names),
+            "email_detail":  _json.dumps(email_detail, ensure_ascii=False),
+            "enviados_total": total_sent,
+            "avg_apertura":  avg_apertura,
+            "avg_ctr":       avg_ctr,
+            "avg_ctor":      avg_ctor,
+            "creado":        datetime.fromtimestamp(ia / 1000).strftime("%Y-%m-%d") if ia else "",
+            "actualizado":   datetime.fromtimestamp(ua / 1000).strftime("%Y-%m-%d") if ua else "",
         })
 
     return pd.DataFrame(rows) if rows else pd.DataFrame()
@@ -2804,36 +2870,63 @@ def main():
                 )
                 df_wf_show = df_wf_show[wf_mask]
 
-            st.dataframe(
-                df_wf_show[["nombre", "activo", "acciones", "emails", "n_emails", "actualizado"]]
-                .rename(columns={
-                    "nombre":      "Nombre del Workflow",
-                    "activo":      "Activo",
-                    "acciones":    "Tipo de acción",
-                    "emails":      "Email(s) que dispara",
-                    "n_emails":    "# Emails",
-                    "actualizado": "Actualizado",
-                }),
-                use_container_width=True,
-                hide_index=True,
-            )
+            # ---- Main table (includes avg metrics for workflows with emails) ----
+            def _fmt_pct(v):
+                return f"{v}%" if v is not None else "—"
 
+            table_rows = []
+            for _, wrow in df_wf_show.iterrows():
+                table_rows.append({
+                    "Nombre del Workflow":  wrow["nombre"],
+                    "Activo":               wrow["activo"],
+                    "Tipo de acción":       wrow["acciones"],
+                    "Email(s) que dispara": wrow["emails"],
+                    "Enviados (total)":     int(wrow["enviados_total"]) if wrow["n_emails"] > 0 else "—",
+                    "Apertura %":           _fmt_pct(wrow["avg_apertura"]) if wrow["n_emails"] > 0 else "—",
+                    "CTR %":                _fmt_pct(wrow["avg_ctr"])      if wrow["n_emails"] > 0 else "—",
+                    "CTOR %":               _fmt_pct(wrow["avg_ctor"])     if wrow["n_emails"] > 0 else "—",
+                    "Actualizado":          wrow["actualizado"],
+                })
+            st.dataframe(pd.DataFrame(table_rows), use_container_width=True, hide_index=True)
+
+            # ---- Drilldown: per-email metrics ----
             df_wf_email = df_wf_show[df_wf_show["n_emails"] > 0]
             if not df_wf_email.empty:
                 with st.expander(
-                    f"📧 Detalle de {len(df_wf_email)} workflow(s) que disparan emails"
+                    f"📧 Métricas detalladas — {len(df_wf_email)} workflow(s) con email"
                 ):
+                    import json as _json_disp
                     for _, wrow in df_wf_email.sort_values("nombre").iterrows():
                         estado_icon = "✅ Activo" if wrow["activo"] else "⏸ Desactivado"
                         st.markdown(
-                            f"**{wrow['nombre']}** &nbsp;·&nbsp; {estado_icon} &nbsp;·&nbsp; "
-                            f"{wrow['acciones']}",
+                            f"**{wrow['nombre']}** &nbsp;·&nbsp; {estado_icon}",
                             unsafe_allow_html=True,
                         )
-                        for en in str(wrow["emails"]).split("; "):
-                            en = en.strip()
-                            if en and en != "—":
-                                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;📧 {en}")
+                        try:
+                            email_detail = _json_disp.loads(wrow["email_detail"] or "[]")
+                        except Exception:
+                            email_detail = []
+                        if email_detail:
+                            detail_rows = []
+                            for em in email_detail:
+                                ap  = em.get("tasa_apertura")
+                                ctr = em.get("ctr")
+                                ctor = em.get("ctor")
+                                reb  = em.get("tasa_rebote")
+                                detail_rows.append({
+                                    "Email":       em.get("nombre", "—"),
+                                    "Enviados":    int(em.get("sent", 0)),
+                                    "Apertura %":  f"{ap}%"   if ap  is not None else "—",
+                                    "CTR %":       f"{ctr}%"  if ctr is not None else "—",
+                                    "CTOR %":      f"{ctor}%" if ctor is not None else "—",
+                                    "Rebote %":    f"{reb}%"  if reb is not None else "—",
+                                    "Bajas":       int(em.get("unsubs", 0)),
+                                })
+                            st.dataframe(
+                                pd.DataFrame(detail_rows),
+                                use_container_width=True,
+                                hide_index=True,
+                            )
                         st.markdown(
                             f"<small style='color:{BARCA['ink40']}'>Actualizado: {wrow['actualizado']}</small>",
                             unsafe_allow_html=True,
