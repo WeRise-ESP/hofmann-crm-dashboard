@@ -621,6 +621,199 @@ def fetch_pipeline(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+# ── Email Marketing fetch ─────────────────────────────────────────────────────
+
+@st.cache_data(ttl=600, show_spinner=False)
+def _fetch_list_names(list_ids_tuple: tuple) -> dict:
+    def _get(lid):
+        try:
+            r = requests.get(f"{BASE}/contacts/v1/lists/{lid}",
+                             headers=HEADERS, params={"count": 0}, timeout=10)
+            if r.status_code == 200:
+                return lid, r.json().get("name", lid)
+        except Exception:
+            pass
+        return lid, lid
+
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        futs = [ex.submit(_get, lid) for lid in list_ids_tuple]
+    return dict(f.result() for f in futs)
+
+
+def _email_list_ids(e):
+    to = e.get("to") or {}
+    result = []
+    for section in ["contactLists", "contactIlsLists"]:
+        for item in (to.get(section) or {}).get("include") or []:
+            lid = str(item.get("listId") or item.get("id") or "")
+            name = item.get("name") or item.get("listName") or ""
+            if lid:
+                result.append((lid, name))
+    return result
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_emails_enviados(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
+    raw = []
+    params: dict = {"state": "PUBLISHED", "limit": 100, "orderBy": "-publishDate"}
+    after = None
+    while True:
+        if after:
+            params["after"] = after
+        else:
+            params.pop("after", None)
+        r = requests.get(f"{BASE}/marketing/v3/emails", headers=HEADERS,
+                         params=params, timeout=30)
+        if r.status_code != 200:
+            break
+        data = r.json()
+        results = data.get("results", [])
+        if not results:
+            break
+        raw.extend(results)
+        pg = data.get("paging", {})
+        if not pg or "next" not in pg:
+            break
+        after = pg["next"]["after"]
+
+    if not raw:
+        return pd.DataFrame()
+
+    def _pub(e):
+        return (e.get("publishDate") or "")[:10]
+
+    if fecha_inicio != "todos":
+        fi_str, ff_str = str(fecha_inicio), str(fecha_fin)
+        raw = [e for e in raw if fi_str <= _pub(e) <= ff_str]
+
+    if not raw:
+        return pd.DataFrame()
+
+    # Build list-name map (use inline names if available, else fetch)
+    list_id_name_map: dict = {}
+    unknown_ids: set = set()
+    for e in raw:
+        for lid, lname in _email_list_ids(e):
+            if lname:
+                list_id_name_map[lid] = lname
+            else:
+                unknown_ids.add(lid)
+    if unknown_ids:
+        list_id_name_map.update(_fetch_list_names(tuple(sorted(unknown_ids))))
+
+    # Fetch campaign stats in parallel
+    campaign_ids = list({e.get("primaryEmailCampaignId")
+                         for e in raw if e.get("primaryEmailCampaignId")})
+
+    def _stats(cid):
+        try:
+            r = requests.get(f"{BASE}/email/public/v1/campaigns/{cid}",
+                             headers=HEADERS, timeout=20)
+            if r.status_code == 200:
+                return cid, r.json().get("counters", {})
+        except Exception:
+            pass
+        return cid, {}
+
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        sfuts = [ex.submit(_stats, cid) for cid in campaign_ids]
+    stats_map = dict(f.result() for f in sfuts)
+
+    rows = []
+    for e in raw:
+        cid   = e.get("primaryEmailCampaignId")
+        stats = stats_map.get(cid, {})
+        listas = ", ".join(list_id_name_map.get(lid, lid)
+                           for lid, _ in _email_list_ids(e)) or "—"
+        content   = e.get("content") or {}
+        subject   = (e.get("subject") or content.get("subject") or e.get("name") or "")
+        from_name = ((content.get("from") or {}).get("fromName") or "")
+        pub_date  = _pub(e)
+        sent      = int(stats.get("sent",         0) or 0)
+        delivered = int(stats.get("delivered",    0) or 0)
+        opens     = int(stats.get("open",         0) or 0)
+        clicks    = int(stats.get("click",        0) or 0)
+        bounces   = int(stats.get("bounce",       0) or 0)
+        unsubs    = int(stats.get("unsubscribed", 0) or 0)
+        rows.append({
+            "nombre":        e.get("name", ""),
+            "asunto":        subject,
+            "fecha":         pub_date,
+            "mes":           pub_date[:7] if pub_date else "",
+            "remitente":     from_name,
+            "listas":        listas,
+            "enviados":      sent,
+            "entregados":    delivered,
+            "aperturas":     opens,
+            "tasa_apertura": round(opens  / sent  * 100, 1) if sent  else 0.0,
+            "clicks":        clicks,
+            "ctr":           round(clicks / sent  * 100, 1) if sent  else 0.0,
+            "ctor":          round(clicks / opens * 100, 1) if opens else 0.0,
+            "rebotes":       bounces,
+            "bajas":         unsubs,
+        })
+
+    return pd.DataFrame(rows).sort_values("fecha", ascending=False) if rows else pd.DataFrame()
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_emails_programados() -> pd.DataFrame:
+    raw = []
+    params: dict = {"state": "SCHEDULED", "limit": 100, "orderBy": "publishDate"}
+    after = None
+    while True:
+        if after:
+            params["after"] = after
+        else:
+            params.pop("after", None)
+        r = requests.get(f"{BASE}/marketing/v3/emails", headers=HEADERS,
+                         params=params, timeout=30)
+        if r.status_code != 200:
+            break
+        data = r.json()
+        results = data.get("results", [])
+        if not results:
+            break
+        raw.extend(results)
+        pg = data.get("paging", {})
+        if not pg or "next" not in pg:
+            break
+        after = pg["next"]["after"]
+
+    if not raw:
+        return pd.DataFrame()
+
+    list_id_name_map: dict = {}
+    unknown_ids: set = set()
+    for e in raw:
+        for lid, lname in _email_list_ids(e):
+            if lname:
+                list_id_name_map[lid] = lname
+            else:
+                unknown_ids.add(lid)
+    if unknown_ids:
+        list_id_name_map.update(_fetch_list_names(tuple(sorted(unknown_ids))))
+
+    rows = []
+    for e in raw:
+        listas = ", ".join(list_id_name_map.get(lid, lid)
+                           for lid, _ in _email_list_ids(e)) or "—"
+        pub       = e.get("publishDate") or ""
+        fecha_str = pub[:16].replace("T", " ") if pub else "—"
+        content   = e.get("content") or {}
+        subject   = (e.get("subject") or content.get("subject") or e.get("name") or "")
+        from_name = ((content.get("from") or {}).get("fromName") or "")
+        rows.append({
+            "nombre":           e.get("name", ""),
+            "asunto":           subject,
+            "fecha_programada": fecha_str,
+            "remitente":        from_name,
+            "listas":           listas,
+        })
+
+    return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
 # ── Helpers de gráficos ───────────────────────────────────────────────────────
 
 def barca_layout(fig, height=340):
@@ -988,15 +1181,19 @@ def main():
 
     # ── Carga en paralelo ──────────────────────────────────────────────────────
     with st.spinner("Cargando datos de HubSpot..."):
-        with ThreadPoolExecutor(max_workers=4) as ex:
-            fut_data     = ex.submit(fetch_data,              str(fi), str(ff))
-            fut_mat      = ex.submit(fetch_matriculados_total, str(fi), str(ff))
-            fut_deals    = ex.submit(fetch_negocios_cerrados,  str(fi), str(ff))
-            fut_pipeline = ex.submit(fetch_pipeline,           str(fi), str(ff))
+        with ThreadPoolExecutor(max_workers=6) as ex:
+            fut_data     = ex.submit(fetch_data,               str(fi), str(ff))
+            fut_mat      = ex.submit(fetch_matriculados_total,  str(fi), str(ff))
+            fut_deals    = ex.submit(fetch_negocios_cerrados,   str(fi), str(ff))
+            fut_pipeline = ex.submit(fetch_pipeline,            str(fi), str(ff))
+            fut_emails   = ex.submit(fetch_emails_enviados,     str(fi), str(ff))
+            fut_prog     = ex.submit(fetch_emails_programados)
         df           = fut_data.result()
         df_mat_all   = fut_mat.result()
         df_deals     = fut_deals.result()
         df_pipeline  = fut_pipeline.result()
+        df_emails    = fut_emails.result()
+        df_prog      = fut_prog.result()
 
     if df.empty and df_mat_all.empty:
         st.warning("No hay datos para el período seleccionado.")
@@ -1680,6 +1877,171 @@ def main():
                 file_name=f"{ACCOUNT_NAME.lower()}_rst_{fi}_{ff}.csv",
                 mime="text/csv",
             )
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # EMAIL MARKETING
+    # ══════════════════════════════════════════════════════════════════════════
+    st.markdown("<hr style='margin:44px 0 32px'>", unsafe_allow_html=True)
+    st.markdown(f"""
+    <div style="background:linear-gradient(135deg,{BARCA['blue_ink']} 0%,
+                {BARCA['blue_deep']} 100%);
+                padding:20px 28px;border-radius:10px;margin-bottom:24px;
+                border-bottom:4px solid {BARCA['gold']}">
+        <h2 style="color:{BARCA['white']};margin:0;font-size:20px;font-weight:800">
+            📧 Email Marketing
+        </h2>
+        <p style="color:{BARCA['line']};margin:4px 0 0;font-size:13px">
+            Rendimiento de campañas · HubSpot · período seleccionado
+        </p>
+    </div>""", unsafe_allow_html=True)
+
+    if df_emails.empty:
+        st.info("No hay emails enviados en el período seleccionado.")
+    else:
+        # KPIs
+        total_campanas    = len(df_emails)
+        total_enviados    = int(df_emails["enviados"].sum())
+        total_entregados  = int(df_emails["entregados"].sum())
+        total_aperturas   = int(df_emails["aperturas"].sum())
+        total_clicks      = int(df_emails["clicks"].sum())
+        total_bajas       = int(df_emails["bajas"].sum())
+        total_rebotes     = int(df_emails["rebotes"].sum())
+        tasa_ap_global    = round(total_aperturas / total_enviados * 100, 1) if total_enviados else 0.0
+        ctr_global        = round(total_clicks    / total_enviados * 100, 1) if total_enviados else 0.0
+        ctor_global       = round(total_clicks    / total_aperturas * 100, 1) if total_aperturas else 0.0
+        tasa_baja_global  = round(total_bajas     / total_enviados * 100, 2) if total_enviados else 0.0
+
+        ek1, ek2, ek3, ek4, ek5, ek6 = st.columns(6)
+        kpi_card(ek1, "Campañas enviadas",    total_campanas,               BARCA["blue"])
+        kpi_card(ek2, "Contactos impactados", f"{total_enviados:,}",        BARCA["blue_deep"])
+        kpi_card(ek3, "Tasa apertura",        f"{tasa_ap_global}%",         BARCA["gold"])
+        kpi_card(ek4, "CTR",                  f"{ctr_global}%",             BARCA["garnet"])
+        kpi_card(ek5, "CTOR",                 f"{ctor_global}%",            BARCA["blue"])
+        kpi_card(ek6, "Tasa de baja",         f"{tasa_baja_global}%",       BARCA["garnet_deep"])
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Charts row 1: evolución mensual + top 10 por apertura
+        ec1, ec2 = st.columns(2)
+
+        with ec1:
+            if df_emails["mes"].nunique() > 1:
+                monthly = (df_emails.groupby("mes")
+                           .agg(Enviados=("enviados", "sum"),
+                                Aperturas=("aperturas", "sum"),
+                                Clicks=("clicks", "sum"))
+                           .reset_index()
+                           .rename(columns={"mes": "Mes"}))
+                fig = px.line(monthly, x="Mes",
+                              y=["Enviados", "Aperturas", "Clicks"],
+                              title="Evolución mensual",
+                              markers=True,
+                              color_discrete_sequence=[BARCA["blue"],
+                                                       BARCA["gold"],
+                                                       BARCA["garnet"]])
+                barca_layout(fig, 340)
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                # Single month: bar chart of top emails by sent volume
+                top = df_emails.nlargest(10, "enviados")[["nombre", "enviados",
+                                                            "aperturas", "clicks"]]
+                fig = px.bar(top.sort_values("enviados"), x="enviados", y="nombre",
+                             orientation="h", text_auto=True,
+                             title="Emails por volumen enviado",
+                             color_discrete_sequence=[BARCA["blue"]])
+                fig.update_layout(yaxis=dict(categoryorder="total ascending"))
+                barca_layout(fig, 340)
+                st.plotly_chart(fig, use_container_width=True)
+
+        with ec2:
+            top_open = df_emails[df_emails["enviados"] >= 10].nlargest(10, "tasa_apertura")
+            if not top_open.empty:
+                fig = px.bar(top_open.sort_values("tasa_apertura"),
+                             x="tasa_apertura", y="nombre", orientation="h",
+                             text_auto=True,
+                             title="Top 10 emails por tasa de apertura (%)",
+                             color="tasa_apertura",
+                             color_continuous_scale=[BARCA["line2"], BARCA["gold"]])
+                fig.update_layout(coloraxis_showscale=False,
+                                  yaxis=dict(categoryorder="total ascending"))
+                barca_layout(fig, 340)
+                st.plotly_chart(fig, use_container_width=True)
+
+        # Charts row 2: scatter apertura vs CTR
+        ec3, ec4 = st.columns([2, 1])
+
+        with ec3:
+            scatter_df = df_emails[df_emails["enviados"] > 0].copy()
+            fig = px.scatter(scatter_df,
+                             x="tasa_apertura", y="ctr",
+                             hover_name="nombre",
+                             size="enviados",
+                             size_max=40,
+                             title="Apertura vs CTR (tamaño = enviados)",
+                             labels={"tasa_apertura": "Tasa apertura (%)", "ctr": "CTR (%)"},
+                             color_discrete_sequence=[BARCA["blue"]])
+            barca_layout(fig, 340)
+            st.plotly_chart(fig, use_container_width=True)
+
+        with ec4:
+            st.markdown(f"#### Totales del período")
+            resumen = pd.DataFrame([{
+                "Métrica": "Campañas",       "Valor": f"{total_campanas}"},
+                {"Métrica": "Enviados",      "Valor": f"{total_enviados:,}"},
+                {"Métrica": "Entregados",    "Valor": f"{total_entregados:,}"},
+                {"Métrica": "Aperturas",     "Valor": f"{total_aperturas:,}"},
+                {"Métrica": "Tasa apertura", "Valor": f"{tasa_ap_global}%"},
+                {"Métrica": "Clicks",        "Valor": f"{total_clicks:,}"},
+                {"Métrica": "CTR",           "Valor": f"{ctr_global}%"},
+                {"Métrica": "CTOR",          "Valor": f"{ctor_global}%"},
+                {"Métrica": "Rebotes",       "Valor": f"{total_rebotes:,}"},
+                {"Métrica": "Bajas",         "Valor": f"{total_bajas:,}"},
+                {"Métrica": "Tasa baja",     "Valor": f"{tasa_baja_global}%"},
+            ])
+            st.dataframe(resumen, use_container_width=True, hide_index=True,
+                         height=min(450, len(resumen) * 36 + 40))
+
+        # Full table
+        with st.expander("📋 Ver tabla completa de emails enviados"):
+            rename_em = {
+                "nombre": "Nombre", "fecha": "Fecha", "asunto": "Asunto",
+                "listas": "Listas", "enviados": "Enviados",
+                "entregados": "Entregados", "aperturas": "Aperturas únicas",
+                "tasa_apertura": "Apertura %", "clicks": "Clicks únicos",
+                "ctr": "CTR %", "ctor": "CTOR %",
+                "rebotes": "Rebotes", "bajas": "Bajas",
+            }
+            cols_show = list(rename_em.keys())
+            tabla_em = df_emails[cols_show].rename(columns=rename_em)
+            st.dataframe(
+                tabla_em.style
+                .background_gradient(subset=["Apertura %", "CTR %"],
+                                     cmap="Blues", vmin=0, vmax=50)
+                .format({"Apertura %": "{:.1f}%", "CTR %": "{:.1f}%",
+                         "CTOR %": "{:.1f}%"}),
+                use_container_width=True, hide_index=True,
+            )
+            fi_label = str(fi) if fi != "todos" else "todos"
+            ff_label = str(ff) if ff != "todos" else "todos"
+            st.download_button(
+                "⬇️ Descargar CSV",
+                data=tabla_em.to_csv(index=False, encoding="utf-8-sig"),
+                file_name=f"email_marketing_{fi_label}_{ff_label}.csv",
+                mime="text/csv",
+                key="dl_emails",
+            )
+
+    # ── Emails programados ─────────────────────────────────────────────────────
+    st.markdown(f"### 📅 Emails Programados")
+    if df_prog.empty:
+        st.info("No hay emails programados actualmente.")
+    else:
+        rename_prog = {
+            "nombre": "Nombre", "fecha_programada": "Fecha programada",
+            "asunto": "Asunto", "remitente": "Remitente", "listas": "Listas",
+        }
+        st.dataframe(df_prog.rename(columns=rename_prog),
+                     use_container_width=True, hide_index=True)
 
     st.markdown(
         f"<br><div style='text-align:center;color:{BARCA['ink40']};font-size:12px'>"
