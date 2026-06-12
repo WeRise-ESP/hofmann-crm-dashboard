@@ -1471,6 +1471,7 @@ def main():
             mes_inicio = date(hoy.year, hoy.month, 1)
             periodo = st.selectbox("Período", [
                 "Este mes",
+                "Hoy", "Ayer",
                 "Últimos 7 días", "Últimos 30 días", "Últimos 60 días", "Últimos 90 días",
                 "Abril 2026", "Mayo 2026",
                 "2025 completo",
@@ -1478,6 +1479,8 @@ def main():
             ], index=0)
             mapa = {
                 "Este mes":        (mes_inicio, hoy),
+                "Hoy":             (hoy, hoy),
+                "Ayer":            (hoy - timedelta(1), hoy - timedelta(1)),
                 "Últimos 7 días":  (hoy - timedelta(7), hoy),
                 "Últimos 30 días": (hoy - timedelta(30), hoy),
                 "Últimos 60 días": (hoy - timedelta(60), hoy),
