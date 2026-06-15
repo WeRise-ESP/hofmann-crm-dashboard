@@ -3225,7 +3225,9 @@ def main():
                         .reindex(prog_full["Programa"]).fillna(0).astype(int).values
                     )
                 st.dataframe(
-                    prog_full.style.background_gradient(subset=["Leads"], cmap="Reds"),
+                    prog_full.style
+                        .background_gradient(subset=["Leads"], cmap="Reds")
+                        .format({"% del total": "{:.1f}%"}),
                     use_container_width=True,
                     hide_index=True,
                 )
@@ -3429,7 +3431,9 @@ def main():
                     )
                 pivot_cal = pivot_cal.sort_values("Total", ascending=False)
                 st.dataframe(
-                    pivot_cal.style.background_gradient(subset=["Total"], cmap="Reds"),
+                    pivot_cal.style
+                        .background_gradient(subset=["Total"], cmap="Reds")
+                        .format({"Tasa CG %": "{:.1f}%"}, na_rep="—"),
                     use_container_width=True,
                 )
 
@@ -3536,7 +3540,9 @@ def main():
                     )
                 pivot_val = pivot_val.sort_values("Total", ascending=False)
                 st.dataframe(
-                    pivot_val.style.background_gradient(subset=["Total"], cmap="Reds"),
+                    pivot_val.style
+                        .background_gradient(subset=["Total"], cmap="Reds")
+                        .format({"Tasa No válido %": "{:.1f}%"}, na_rep="—"),
                     use_container_width=True,
                 )
 
@@ -3713,7 +3719,9 @@ def main():
                         .reindex(lat_tabla["País"]).fillna(0).astype(int).values
                     )
                 st.dataframe(
-                    lat_tabla.style.background_gradient(subset=["Total"], cmap="Blues"),
+                    lat_tabla.style
+                        .background_gradient(subset=["Total"], cmap="Blues")
+                        .format({"Tasa CG %": "{:.1f}%"}, na_rep="—"),
                     use_container_width=True,
                     hide_index=True,
                 )
