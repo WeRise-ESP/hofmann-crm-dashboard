@@ -185,13 +185,26 @@ ESTADOS_ORDEN = [
 ]
 
 LATAM_COUNTRIES = {
+    # Nombres completos y variantes
     "argentina", "bolivia", "brasil", "brazil", "chile", "colombia",
     "costa rica", "cuba", "dominican republic", "república dominicana",
     "ecuador", "el salvador", "guatemala", "honduras", "mexico", "méxico",
     "nicaragua", "panama", "panamá", "paraguay", "peru", "perú",
     "puerto rico", "uruguay", "venezuela",
+    # Códigos ISO 2 letras (HubSpot ip_country puede devolver en minúsculas)
+    "ar", "bo", "br", "cl", "co", "cr", "cu", "do", "ec", "sv",
+    "gt", "hn", "mx", "ni", "pa", "py", "pe", "pr", "uy", "ve",
 }
-ESPAÑA_COUNTRIES = {"spain", "españa", "espana", "andorra"}
+ESPAÑA_COUNTRIES = {
+    # Nombres y variantes frecuentes
+    "spain", "españa", "espana", "espanya",
+    # Regiones/ciudades que algunos usuarios rellenan
+    "catalunya", "cataluña", "barcelona", "madrid", "andalucia",
+    # Andorra (mismo mercado)
+    "andorra",
+    # Códigos ISO 2 letras
+    "es", "ad",
+}
 
 LATAM_PAIS_ES = {
     "Argentina": "Argentina", "Bolivia": "Bolivia", "Brasil": "Brasil",
@@ -206,14 +219,16 @@ LATAM_PAIS_ES = {
     "Puerto Rico": "Puerto Rico", "Uruguay": "Uruguay", "Venezuela": "Venezuela",
 }
 
+_JUNK_PAIS = {"seleccione su país...", "selecciona tu país", "seleccione su pais", "other", "otros"}
+
 def resolve_mercado(pais: str) -> str:
     p = pais.lower().strip()
+    if not p or p == "sin datos" or p in _JUNK_PAIS:
+        return "Sin datos"
     if p in ESPAÑA_COUNTRIES:
         return "España"
     if p in LATAM_COUNTRIES:
         return "Latam"
-    if not p or p == "sin datos":
-        return "Sin datos"
     return "Otro"
 
 CURSO_LABELS = {
@@ -3566,6 +3581,15 @@ def main():
         km2.metric("Latam",     f"{n_lat:,}", f"{n_lat/n_tot*100:.1f}%" if n_tot else "—")
         km3.metric("Otro",      f"{n_ot:,}",  f"{n_ot/n_tot*100:.1f}%" if n_tot else "—")
         km4.metric("Sin datos", f"{n_sd:,}",  f"{n_sd/n_tot*100:.1f}%" if n_tot else "—")
+
+        if n_sd > 0:
+            pct_sd = n_sd / n_tot * 100 if n_tot else 0
+            st.info(
+                f"ℹ️ **{n_sd:,} contactos ({pct_sd:.1f}%) no tienen país registrado** en HubSpot "
+                f"(ningún campo `ip_country`, `country` ni `pais_de_residencia` relleno). "
+                f"Pueden incluir leads de España y Latam que no se geocodificaron. "
+                f"España captura: Spain, España, ES, Espanya, Andorra y variantes regionales."
+            )
 
         st.markdown("---")
 
