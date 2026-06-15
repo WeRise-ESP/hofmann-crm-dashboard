@@ -184,6 +184,75 @@ ESTADOS_ORDEN = [
     "Perdido", "Sin estado",
 ]
 
+CURSO_LABELS = {
+    '597': 'Arroces', '26716': 'Arroces de Verano', '519': 'Arroces y Fideuás',
+    '26699': 'Asia Street Food', 'bono regalo': 'Bono Regalo',
+    '8135': 'Cocina Catalana', '624': 'Cocina con Estrella para Fin de Año',
+    '616': 'Cocina Francesa con Albert Boronat', '24389': 'Cocina Italiana',
+    '601': 'Cocina Japonesa', '11579': 'Cocina Japonesa con Mutsuo Kowaki',
+    '26336': 'Cocina Marinera', '602': 'Cocina Nocturna', '599': 'Cocina Vegana',
+    '497': 'Curso de Cocina y Desarrollo Profesional',
+    '499': 'Curso de Iniciación a la Cocina Profesional',
+    '502': 'Curso de Pastelería y Repostería Profesional',
+    '498': 'Curso de Perfeccionamiento de Cocina - Nivel 2',
+    '503': 'Curso de Perfeccionamiento de Pastelería - Nivel 2',
+    '496': 'Diploma de Cocina Profesional', '501': 'Diploma de Pastelería Profesional',
+    '634': 'Dulces Navidades Hofmann', '25807': 'Esmorzars de Forquilla',
+    'experiencias': 'Experiencias', '11581': 'Food Stylist',
+    'Fotografía y estrategias digitales': 'Fotografía y Estrategias Digitales',
+    '483': 'Gran Diploma de Hostelería y Pastelería',
+    '18160': 'Grandes Platos Hofmann',
+    'Inicio a la Pastelería': 'Inicio a la Pastelería',
+    '504': 'Intensivo de Pastelería',
+    '25767': 'Maridaje y Cata de Vinos', '481': 'Marketing y Gestión',
+    '603': 'Menús de Temporada', '623': 'Menú de Gala para Cena de Navidad',
+    'Menú de otoño': 'Menú de Otoño', 'No lo tengo claro': 'No lo tengo claro',
+    'Nuevas técnicas de vanguardia': 'Nuevas Técnicas de Vanguardia',
+    'Prepara tu navidad': 'Prepara tu Navidad',
+    '26706': 'Restyling Tapas', '26804': 'Sabores de la India',
+    '25777': 'Sabores de la India con Anjalina Chugani',
+    '600': 'Técnicas Culinarias', '26366': 'Técnicas de Chocolate',
+    '25797': 'Técnicas de Vanguardia con Oliver Peña',
+    'Chef experto plant-based': 'Chef Experto Plant-based',
+    'Chef experto arroces y fideuas': 'Chef Experto Arroces y Fideuás',
+    'Curso especialización en Gestión Operativa': 'Esp. Gestión Operativa',
+    'Chef experto en Cocina Japonesa': 'Chef Experto Cocina Japonesa',
+    'Chef experto en Alta Cocina de Vanguardia': 'Chef Experto Alta Cocina Vanguardia',
+    'Máster Online en Dirección y Creación de Negocios Gastronómicos': 'Máster Online Innovación y Gestión Gastronómica',
+    'Curso especialización en Cata y Enología': 'Esp. Cata y Enología',
+    'Curso especialización en Marketing Gastronómico': 'Esp. Marketing Gastronómico',
+    'Curso Nocturno de Cocina': 'Curso Nocturno de Cocina',
+    'Curso Pastelería y Repostería Intensivo Verano': 'Pastelería Intensivo Verano',
+    'Curso especialización en Finanzas y Rentabilidad para Restaurantes': 'Esp. Finanzas y Rentabilidad',
+    'Curso de Cocina Avanzada y Técnicas de Vanguardia': 'Cocina Avanzada y Vanguardia',
+    'Curso de Cocina Mediterránea Tradicional y Renovada': 'Cocina Mediterránea',
+    'Curso de Pastelería y Repostería Avanzada': 'Pastelería y Repostería Avanzada',
+    'Máster en Dirección y Gestión de Restaurantes': 'Máster Dirección y Gestión Rest.',
+    'Máster Online en Comunicación y Marketing Gastronómico': 'Máster Online Food Branding & Growth',
+    'Máster Online en Enología y Gestión del Vino': 'Máster Online Enología y Vino',
+    'Máster Online en Nutrición y Gastronomía Saludable': 'Máster Online Nutrición y Gastronomía',
+    'Curso Cocina Profesional Intensivo Verano': 'Cocina Profesional Intensivo Verano',
+    'Curso especialización en Gestión Operativa de Restaurantes': 'Esp. Gestión Operativa Rest.',
+    'Diploma Profesional de Coctelería y Mixología': 'Diploma Coctelería y Mixología',
+    'Curso Temático Arroces': 'Temático Arroces',
+    'Curso Temático Cocina Catalana': 'Temático Cocina Catalana',
+    'Curso Temático Técnicas Culinarias': 'Temático Técnicas Culinarias',
+    'Curso Temático Pastelería Plant-based': 'Temático Pastelería Plant-based',
+    'Curso Temático Cocina Nocturno': 'Temático Cocina Nocturno',
+    'Curso Monográfico Cocina Francesa Albert Boronat': 'Monográfico Cocina Francesa',
+    'Curso Cocina Saludable': 'Cocina Saludable',
+    'Gran Diploma de Pastelería y Repostería': 'Gran Diploma Pastelería y Repostería',
+    'Máster Online en Dirección y Gestión de Restaurantes': 'Máster Online Dirección y Gestión Rest.',
+    'Máster Online en Gestión y Negocio Global del Vino': 'Máster Online Negocio Global del Vino',
+    'Máster Online en Gastronomía Saludable y Nutrición Aplicada': 'Máster Online Gastronomía Saludable',
+    'Máster Online en Global Luxury Food & Beverage Management': 'Máster Online Luxury F&B Management',
+    'Pastry & Confectionery Summer Intensive Course': 'Pastry Summer Intensive',
+    'Professional Culinary Summer Intensive Course': 'Culinary Summer Intensive',
+    'Máster Beyond Food Experience': 'Máster Beyond Food Experience',
+    'Curso de Bollería y Briocheria Profesional': 'Bollería y Briochería Profesional',
+    'Máster Online en Gestión y Estrategia del Sector del Vino': 'Máster Online Estrategia del Vino',
+}
+
 CONTACT_PROPS = [
     "email",
     "pais_de_residencia", "ip_country", "country", "billing_country",
@@ -192,7 +261,7 @@ CONTACT_PROPS = [
     "motivos_de_cierre_perdido_rst",
     "hs_analytics_source", "hs_analytics_source_data_1",
     "hs_latest_source", "hs_latest_source_data_1",
-    "modalidad_curso",
+    "modalidad_curso", "curso",
 ]
 
 
@@ -283,6 +352,10 @@ def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
                 "fuente":      fuente,
                 "origen_fuente": origen,
                 "modalidad":   (cp.get("modalidad_curso") or "Sin modalidad").strip().title(),
+                "programa":    CURSO_LABELS.get(
+                                   cp.get("curso") or "",
+                                   (cp.get("curso") or "Sin programa").strip()
+                               ) or "Sin programa",
             })
 
         pg = data.get("paging", {})
@@ -291,8 +364,22 @@ def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
         after = pg["next"]["after"]
 
     _COLS = ["email", "fecha", "mes", "pais", "lead_status", "lead_valido",
-             "intentos", "motivo_cierre", "fuente", "origen_fuente", "modalidad"]
-    return pd.DataFrame(rows, columns=_COLS) if rows else pd.DataFrame(columns=_COLS)
+             "intentos", "motivo_cierre", "fuente", "origen_fuente", "modalidad", "programa"]
+    df = pd.DataFrame(rows, columns=_COLS) if rows else pd.DataFrame(columns=_COLS)
+    # Derive calidad from lead_valido + lead_status for program analysis
+    def _calidad(row):
+        if row["lead_valido"] == "No válido":
+            return "No válido"
+        if row["lead_status"] == "Cierre Ganado":
+            return "Cierre Ganado"
+        if row["lead_status"] == "Perdido":
+            return "Perdido"
+        return "En proceso"
+    if not df.empty:
+        df["calidad"] = df.apply(_calidad, axis=1)
+    else:
+        df["calidad"] = pd.Series(dtype=str)
+    return df
 
 
 @st.cache_data(ttl=600, show_spinner=False)
@@ -3024,6 +3111,224 @@ def main():
                         )
                     st.markdown("---")
 
+    # ── Análisis por Programa ───────────────────────────────────────────────────
+    st.markdown(
+        f"<h2 style='color:{BARCA['garnet']};margin-top:2rem'>🎓 Análisis por Programa</h2>",
+        unsafe_allow_html=True,
+    )
+
+    df_prog = df if not df.empty else pd.DataFrame(columns=df.columns)
+    df_prog_sin = df_prog[df_prog["programa"] != "Sin programa"]
+
+    prog_tab1, prog_tab2, prog_tab3 = st.tabs([
+        "📊 Leads por Programa",
+        "🔀 Programa × Fuente",
+        "✅ Calidad por Programa",
+    ])
+
+    with prog_tab1:
+        if df_prog_sin.empty:
+            st.info("No hay contactos con programa asignado en el período seleccionado.")
+        else:
+            # KPIs
+            n_prog_total = len(df_prog_sin)
+            n_programas  = df_prog_sin["programa"].nunique()
+            top_prog     = df_prog_sin["programa"].value_counts().idxmax()
+            top_prog_n   = df_prog_sin["programa"].value_counts().max()
+
+            kc1, kc2, kc3 = st.columns(3)
+            kc1.metric("Leads con programa", f"{n_prog_total:,}")
+            kc2.metric("Programas distintos", f"{n_programas}")
+            kc3.metric("Programa más solicitado", top_prog, f"{top_prog_n} leads")
+
+            st.markdown("---")
+
+            # Bar chart — top 25 programs
+            prog_counts = (df_prog_sin["programa"]
+                           .value_counts()
+                           .reset_index()
+                           .rename(columns={"index": "Programa", "programa": "Leads"}))
+            prog_counts.columns = ["Programa", "Leads"]
+            top25 = prog_counts.head(25)
+            fig_prog = px.bar(
+                top25, x="Leads", y="Programa", orientation="h",
+                title=f"Top {len(top25)} programas por número de leads",
+                color="Leads",
+                color_continuous_scale=[[0, BARCA["yellow"]], [1, BARCA["garnet"]]],
+                text="Leads",
+            )
+            fig_prog.update_layout(
+                yaxis={"categoryorder": "total ascending"},
+                showlegend=False,
+                coloraxis_showscale=False,
+                height=max(400, len(top25) * 28),
+                margin={"l": 0, "r": 20, "t": 40, "b": 20},
+            )
+            fig_prog.update_traces(textposition="outside")
+            st.plotly_chart(fig_prog, use_container_width=True)
+
+            with st.expander("📋 Tabla completa de leads por programa"):
+                prog_full = prog_counts.copy()
+                prog_full["% del total"] = (prog_full["Leads"] / prog_full["Leads"].sum() * 100).round(1)
+                st.dataframe(
+                    prog_full.style.background_gradient(subset=["Leads"], cmap="Reds"),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+    with prog_tab2:
+        if df_prog_sin.empty:
+            st.info("No hay contactos con programa asignado en el período seleccionado.")
+        else:
+            # Filter: choose top-N programs to avoid visual overload
+            top_n_opts = [10, 15, 20, 30]
+            top_n = st.selectbox("Mostrar top N programas", top_n_opts, index=0, key="prog_topn")
+            top_progs = (df_prog_sin["programa"].value_counts().head(top_n).index.tolist())
+            df_pf = df_prog_sin[df_prog_sin["programa"].isin(top_progs)]
+
+            # Stacked bar: programa × fuente
+            pf_grp = (df_pf.groupby(["programa", "fuente"])
+                       .size()
+                       .reset_index(name="Leads"))
+            fig_pf = px.bar(
+                pf_grp, x="Leads", y="programa", color="fuente", orientation="h",
+                title=f"Leads por programa y fuente de tráfico (Top {top_n})",
+                barmode="stack",
+                text="Leads",
+            )
+            fig_pf.update_layout(
+                yaxis={"categoryorder": "total ascending"},
+                height=max(450, top_n * 30),
+                margin={"l": 0, "r": 20, "t": 40, "b": 20},
+                legend={"title": "Fuente"},
+            )
+            fig_pf.update_traces(textposition="inside", textfont_size=11)
+            st.plotly_chart(fig_pf, use_container_width=True)
+
+            st.markdown("#### Tabla pivote: Programa × Fuente")
+            pivot_pf = (pf_grp.pivot(index="programa", columns="fuente", values="Leads")
+                        .fillna(0).astype(int))
+            pivot_pf["Total"] = pivot_pf.sum(axis=1)
+            pivot_pf = pivot_pf.sort_values("Total", ascending=False)
+            st.dataframe(
+                pivot_pf.style.background_gradient(subset=["Total"], cmap="Reds"),
+                use_container_width=True,
+            )
+
+    with prog_tab3:
+        if df_prog_sin.empty:
+            st.info("No hay contactos con programa asignado en el período seleccionado.")
+        else:
+            CALIDAD_ORDER   = ["Cierre Ganado", "En proceso", "Perdido", "No válido"]
+            CALIDAD_COLORS  = {
+                "Cierre Ganado": BARCA["gold"],
+                "En proceso":    BARCA["blue"],
+                "Perdido":       BARCA["garnet"],
+                "No válido":     BARCA["ink40"],
+            }
+
+            # Top-N filter
+            top_n_cal = st.selectbox("Mostrar top N programas", [10, 15, 20, 30],
+                                      index=0, key="cal_topn")
+            top_progs_cal = (df_prog_sin["programa"].value_counts()
+                             .head(top_n_cal).index.tolist())
+            df_cal = df_prog_sin[df_prog_sin["programa"].isin(top_progs_cal)]
+
+            # KPIs de calidad global
+            q_ganado  = (df_prog_sin["calidad"] == "Cierre Ganado").sum()
+            q_proceso = (df_prog_sin["calidad"] == "En proceso").sum()
+            q_perdido = (df_prog_sin["calidad"] == "Perdido").sum()
+            q_novalid = (df_prog_sin["calidad"] == "No válido").sum()
+            q_total   = len(df_prog_sin)
+
+            kq1, kq2, kq3, kq4 = st.columns(4)
+            kq1.metric("Cierre Ganado", f"{q_ganado}",
+                       f"{q_ganado/q_total*100:.1f}%" if q_total else "—")
+            kq2.metric("En proceso",    f"{q_proceso}",
+                       f"{q_proceso/q_total*100:.1f}%" if q_total else "—")
+            kq3.metric("Perdidos",      f"{q_perdido}",
+                       f"{q_perdido/q_total*100:.1f}%" if q_total else "—")
+            kq4.metric("No válido",     f"{q_novalid}",
+                       f"{q_novalid/q_total*100:.1f}%" if q_total else "—")
+
+            st.markdown("---")
+
+            # Stacked bar: calidad por programa
+            cal_grp = (df_cal.groupby(["programa", "calidad"])
+                        .size()
+                        .reset_index(name="Leads"))
+            cal_grp["calidad"] = pd.Categorical(cal_grp["calidad"],
+                                                 categories=CALIDAD_ORDER, ordered=True)
+            fig_cal = px.bar(
+                cal_grp.sort_values("calidad"),
+                x="Leads", y="programa", color="calidad", orientation="h",
+                title=f"Calidad de leads por programa (Top {top_n_cal})",
+                barmode="stack",
+                color_discrete_map=CALIDAD_COLORS,
+                text="Leads",
+                category_orders={"calidad": CALIDAD_ORDER},
+            )
+            fig_cal.update_layout(
+                yaxis={"categoryorder": "total ascending"},
+                height=max(450, top_n_cal * 30),
+                margin={"l": 0, "r": 20, "t": 40, "b": 20},
+                legend={"title": "Calidad"},
+            )
+            fig_cal.update_traces(textposition="inside", textfont_size=11)
+            st.plotly_chart(fig_cal, use_container_width=True)
+
+            # Stacked bar: calidad por fuente dentro de un programa seleccionado
+            st.markdown("#### Calidad por fuente — detalle por programa")
+            prog_sel = st.selectbox(
+                "Selecciona un programa",
+                top_progs_cal,
+                key="cal_prog_sel",
+            )
+            df_prog_det = df_prog_sin[df_prog_sin["programa"] == prog_sel]
+            det_grp = (df_prog_det.groupby(["fuente", "calidad"])
+                        .size()
+                        .reset_index(name="Leads"))
+            if det_grp.empty:
+                st.info("Sin datos para el programa seleccionado.")
+            else:
+                fig_det = px.bar(
+                    det_grp, x="fuente", y="Leads", color="calidad",
+                    title=f"Calidad de leads para «{prog_sel}» por fuente",
+                    barmode="stack",
+                    color_discrete_map=CALIDAD_COLORS,
+                    text="Leads",
+                    category_orders={"calidad": CALIDAD_ORDER},
+                )
+                fig_det.update_layout(
+                    margin={"l": 0, "r": 20, "t": 40, "b": 20},
+                    legend={"title": "Calidad"},
+                )
+                fig_det.update_traces(textposition="inside")
+                st.plotly_chart(fig_det, use_container_width=True)
+
+            # Pivot table: programa × calidad
+            with st.expander("📋 Tabla pivote: Programa × Calidad"):
+                pivot_cal = (df_prog_sin.groupby(["programa", "calidad"])
+                             .size()
+                             .unstack(fill_value=0))
+                for col in CALIDAD_ORDER:
+                    if col not in pivot_cal.columns:
+                        pivot_cal[col] = 0
+                pivot_cal = pivot_cal[
+                    [c for c in CALIDAD_ORDER if c in pivot_cal.columns]
+                ]
+                pivot_cal["Total"] = pivot_cal.sum(axis=1)
+                if "Cierre Ganado" in pivot_cal.columns and "Total" in pivot_cal.columns:
+                    pivot_cal["Tasa CG %"] = (
+                        pivot_cal["Cierre Ganado"] / pivot_cal["Total"] * 100
+                    ).round(1)
+                pivot_cal = pivot_cal.sort_values("Total", ascending=False)
+                st.dataframe(
+                    pivot_cal.style.background_gradient(subset=["Total"], cmap="Reds"),
+                    use_container_width=True,
+                )
+
+    # ── Footer ──────────────────────────────────────────────────────────────────
     st.markdown(
         f"<br><div style='text-align:center;color:{BARCA['ink40']};font-size:12px'>"
         f"{ACCOUNT_NAME} · Formularios HighTicket RST · Datos actualizados automáticamente cada 5 min</div>",
