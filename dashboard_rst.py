@@ -3153,6 +3153,19 @@ def main():
     df_prog = df if not df.empty else pd.DataFrame(columns=df.columns)
     df_prog_sin = df_prog[df_prog["programa"] != "Sin programa"]
 
+    # ── Filtro local de modalidad ──────────────────────────────────────────────
+    _modal_opts = ["Todas las modalidades", "Presencial", "Online", "Sin modalidad"]
+    _modal_sel  = st.radio(
+        "Modalidad",
+        _modal_opts,
+        index=0,
+        horizontal=True,
+        key="prog_modal_filter",
+    )
+    if _modal_sel != "Todas las modalidades":
+        df_prog     = df_prog[df_prog["modalidad"] == _modal_sel]
+        df_prog_sin = df_prog_sin[df_prog_sin["modalidad"] == _modal_sel]
+
     prog_tab1, prog_tab2, prog_tab3, prog_tab4 = st.tabs([
         "📊 Leads por Programa",
         "🔀 Programa × Fuente",
@@ -3204,11 +3217,43 @@ def main():
             with st.expander("📋 Tabla completa de leads por programa"):
                 prog_full = prog_counts.copy()
                 prog_full["% del total"] = (prog_full["Leads"] / prog_full["Leads"].sum() * 100).round(1)
+                # Añadir columnas por modalidad
+                for _mod in ["Presencial", "Online", "Sin modalidad"]:
+                    prog_full[_mod] = (
+                        df_prog_sin[df_prog_sin["modalidad"] == _mod]
+                        .groupby("programa").size()
+                        .reindex(prog_full["Programa"]).fillna(0).astype(int).values
+                    )
                 st.dataframe(
                     prog_full.style.background_gradient(subset=["Leads"], cmap="Reds"),
                     use_container_width=True,
                     hide_index=True,
                 )
+
+            # Gráfico: programa × modalidad
+            if _modal_sel == "Todas las modalidades":
+                pm_grp2 = (df_prog_sin[df_prog_sin["programa"].isin(top25["Programa"])]
+                            .groupby(["programa", "modalidad"])
+                            .size().reset_index(name="Leads"))
+                fig_pm2 = px.bar(
+                    pm_grp2, x="Leads", y="programa", color="modalidad", orientation="h",
+                    title="Leads por programa y modalidad",
+                    barmode="stack",
+                    color_discrete_map={
+                        "Presencial": BARCA["garnet"],
+                        "Online":     BARCA["blue"],
+                        "Sin modalidad": BARCA["ink20"],
+                    },
+                    text="Leads",
+                )
+                fig_pm2.update_layout(
+                    yaxis={"categoryorder": "total ascending"},
+                    height=max(400, len(top25) * 28),
+                    margin={"l": 0, "r": 20, "t": 40, "b": 20},
+                    legend={"title": "Modalidad"},
+                )
+                fig_pm2.update_traces(textposition="inside", textfont_size=11)
+                st.plotly_chart(fig_pm2, use_container_width=True)
 
     with prog_tab2:
         if df_prog_sin.empty:
@@ -3243,11 +3288,30 @@ def main():
             pivot_pf = (pf_grp.pivot(index="programa", columns="fuente", values="Leads")
                         .fillna(0).astype(int))
             pivot_pf["Total"] = pivot_pf.sum(axis=1)
+            # Añadir columnas de modalidad
+            for _mod in ["Presencial", "Online", "Sin modalidad"]:
+                pivot_pf[_mod] = (
+                    df_pf[df_pf["modalidad"] == _mod]
+                    .groupby("programa").size()
+                    .reindex(pivot_pf.index).fillna(0).astype(int)
+                )
             pivot_pf = pivot_pf.sort_values("Total", ascending=False)
             st.dataframe(
                 pivot_pf.style.background_gradient(subset=["Total"], cmap="Reds"),
                 use_container_width=True,
             )
+
+            # Programa × Modalidad (solo cuando no hay filtro activo)
+            if _modal_sel == "Todas las modalidades":
+                st.markdown("#### Tabla pivote: Programa × Modalidad")
+                pm_pivot = (df_pf.groupby(["programa", "modalidad"])
+                             .size().unstack(fill_value=0))
+                pm_pivot["Total"] = pm_pivot.sum(axis=1)
+                pm_pivot = pm_pivot.sort_values("Total", ascending=False)
+                st.dataframe(
+                    pm_pivot.style.background_gradient(subset=["Total"], cmap="Reds"),
+                    use_container_width=True,
+                )
 
     with prog_tab3:
         if df_prog_sin.empty:
@@ -3356,6 +3420,13 @@ def main():
                     pivot_cal["Tasa CG %"] = (
                         pivot_cal["Cierre Ganado"] / pivot_cal["Total"] * 100
                     ).round(1)
+                # Añadir columnas de modalidad
+                for _mod in ["Presencial", "Online", "Sin modalidad"]:
+                    pivot_cal[_mod] = (
+                        df_prog_sin[df_prog_sin["modalidad"] == _mod]
+                        .groupby("programa").size()
+                        .reindex(pivot_cal.index).fillna(0).astype(int)
+                    )
                 pivot_cal = pivot_cal.sort_values("Total", ascending=False)
                 st.dataframe(
                     pivot_cal.style.background_gradient(subset=["Total"], cmap="Reds"),
@@ -3456,6 +3527,13 @@ def main():
                     pivot_val["Tasa No válido %"] = (
                         pivot_val["No válido"] / pivot_val["Total"] * 100
                     ).round(1)
+                # Añadir columnas de modalidad
+                for _mod in ["Presencial", "Online", "Sin modalidad"]:
+                    pivot_val[_mod] = (
+                        df_val[df_val["modalidad"] == _mod]
+                        .groupby("programa").size()
+                        .reindex(pivot_val.index).fillna(0).astype(int)
+                    )
                 pivot_val = pivot_val.sort_values("Total", ascending=False)
                 st.dataframe(
                     pivot_val.style.background_gradient(subset=["Total"], cmap="Reds"),
@@ -3627,6 +3705,13 @@ def main():
                 lat_tabla["Tasa CG %"] = (
                     lat_tabla["Cierre Ganado"] / lat_tabla["Total"] * 100
                 ).round(1)
+                # Columnas por modalidad
+                for _mod in ["Presencial", "Online", "Sin modalidad"]:
+                    lat_tabla[_mod] = (
+                        df_lat[df_lat["modalidad"] == _mod]
+                        .groupby("pais_lat").size()
+                        .reindex(lat_tabla["País"]).fillna(0).astype(int).values
+                    )
                 st.dataframe(
                     lat_tabla.style.background_gradient(subset=["Total"], cmap="Blues"),
                     use_container_width=True,
@@ -3665,6 +3750,14 @@ def main():
                 pivot_pm = (pm_grp.pivot(index="programa", columns="mercado", values="Leads")
                              .fillna(0).astype(int))
                 pivot_pm["Total"] = pivot_pm.sum(axis=1)
+                # Añadir columnas de modalidad
+                _df_pm_base = df_prog_merc[df_prog_merc["programa"].isin(top_progs_m)]
+                for _mod in ["Presencial", "Online", "Sin modalidad"]:
+                    pivot_pm[_mod] = (
+                        _df_pm_base[_df_pm_base["modalidad"] == _mod]
+                        .groupby("programa").size()
+                        .reindex(pivot_pm.index).fillna(0).astype(int)
+                    )
                 pivot_pm = pivot_pm.sort_values("Total", ascending=False)
                 st.dataframe(
                     pivot_pm.style.background_gradient(subset=["Total"], cmap="Reds"),
