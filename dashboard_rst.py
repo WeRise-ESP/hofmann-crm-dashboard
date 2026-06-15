@@ -184,6 +184,38 @@ ESTADOS_ORDEN = [
     "Perdido", "Sin estado",
 ]
 
+LATAM_COUNTRIES = {
+    "argentina", "bolivia", "brasil", "brazil", "chile", "colombia",
+    "costa rica", "cuba", "dominican republic", "república dominicana",
+    "ecuador", "el salvador", "guatemala", "honduras", "mexico", "méxico",
+    "nicaragua", "panama", "panamá", "paraguay", "peru", "perú",
+    "puerto rico", "uruguay", "venezuela",
+}
+ESPAÑA_COUNTRIES = {"spain", "españa", "espana", "andorra"}
+
+LATAM_PAIS_ES = {
+    "Argentina": "Argentina", "Bolivia": "Bolivia", "Brasil": "Brasil",
+    "Brazil": "Brasil", "Chile": "Chile", "Colombia": "Colombia",
+    "Costa Rica": "Costa Rica", "Cuba": "Cuba",
+    "Dominican Republic": "Rep. Dominicana", "República Dominicana": "Rep. Dominicana",
+    "Ecuador": "Ecuador", "El Salvador": "El Salvador",
+    "Guatemala": "Guatemala", "Honduras": "Honduras",
+    "Mexico": "México", "México": "México",
+    "Nicaragua": "Nicaragua", "Panama": "Panamá", "Panamá": "Panamá",
+    "Paraguay": "Paraguay", "Peru": "Perú", "Perú": "Perú",
+    "Puerto Rico": "Puerto Rico", "Uruguay": "Uruguay", "Venezuela": "Venezuela",
+}
+
+def resolve_mercado(pais: str) -> str:
+    p = pais.lower().strip()
+    if p in ESPAÑA_COUNTRIES:
+        return "España"
+    if p in LATAM_COUNTRIES:
+        return "Latam"
+    if not p or p == "sin datos":
+        return "Sin datos"
+    return "Otro"
+
 CURSO_LABELS = {
     '597': 'Arroces', '26716': 'Arroces de Verano', '519': 'Arroces y Fideuás',
     '26699': 'Asia Street Food', 'bono regalo': 'Bono Regalo',
@@ -356,6 +388,7 @@ def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
                                    cp.get("curso") or "",
                                    (cp.get("curso") or "Sin programa").strip()
                                ) or "Sin programa",
+                "mercado":     resolve_mercado(resolve_pais(cp)),
             })
 
         pg = data.get("paging", {})
@@ -364,7 +397,7 @@ def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
         after = pg["next"]["after"]
 
     _COLS = ["email", "fecha", "mes", "pais", "lead_status", "lead_valido",
-             "intentos", "motivo_cierre", "fuente", "origen_fuente", "modalidad", "programa"]
+             "intentos", "motivo_cierre", "fuente", "origen_fuente", "modalidad", "programa", "mercado"]
     df = pd.DataFrame(rows, columns=_COLS) if rows else pd.DataFrame(columns=_COLS)
     # Derive calidad from lead_valido + lead_status for program analysis
     def _calidad(row):
@@ -3120,10 +3153,11 @@ def main():
     df_prog = df if not df.empty else pd.DataFrame(columns=df.columns)
     df_prog_sin = df_prog[df_prog["programa"] != "Sin programa"]
 
-    prog_tab1, prog_tab2, prog_tab3 = st.tabs([
+    prog_tab1, prog_tab2, prog_tab3, prog_tab4 = st.tabs([
         "📊 Leads por Programa",
         "🔀 Programa × Fuente",
         "✅ Calidad por Programa",
+        "🌍 Mercado",
     ])
 
     with prog_tab1:
@@ -3325,6 +3359,315 @@ def main():
                 pivot_cal = pivot_cal.sort_values("Total", ascending=False)
                 st.dataframe(
                     pivot_cal.style.background_gradient(subset=["Total"], cmap="Reds"),
+                    use_container_width=True,
+                )
+
+            st.markdown("---")
+            st.markdown("#### Leads válidos / no válidos por programa")
+
+            VALIDO_COLORS = {
+                "Válido":        BARCA["blue"],
+                "No válido":     BARCA["garnet"],
+                "Sin clasificar": BARCA["ink20"],
+            }
+            VALIDO_ORDER = ["Válido", "No válido", "Sin clasificar"]
+
+            df_val = df_prog_sin.copy()
+            df_val["validez"] = df_val["lead_valido"].apply(
+                lambda v: "Válido" if v == "Válido"
+                          else ("No válido" if v == "No válido" else "Sin clasificar")
+            )
+
+            # KPIs validez
+            v_val   = (df_val["validez"] == "Válido").sum()
+            v_noval = (df_val["validez"] == "No válido").sum()
+            v_sin   = (df_val["validez"] == "Sin clasificar").sum()
+            v_total = len(df_val)
+            kv1, kv2, kv3 = st.columns(3)
+            kv1.metric("Válidos",         f"{v_val}",
+                       f"{v_val/v_total*100:.1f}%" if v_total else "—")
+            kv2.metric("No válidos",       f"{v_noval}",
+                       f"{v_noval/v_total*100:.1f}%" if v_total else "—")
+            kv3.metric("Sin clasificar",   f"{v_sin}",
+                       f"{v_sin/v_total*100:.1f}%" if v_total else "—")
+
+            top_progs_val = (df_prog_sin["programa"].value_counts()
+                             .head(top_n_cal).index.tolist())
+            df_val_top = df_val[df_val["programa"].isin(top_progs_val)]
+
+            val_grp = (df_val_top.groupby(["programa", "validez"])
+                       .size().reset_index(name="Leads"))
+            val_grp["validez"] = pd.Categorical(val_grp["validez"],
+                                                 categories=VALIDO_ORDER, ordered=True)
+            fig_val = px.bar(
+                val_grp.sort_values("validez"),
+                x="Leads", y="programa", color="validez", orientation="h",
+                title=f"Válidos / No válidos por programa (Top {top_n_cal})",
+                barmode="stack",
+                color_discrete_map=VALIDO_COLORS,
+                text="Leads",
+                category_orders={"validez": VALIDO_ORDER},
+            )
+            fig_val.update_layout(
+                yaxis={"categoryorder": "total ascending"},
+                height=max(420, top_n_cal * 30),
+                margin={"l": 0, "r": 20, "t": 40, "b": 20},
+                legend={"title": "Validez"},
+            )
+            fig_val.update_traces(textposition="inside", textfont_size=11)
+            st.plotly_chart(fig_val, use_container_width=True)
+
+            st.markdown("#### Leads válidos / no válidos por fuente — detalle por programa")
+            prog_sel_val = st.selectbox(
+                "Selecciona un programa",
+                top_progs_val,
+                key="val_prog_sel",
+            )
+            df_val_det = df_val[df_val["programa"] == prog_sel_val]
+            val_det_grp = (df_val_det.groupby(["fuente", "validez"])
+                           .size().reset_index(name="Leads"))
+            if val_det_grp.empty:
+                st.info("Sin datos para el programa seleccionado.")
+            else:
+                fig_val_det = px.bar(
+                    val_det_grp, x="fuente", y="Leads", color="validez",
+                    title=f"Validez de leads para «{prog_sel_val}» por fuente",
+                    barmode="stack",
+                    color_discrete_map=VALIDO_COLORS,
+                    text="Leads",
+                    category_orders={"validez": VALIDO_ORDER},
+                )
+                fig_val_det.update_layout(
+                    margin={"l": 0, "r": 20, "t": 40, "b": 20},
+                    legend={"title": "Validez"},
+                )
+                fig_val_det.update_traces(textposition="inside")
+                st.plotly_chart(fig_val_det, use_container_width=True)
+
+            with st.expander("📋 Tabla pivote: Programa × Validez"):
+                pivot_val = (df_val.groupby(["programa", "validez"])
+                             .size().unstack(fill_value=0))
+                for col in VALIDO_ORDER:
+                    if col not in pivot_val.columns:
+                        pivot_val[col] = 0
+                pivot_val = pivot_val[[c for c in VALIDO_ORDER if c in pivot_val.columns]]
+                pivot_val["Total"] = pivot_val.sum(axis=1)
+                if "No válido" in pivot_val.columns:
+                    pivot_val["Tasa No válido %"] = (
+                        pivot_val["No válido"] / pivot_val["Total"] * 100
+                    ).round(1)
+                pivot_val = pivot_val.sort_values("Total", ascending=False)
+                st.dataframe(
+                    pivot_val.style.background_gradient(subset=["Total"], cmap="Reds"),
+                    use_container_width=True,
+                )
+
+    with prog_tab4:
+        MERCADO_COLORS = {
+            "España":    BARCA["garnet"],
+            "Latam":     BARCA["blue"],
+            "Otro":      BARCA["yellow"],
+            "Sin datos": BARCA["ink20"],
+        }
+        MERCADO_ORDER = ["España", "Latam", "Otro", "Sin datos"]
+
+        n_es  = (df["mercado"] == "España").sum()
+        n_lat = (df["mercado"] == "Latam").sum()
+        n_ot  = (df["mercado"] == "Otro").sum()
+        n_sd  = (df["mercado"] == "Sin datos").sum()
+        n_tot = len(df)
+
+        km1, km2, km3, km4 = st.columns(4)
+        km1.metric("España",    f"{n_es:,}",  f"{n_es/n_tot*100:.1f}%" if n_tot else "—")
+        km2.metric("Latam",     f"{n_lat:,}", f"{n_lat/n_tot*100:.1f}%" if n_tot else "—")
+        km3.metric("Otro",      f"{n_ot:,}",  f"{n_ot/n_tot*100:.1f}%" if n_tot else "—")
+        km4.metric("Sin datos", f"{n_sd:,}",  f"{n_sd/n_tot*100:.1f}%" if n_tot else "—")
+
+        st.markdown("---")
+
+        col_pie, col_src = st.columns([1, 2])
+
+        with col_pie:
+            merc_dist = (df.groupby("mercado").size()
+                          .reset_index(name="Leads")
+                          .sort_values("Leads", ascending=False))
+            fig_pie = px.pie(
+                merc_dist, names="mercado", values="Leads",
+                title="Distribución por mercado",
+                hole=0.55,
+                color="mercado",
+                color_discrete_map=MERCADO_COLORS,
+            )
+            fig_pie.update_traces(textposition="outside", textinfo="percent+label")
+            fig_pie.update_layout(showlegend=False,
+                                   margin={"l": 0, "r": 0, "t": 40, "b": 0})
+            st.plotly_chart(fig_pie, use_container_width=True)
+
+        with col_src:
+            merc_src = (df.groupby(["mercado", "fuente"])
+                         .size().reset_index(name="Leads"))
+            fig_ms = px.bar(
+                merc_src, x="fuente", y="Leads", color="mercado",
+                title="Fuente de tráfico por mercado",
+                barmode="stack",
+                color_discrete_map=MERCADO_COLORS,
+                category_orders={"mercado": MERCADO_ORDER},
+            )
+            fig_ms.update_layout(
+                margin={"l": 0, "r": 0, "t": 40, "b": 20},
+                legend={"title": "Mercado"},
+            )
+            st.plotly_chart(fig_ms, use_container_width=True)
+
+        # ── Latam: leads por país ───────────────────────────────────────────
+        st.markdown("### 🌎 Latam — Leads por país")
+        df_lat = df[df["mercado"] == "Latam"].copy()
+
+        if df_lat.empty:
+            st.info("No hay leads de Latam en el período seleccionado.")
+        else:
+            df_lat["pais_lat"] = df_lat["pais"].apply(
+                lambda p: LATAM_PAIS_ES.get(p, p)
+            )
+
+            # KPIs latam
+            n_paises_lat = df_lat["pais_lat"].nunique()
+            top_pais_lat = df_lat["pais_lat"].value_counts().idxmax()
+            top_pais_n   = df_lat["pais_lat"].value_counts().max()
+            lk1, lk2 = st.columns(2)
+            lk1.metric("Países Latam", f"{n_paises_lat}")
+            lk2.metric("País top", top_pais_lat, f"{top_pais_n} leads")
+
+            lat_paises = (df_lat.groupby("pais_lat").size()
+                           .reset_index(name="Leads")
+                           .sort_values("Leads", ascending=False))
+
+            fig_lat_p = px.bar(
+                lat_paises, x="Leads", y="pais_lat", orientation="h",
+                title="Leads por país — Latam",
+                color="Leads",
+                color_continuous_scale=[[0, BARCA["bone"]], [1, BARCA["blue"]]],
+                text="Leads",
+            )
+            fig_lat_p.update_layout(
+                yaxis={"categoryorder": "total ascending"},
+                coloraxis_showscale=False,
+                height=max(350, len(lat_paises) * 30),
+                margin={"l": 0, "r": 20, "t": 40, "b": 20},
+            )
+            fig_lat_p.update_traces(textposition="outside")
+            st.plotly_chart(fig_lat_p, use_container_width=True)
+
+            # País × Fuente — Latam
+            st.markdown("#### País × Fuente de tráfico (Latam)")
+            lat_pf = (df_lat.groupby(["pais_lat", "fuente"])
+                       .size().reset_index(name="Leads"))
+            fig_lat_pf = px.bar(
+                lat_pf, x="Leads", y="pais_lat", color="fuente", orientation="h",
+                title="Fuente de tráfico por país — Latam",
+                barmode="stack",
+                text="Leads",
+            )
+            fig_lat_pf.update_layout(
+                yaxis={"categoryorder": "total ascending"},
+                height=max(350, len(lat_paises) * 30),
+                margin={"l": 0, "r": 20, "t": 40, "b": 20},
+                legend={"title": "Fuente"},
+            )
+            fig_lat_pf.update_traces(textposition="inside", textfont_size=11)
+            st.plotly_chart(fig_lat_pf, use_container_width=True)
+
+            # País × Calidad — Latam
+            st.markdown("#### Calidad de leads por país — Latam")
+            CALIDAD_ORDER_M = ["Cierre Ganado", "En proceso", "Perdido", "No válido"]
+            CALIDAD_COLORS_M = {
+                "Cierre Ganado": BARCA["gold"],
+                "En proceso":    BARCA["blue"],
+                "Perdido":       BARCA["garnet"],
+                "No válido":     BARCA["ink40"],
+            }
+            lat_cal = (df_lat.groupby(["pais_lat", "calidad"])
+                        .size().reset_index(name="Leads"))
+            lat_cal["calidad"] = pd.Categorical(lat_cal["calidad"],
+                                                  categories=CALIDAD_ORDER_M, ordered=True)
+            fig_lat_cal = px.bar(
+                lat_cal.sort_values("calidad"),
+                x="Leads", y="pais_lat", color="calidad", orientation="h",
+                title="Calidad de leads por país — Latam",
+                barmode="stack",
+                color_discrete_map=CALIDAD_COLORS_M,
+                text="Leads",
+                category_orders={"calidad": CALIDAD_ORDER_M},
+            )
+            fig_lat_cal.update_layout(
+                yaxis={"categoryorder": "total ascending"},
+                height=max(350, len(lat_paises) * 30),
+                margin={"l": 0, "r": 20, "t": 40, "b": 20},
+                legend={"title": "Calidad"},
+            )
+            fig_lat_cal.update_traces(textposition="inside", textfont_size=11)
+            st.plotly_chart(fig_lat_cal, use_container_width=True)
+
+            # Tabla completa Latam
+            with st.expander("📋 Tabla completa — Leads Latam por país"):
+                lat_tabla = (df_lat.groupby("pais_lat")
+                              .agg(
+                                  Total=("email", "count"),
+                                  Cierre_Ganado=("calidad", lambda x: (x == "Cierre Ganado").sum()),
+                                  En_proceso=("calidad", lambda x: (x == "En proceso").sum()),
+                                  Perdidos=("calidad", lambda x: (x == "Perdido").sum()),
+                                  No_valido=("calidad", lambda x: (x == "No válido").sum()),
+                              )
+                              .reset_index()
+                              .rename(columns={"pais_lat": "País",
+                                               "Cierre_Ganado": "Cierre Ganado",
+                                               "En_proceso": "En proceso",
+                                               "No_valido": "No válido"})
+                              .sort_values("Total", ascending=False))
+                lat_tabla["Tasa CG %"] = (
+                    lat_tabla["Cierre Ganado"] / lat_tabla["Total"] * 100
+                ).round(1)
+                st.dataframe(
+                    lat_tabla.style.background_gradient(subset=["Total"], cmap="Blues"),
+                    use_container_width=True,
+                    hide_index=True,
+                )
+
+        # ── Programa por Mercado ────────────────────────────────────────────
+        st.markdown("---")
+        st.markdown("### 📚 Programas por mercado")
+        df_prog_merc = df[df["programa"] != "Sin programa"]
+        if not df_prog_merc.empty:
+            top_n_merc = st.selectbox("Top N programas", [10, 15, 20], key="merc_topn")
+            top_progs_m = (df_prog_merc["programa"].value_counts()
+                           .head(top_n_merc).index.tolist())
+            pm_grp = (df_prog_merc[df_prog_merc["programa"].isin(top_progs_m)]
+                       .groupby(["programa", "mercado"])
+                       .size().reset_index(name="Leads"))
+            fig_pm = px.bar(
+                pm_grp, x="Leads", y="programa", color="mercado", orientation="h",
+                title=f"Leads por programa y mercado (Top {top_n_merc})",
+                barmode="stack",
+                color_discrete_map=MERCADO_COLORS,
+                text="Leads",
+                category_orders={"mercado": MERCADO_ORDER},
+            )
+            fig_pm.update_layout(
+                yaxis={"categoryorder": "total ascending"},
+                height=max(420, top_n_merc * 30),
+                margin={"l": 0, "r": 20, "t": 40, "b": 20},
+                legend={"title": "Mercado"},
+            )
+            fig_pm.update_traces(textposition="inside", textfont_size=11)
+            st.plotly_chart(fig_pm, use_container_width=True)
+
+            with st.expander("📋 Tabla pivote: Programa × Mercado"):
+                pivot_pm = (pm_grp.pivot(index="programa", columns="mercado", values="Leads")
+                             .fillna(0).astype(int))
+                pivot_pm["Total"] = pivot_pm.sum(axis=1)
+                pivot_pm = pivot_pm.sort_values("Total", ascending=False)
+                st.dataframe(
+                    pivot_pm.style.background_gradient(subset=["Total"], cmap="Reds"),
                     use_container_width=True,
                 )
 
