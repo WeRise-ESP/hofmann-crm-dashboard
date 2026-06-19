@@ -310,6 +310,7 @@ CONTACT_PROPS = [
     "hs_latest_source", "hs_latest_source_data_1",
     "modalidad_curso", "curso",
     "categoria_lead",
+    "hs_object_source",
 ]
 
 _CATEGORIAS_OPTS = [
@@ -365,6 +366,21 @@ def norm_status(raw):
     if not raw:
         return "Sin estado"
     return LEAD_STATUS_NORM.get(raw.lower().strip(), raw.strip().title())
+
+
+def _resolve_categoria(cp: dict) -> str:
+    raw = (cp.get("categoria_lead") or "").strip()
+    if raw:
+        return raw
+    # Inferir a partir del origen cuando HubSpot no ha seteado la propiedad
+    src = (cp.get("hs_object_source") or "").upper()
+    if src == "FORM":
+        return "Formulario"
+    if src == "MEETINGS":
+        return "Inscrito Manualmente"
+    if src == "INTEGRATION":
+        return "Importación Classlife"
+    return "Sin categoría"
 
 
 # ── Fetching de contactos (con caché) ─────────────────────────────────────────
@@ -424,7 +440,7 @@ def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
                                    (cp.get("curso") or "Sin programa").strip()
                                ) or "Sin programa",
                 "mercado":     resolve_mercado(resolve_pais(cp)),
-                "categoria":   (cp.get("categoria_lead") or "Sin categoría").strip(),
+                "categoria":   _resolve_categoria(cp),
             })
 
         pg = data.get("paging", {})
