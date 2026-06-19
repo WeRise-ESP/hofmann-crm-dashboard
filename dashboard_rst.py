@@ -309,6 +309,26 @@ CONTACT_PROPS = [
     "hs_analytics_source", "hs_analytics_source_data_1",
     "hs_latest_source", "hs_latest_source_data_1",
     "modalidad_curso", "curso",
+    "categoria_lead",
+]
+
+_CATEGORIAS_OPTS = [
+    "Formulario",
+    "Chatbot HubSpot",
+    "Chatbot Serviceform",
+    "Forms NO Hubspot antiguos",
+    "Sesión Informativa Online",
+    "Lead Consultoría Empresa",
+    "Inscrito Manualmente",
+    "Open Day",
+    "Open Day Digital",
+    "Webinar",
+    "Compra NO curso",
+    "Compra Regala Hofmann",
+    "Formulario Regala Hofmann",
+    "Compra curso web",
+    "Compra Cancelada",
+    "Importación Classlife",
 ]
 
 
@@ -404,6 +424,7 @@ def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
                                    (cp.get("curso") or "Sin programa").strip()
                                ) or "Sin programa",
                 "mercado":     resolve_mercado(resolve_pais(cp)),
+                "categoria":   (cp.get("categoria_lead") or "Sin categoría").strip(),
             })
 
         pg = data.get("paging", {})
@@ -412,7 +433,7 @@ def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
         after = pg["next"]["after"]
 
     _COLS = ["email", "fecha", "mes", "pais", "lead_status", "lead_valido",
-             "intentos", "motivo_cierre", "fuente", "origen_fuente", "modalidad", "programa", "mercado"]
+             "intentos", "motivo_cierre", "fuente", "origen_fuente", "modalidad", "programa", "mercado", "categoria"]
     df = pd.DataFrame(rows, columns=_COLS) if rows else pd.DataFrame(columns=_COLS)
     # Derive calidad from lead_valido + lead_status for program analysis
     def _calidad(row):
@@ -1640,6 +1661,13 @@ def main():
         ])
 
         st.markdown("---")
+        filtro_categoria = st.multiselect(
+            "Tipo de contacto",
+            options=_CATEGORIAS_OPTS,
+            help="Filtra por el origen/tipo del contacto (captación, evento, compra, etc.)",
+        )
+
+        st.markdown("---")
         filtro_modalidad_contacto = st.multiselect(
             "Modalidad contacto",
             options=["Presencial", "Online", "Sin modalidad"],
@@ -1733,6 +1761,8 @@ def main():
             frame = frame[frame["pais"].isin(filtro_pais)]
         if filtro_modalidad_contacto and "modalidad" in frame.columns:
             frame = frame[frame["modalidad"].isin(filtro_modalidad_contacto)]
+        if filtro_categoria and "categoria" in frame.columns:
+            frame = frame[frame["categoria"].isin(filtro_categoria)]
         return frame
 
     df               = _apply(df)
