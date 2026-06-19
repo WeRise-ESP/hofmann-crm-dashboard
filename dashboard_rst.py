@@ -311,6 +311,7 @@ CONTACT_PROPS = [
     "modalidad_curso", "curso",
     "categoria_lead",
     "hs_object_source",
+    "first_conversion_event_name",
 ]
 
 _CATEGORIAS_OPTS = [
@@ -372,9 +373,22 @@ def _resolve_categoria(cp: dict) -> str:
     raw = (cp.get("categoria_lead") or "").strip()
     if raw:
         return raw
-    # Inferir a partir del origen cuando HubSpot no ha seteado la propiedad
     src = (cp.get("hs_object_source") or "").upper()
     if src == "FORM":
+        # Afinar por nombre del formulario
+        form_name = (cp.get("first_conversion_event_name") or "").lower()
+        if "open day" in form_name or "openday" in form_name or "puertas abiertas" in form_name:
+            if "digital" in form_name or "online" in form_name:
+                return "Open Day Digital"
+            return "Open Day"
+        if "webinar" in form_name:
+            return "Webinar"
+        if "sesión informativa" in form_name or "sesion informativa" in form_name:
+            return "Sesión Informativa Online"
+        if "regala hofmann" in form_name or "regalo" in form_name:
+            return "Formulario Regala Hofmann"
+        if "linkedin lead" in form_name:
+            return "Formulario"
         return "Formulario"
     if src == "MEETINGS":
         return "Inscrito Manualmente"
