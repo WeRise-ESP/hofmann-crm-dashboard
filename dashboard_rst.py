@@ -4342,6 +4342,129 @@ def main():
                     },
                 )
 
+                st.divider()
+
+                # ── Análisis de fuentes por programa ─────────────────────────────────
+                st.markdown("### 🎓 Fuentes de tráfico por Programa")
+                st.caption("Selecciona un programa para ver qué fuentes generan más leads y la calidad de cada una.")
+
+                _progs_disponibles = (
+                    df_cpn[df_cpn["programa"] != "Sin programa"]["programa"]
+                    .value_counts()
+                    .index.tolist()
+                )
+                if not _progs_disponibles:
+                    st.info("Sin datos de programa disponibles.")
+                else:
+                    _sel_prog_fnt = st.selectbox(
+                        "Selecciona un programa",
+                        _progs_disponibles,
+                        key="prog_fuente_sel",
+                    )
+
+                    _df_pf = df_cpn[df_cpn["programa"] == _sel_prog_fnt].copy()
+                    _total_pf = len(_df_pf)
+
+                    # KPIs rápidos del programa seleccionado
+                    _val_pf     = (_df_pf["lead_valido"] == "Válido").sum()
+                    _noval_pf   = (_df_pf["lead_valido"] == "No válido").sum()
+                    _pct_val_pf = _val_pf / _total_pf * 100 if _total_pf > 0 else 0
+
+                    _kpf1, _kpf2, _kpf3, _kpf4 = st.columns(4)
+                    kpi_card(_kpf1, "Total leads",     _total_pf,                  BARCA["blue"])
+                    kpi_card(_kpf2, "Leads válidos",   _val_pf,                    "#2E7D32")
+                    kpi_card(_kpf3, "Leads inválidos", _noval_pf,                  BARCA["garnet"])
+                    kpi_card(_kpf4, "% Válidos",       f"{_pct_val_pf:.0f}%",     BARCA["gold"])
+
+                    st.markdown("<br>", unsafe_allow_html=True)
+
+                    _col_pf1, _col_pf2 = st.columns(2)
+
+                    with _col_pf1:
+                        # Barras horizontales: total por fuente
+                        _df_pf_fnt = (
+                            _df_pf.groupby("fuente").size()
+                            .reset_index(name="Leads")
+                            .sort_values("Leads", ascending=True)
+                        )
+                        _fig_pf_tot = px.bar(
+                            _df_pf_fnt, x="Leads", y="fuente", orientation="h",
+                            text_auto=".0f",
+                            color="Leads",
+                            color_continuous_scale=[BARCA["bone"], BARCA["blue"], BARCA["blue_ink"]],
+                            labels={"fuente": ""},
+                            title="Leads por fuente",
+                        )
+                        _fig_pf_tot.update_layout(
+                            coloraxis_showscale=False,
+                            yaxis=dict(categoryorder="total ascending"),
+                        )
+                        barca_layout(_fig_pf_tot, max(260, len(_df_pf_fnt) * 44))
+                        st.plotly_chart(_fig_pf_tot, use_container_width=True)
+
+                    with _col_pf2:
+                        # Barras apiladas: válido/inválido por fuente
+                        _df_pf_val = (
+                            _df_pf.groupby(["fuente", "lead_valido"])
+                            .size().reset_index(name="Leads")
+                        )
+                        _fnt_order_pf = (
+                            _df_pf_val.groupby("fuente")["Leads"].sum()
+                            .sort_values(ascending=True).index.tolist()
+                        )
+                        _COLOR_VAL2 = {
+                            "Válido":    BARCA["blue"],
+                            "No válido": BARCA["garnet"],
+                            "Sin datos": BARCA["ink20"],
+                        }
+                        _fig_pf_val = px.bar(
+                            _df_pf_val, x="Leads", y="fuente", color="lead_valido",
+                            orientation="h", barmode="stack",
+                            color_discrete_map=_COLOR_VAL2,
+                            text_auto=".0f",
+                            labels={"fuente": "", "lead_valido": ""},
+                            category_orders={"fuente": _fnt_order_pf},
+                            title="Válidos e inválidos por fuente",
+                        )
+                        _fig_pf_val.update_layout(legend=dict(orientation="h", y=-0.15, title=""))
+                        barca_layout(_fig_pf_val, max(260, len(_df_pf_fnt) * 44))
+                        st.plotly_chart(_fig_pf_val, use_container_width=True)
+
+                    # Tabla resumen: fuente × válido/inválido con totales
+                    _df_pf_pivot = (
+                        _df_pf.groupby(["fuente", "lead_valido"]).size()
+                        .unstack(fill_value=0)
+                        .reset_index()
+                    )
+                    _df_pf_pivot.columns.name = None
+                    for _col in ["Válido", "No válido", "Sin datos"]:
+                        if _col not in _df_pf_pivot.columns:
+                            _df_pf_pivot[_col] = 0
+                    _df_pf_pivot["Total"] = _df_pf_pivot[["Válido", "No válido", "Sin datos"]].sum(axis=1)
+                    _df_pf_pivot["% Válido"] = (
+                        _df_pf_pivot["Válido"] / _df_pf_pivot["Total"] * 100
+                    ).round(1)
+                    _df_pf_pivot = (
+                        _df_pf_pivot
+                        .sort_values("Total", ascending=False)
+                        .rename(columns={"fuente": "Fuente"})
+                    )
+                    st.dataframe(
+                        _df_pf_pivot[["Fuente", "Total", "Válido", "No válido", "Sin datos", "% Válido"]],
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "Fuente":     st.column_config.TextColumn(width="medium"),
+                            "Total":      st.column_config.NumberColumn(format="%d", width="small"),
+                            "Válido":     st.column_config.NumberColumn(format="%d", width="small"),
+                            "No válido":  st.column_config.NumberColumn(format="%d", width="small"),
+                            "Sin datos":  st.column_config.NumberColumn(format="%d", width="small"),
+                            "% Válido":   st.column_config.NumberColumn(format="%.1f%%", width="small"),
+                        },
+                    )
+
+                st.divider()
+
                 # Vista alternativa: tabla plana con un lead por fila (expandible)
                 with st.expander("📋 Ver tabla completa lead a lead"):
                     _cols_raw = [
