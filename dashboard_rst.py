@@ -1352,12 +1352,13 @@ def fetch_sequences() -> pd.DataFrame:
 # ── Helpers de gráficos ───────────────────────────────────────────────────────
 
 def barca_layout(fig, height=340):
+    _title_text = (fig.layout.title.text or "") if fig.layout.title else ""
     fig.update_layout(
         height=height,
         paper_bgcolor=BARCA["white"],
         plot_bgcolor=BARCA["white"],
         font_color=BARCA["ink80"],
-        title_font=dict(size=14, color=BARCA["blue_ink"]),
+        title=dict(text=_title_text, font=dict(size=14, color=BARCA["blue_ink"])),
         margin=dict(t=44, b=12, l=12, r=12),
         legend=dict(font=dict(size=10)),
     )
