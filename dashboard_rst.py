@@ -1840,2021 +1840,2207 @@ def main():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── Secciones que dependen de df (leads) ──────────────────────────────────
-    if df.empty:
-        st.info("No hay leads para el período y filtros seleccionados.")
-    else:
-        # ── Distribución general ───────────────────────────────────────────────
-        st.markdown("### Distribución general")
-        col1, col2, col3 = st.columns([1.2, 1.2, 1.6])
+    tab_rst, tab_campana = st.tabs(["📊 RST Dashboard", "📍 Leads por Campaña"])
 
-        with col1:
-            st.plotly_chart(
-                chart_donut(df, "lead_status", "Por Estado de Lead", COLOR_ESTADOS),
-                use_container_width=True
-            )
-        with col2:
-            fuente_counts = df["fuente"].value_counts().reset_index()
-            fuente_counts.columns = ["fuente", "Total"]
-            fig = px.pie(fuente_counts, names="fuente", values="Total",
-                         title="Por Fuente de Tráfico", hole=0.55,
-                         color_discrete_sequence=COLOR_FUENTES)
-            fig.update_traces(textposition="outside", textinfo="percent+label",
-                              marker=dict(line=dict(color=BARCA["white"], width=2)))
-            barca_layout(fig, 320)
-            st.plotly_chart(fig, use_container_width=True)
-        with col3:
-            pais_top = (df.groupby("pais").size().reset_index(name="Total")
-                        .sort_values("Total", ascending=False).head(12))
-            fig = px.bar(pais_top, x="Total", y="pais", orientation="h",
-                         text_auto=True, title="Top 12 países",
-                         color="Total",
-                         color_continuous_scale=[BARCA["line2"], BARCA["blue_deep"],
-                                                  BARCA["blue_ink"]])
-            fig.update_layout(coloraxis_showscale=False,
-                              yaxis=dict(categoryorder="total ascending"))
-            barca_layout(fig, 340)
-            st.plotly_chart(fig, use_container_width=True)
+    with tab_rst:
+        # ── Secciones que dependen de df (leads) ──────────────────────────────────
+        if df.empty:
+            st.info("No hay leads para el período y filtros seleccionados.")
+        else:
+            # ── Distribución general ───────────────────────────────────────────────
+            st.markdown("### Distribución general")
+            col1, col2, col3 = st.columns([1.2, 1.2, 1.6])
 
-        # ── Lead Válido ────────────────────────────────────────────────────────
-        st.markdown("### Calidad de leads")
-        col1, col2 = st.columns(2)
-        with col1:
-            valido_counts = df["lead_valido"].value_counts().reset_index()
-            valido_counts.columns = ["lead_valido", "Total"]
-            fig = px.pie(valido_counts, names="lead_valido", values="Total",
-                         title="Lead Válido", hole=0.55,
-                         color="lead_valido",
-                         color_discrete_map={
-                             "Válido":    BARCA["blue"],
-                             "No válido": BARCA["garnet"],
-                             "Sin datos": BARCA["line2"],
-                         })
-            fig.update_traces(textposition="outside", textinfo="percent+label",
-                              marker=dict(line=dict(color=BARCA["white"], width=2)))
-            barca_layout(fig, 320)
-            st.plotly_chart(fig, use_container_width=True)
-        with col2:
-            grp_v = df.groupby(["fuente", "lead_valido"]).size().reset_index(name="Total")
-            fig = px.bar(grp_v, x="fuente", y="Total", color="lead_valido",
-                         barmode="stack", title="Válido / No válido por fuente",
-                         color_discrete_map={
-                             "Válido":    BARCA["blue"],
-                             "No válido": BARCA["garnet"],
-                             "Sin datos": BARCA["line2"],
-                         })
-            fig.update_layout(legend=dict(orientation="h", y=-0.3))
-            barca_layout(fig, 320)
-            st.plotly_chart(fig, use_container_width=True)
+            with col1:
+                st.plotly_chart(
+                    chart_donut(df, "lead_status", "Por Estado de Lead", COLOR_ESTADOS),
+                    use_container_width=True
+                )
+            with col2:
+                fuente_counts = df["fuente"].value_counts().reset_index()
+                fuente_counts.columns = ["fuente", "Total"]
+                fig = px.pie(fuente_counts, names="fuente", values="Total",
+                             title="Por Fuente de Tráfico", hole=0.55,
+                             color_discrete_sequence=COLOR_FUENTES)
+                fig.update_traces(textposition="outside", textinfo="percent+label",
+                                  marker=dict(line=dict(color=BARCA["white"], width=2)))
+                barca_layout(fig, 320)
+                st.plotly_chart(fig, use_container_width=True)
+            with col3:
+                pais_top = (df.groupby("pais").size().reset_index(name="Total")
+                            .sort_values("Total", ascending=False).head(12))
+                fig = px.bar(pais_top, x="Total", y="pais", orientation="h",
+                             text_auto=True, title="Top 12 países",
+                             color="Total",
+                             color_continuous_scale=[BARCA["line2"], BARCA["blue_deep"],
+                                                      BARCA["blue_ink"]])
+                fig.update_layout(coloraxis_showscale=False,
+                                  yaxis=dict(categoryorder="total ascending"))
+                barca_layout(fig, 340)
+                st.plotly_chart(fig, use_container_width=True)
 
-        # ── Modalidad de Contacto ──────────────────────────────────────────────
-        st.markdown("### Modalidad de contacto")
-        COLOR_MODALIDAD = {
-            "Presencial":    BARCA["blue_ink"],
-            "Online":        BARCA["gold"],
-            "Sin modalidad": BARCA["line2"],
-        }
-        col1, col2 = st.columns(2)
-        with col1:
-            mod_counts = df["modalidad"].value_counts().reset_index()
-            mod_counts.columns = ["modalidad", "Total"]
-            fig = px.pie(mod_counts, names="modalidad", values="Total",
-                         title="Distribución por modalidad", hole=0.55,
-                         color="modalidad", color_discrete_map=COLOR_MODALIDAD)
-            fig.update_traces(textposition="outside", textinfo="percent+label",
-                              marker=dict(line=dict(color=BARCA["white"], width=2)))
-            barca_layout(fig, 320)
-            st.plotly_chart(fig, use_container_width=True)
-        with col2:
-            grp_mf = df.groupby(["modalidad", "fuente"]).size().reset_index(name="Leads")
-            fig = px.bar(grp_mf, x="fuente", y="Leads", color="modalidad",
-                         barmode="stack", title="Modalidad por fuente de tráfico",
-                         color_discrete_map=COLOR_MODALIDAD)
-            fig.update_layout(legend=dict(orientation="h", y=-0.3))
-            barca_layout(fig, 320)
-            st.plotly_chart(fig, use_container_width=True)
-
-        # Tabla: leads por modalidad × fuente
-        st.markdown("#### Leads por modalidad y fuente de tráfico")
-        pivot_mod = (df.groupby(["modalidad", "fuente"])
-                     .size().reset_index(name="Leads")
-                     .pivot(index="modalidad", columns="fuente", values="Leads")
-                     .fillna(0).astype(int))
-        pivot_mod.insert(0, "Total", pivot_mod.sum(axis=1))
-        pivot_mod = pivot_mod.sort_values("Total", ascending=False)
-        pivot_mod.index.name = "Modalidad"
-        st.dataframe(
-            pivot_mod.style.background_gradient(subset=["Total"], cmap="Blues"),
-            use_container_width=True,
-            height=min(300, len(pivot_mod) * 36 + 50),
-        )
-
-        # ── Fuente × Estado ────────────────────────────────────────────────────
-        st.markdown("### Estado de lead por fuente de tráfico")
-        grp = df.groupby(["fuente", "lead_status"]).size().reset_index(name="Total")
-        col1, col2 = st.columns(2)
-        with col1:
-            fig = px.bar(grp, x="fuente", y="Total", color="lead_status",
-                         barmode="stack", title="Volumen absoluto por fuente",
-                         color_discrete_map=COLOR_ESTADOS,
-                         category_orders={"lead_status": ESTADOS_ORDEN})
-            fig.update_layout(legend=dict(orientation="h", y=-0.5, title="Estado",
-                                           font_size=10))
-            barca_layout(fig, 400)
-            st.plotly_chart(fig, use_container_width=True)
-        with col2:
-            tot_f = df.groupby("fuente").size().reset_index(name="Total_fuente")
-            grp2 = grp.merge(tot_f, on="fuente")
-            grp2["Pct"] = (grp2["Total"] / grp2["Total_fuente"] * 100).round(1)
-            fig = px.bar(grp2, x="fuente", y="Pct", color="lead_status",
-                         barmode="stack", title="Composición % por fuente",
-                         color_discrete_map=COLOR_ESTADOS,
-                         category_orders={"lead_status": ESTADOS_ORDEN})
-            fig.update_layout(yaxis_title="%",
-                              legend=dict(orientation="h", y=-0.5, title="Estado",
-                                           font_size=10))
-            barca_layout(fig, 400)
-            st.plotly_chart(fig, use_container_width=True)
-
-        # ── País × Estado ──────────────────────────────────────────────────────
-        st.markdown("### Estado de lead por país (Top 10)")
-        top10 = df.groupby("pais").size().nlargest(10).index.tolist()
-        df_top = df[df["pais"].isin(top10)]
-        grp3 = df_top.groupby(["pais", "lead_status"]).size().reset_index(name="Total")
-        col1, col2 = st.columns(2)
-        with col1:
-            fig = px.bar(grp3, x="pais", y="Total", color="lead_status",
-                         barmode="stack", title="Volumen por país",
-                         color_discrete_map=COLOR_ESTADOS,
-                         category_orders={"lead_status": ESTADOS_ORDEN})
-            fig.update_layout(legend=dict(orientation="h", y=-0.5, font_size=10))
-            barca_layout(fig, 400)
-            st.plotly_chart(fig, use_container_width=True)
-        with col2:
-            tot_p = df_top.groupby("pais").size().reset_index(name="Total_pais")
-            grp4 = grp3.merge(tot_p, on="pais")
-            grp4["Pct"] = (grp4["Total"] / grp4["Total_pais"] * 100).round(1)
-            fig = px.bar(grp4, x="pais", y="Pct", color="lead_status",
-                         barmode="stack", title="Composición % por país",
-                         color_discrete_map=COLOR_ESTADOS,
-                         category_orders={"lead_status": ESTADOS_ORDEN})
-            fig.update_layout(yaxis_title="%",
-                              legend=dict(orientation="h", y=-0.5, font_size=10))
-            barca_layout(fig, 400)
-            st.plotly_chart(fig, use_container_width=True)
-
-        # ── Tendencia mensual ──────────────────────────────────────────────────
-        if df["mes"].nunique() > 1:
-            st.markdown("### Tendencia mensual")
+            # ── Lead Válido ────────────────────────────────────────────────────────
+            st.markdown("### Calidad de leads")
             col1, col2 = st.columns(2)
             with col1:
-                gm = df.groupby(["mes", "lead_status"]).size().reset_index(name="Total")
-                fig = px.bar(gm, x="mes", y="Total", color="lead_status",
-                             barmode="stack", title="Evolución mensual por estado",
+                valido_counts = df["lead_valido"].value_counts().reset_index()
+                valido_counts.columns = ["lead_valido", "Total"]
+                fig = px.pie(valido_counts, names="lead_valido", values="Total",
+                             title="Lead Válido", hole=0.55,
+                             color="lead_valido",
+                             color_discrete_map={
+                                 "Válido":    BARCA["blue"],
+                                 "No válido": BARCA["garnet"],
+                                 "Sin datos": BARCA["line2"],
+                             })
+                fig.update_traces(textposition="outside", textinfo="percent+label",
+                                  marker=dict(line=dict(color=BARCA["white"], width=2)))
+                barca_layout(fig, 320)
+                st.plotly_chart(fig, use_container_width=True)
+            with col2:
+                grp_v = df.groupby(["fuente", "lead_valido"]).size().reset_index(name="Total")
+                fig = px.bar(grp_v, x="fuente", y="Total", color="lead_valido",
+                             barmode="stack", title="Válido / No válido por fuente",
+                             color_discrete_map={
+                                 "Válido":    BARCA["blue"],
+                                 "No válido": BARCA["garnet"],
+                                 "Sin datos": BARCA["line2"],
+                             })
+                fig.update_layout(legend=dict(orientation="h", y=-0.3))
+                barca_layout(fig, 320)
+                st.plotly_chart(fig, use_container_width=True)
+
+            # ── Modalidad de Contacto ──────────────────────────────────────────────
+            st.markdown("### Modalidad de contacto")
+            COLOR_MODALIDAD = {
+                "Presencial":    BARCA["blue_ink"],
+                "Online":        BARCA["gold"],
+                "Sin modalidad": BARCA["line2"],
+            }
+            col1, col2 = st.columns(2)
+            with col1:
+                mod_counts = df["modalidad"].value_counts().reset_index()
+                mod_counts.columns = ["modalidad", "Total"]
+                fig = px.pie(mod_counts, names="modalidad", values="Total",
+                             title="Distribución por modalidad", hole=0.55,
+                             color="modalidad", color_discrete_map=COLOR_MODALIDAD)
+                fig.update_traces(textposition="outside", textinfo="percent+label",
+                                  marker=dict(line=dict(color=BARCA["white"], width=2)))
+                barca_layout(fig, 320)
+                st.plotly_chart(fig, use_container_width=True)
+            with col2:
+                grp_mf = df.groupby(["modalidad", "fuente"]).size().reset_index(name="Leads")
+                fig = px.bar(grp_mf, x="fuente", y="Leads", color="modalidad",
+                             barmode="stack", title="Modalidad por fuente de tráfico",
+                             color_discrete_map=COLOR_MODALIDAD)
+                fig.update_layout(legend=dict(orientation="h", y=-0.3))
+                barca_layout(fig, 320)
+                st.plotly_chart(fig, use_container_width=True)
+
+            # Tabla: leads por modalidad × fuente
+            st.markdown("#### Leads por modalidad y fuente de tráfico")
+            pivot_mod = (df.groupby(["modalidad", "fuente"])
+                         .size().reset_index(name="Leads")
+                         .pivot(index="modalidad", columns="fuente", values="Leads")
+                         .fillna(0).astype(int))
+            pivot_mod.insert(0, "Total", pivot_mod.sum(axis=1))
+            pivot_mod = pivot_mod.sort_values("Total", ascending=False)
+            pivot_mod.index.name = "Modalidad"
+            st.dataframe(
+                pivot_mod.style.background_gradient(subset=["Total"], cmap="Blues"),
+                use_container_width=True,
+                height=min(300, len(pivot_mod) * 36 + 50),
+            )
+
+            # ── Fuente × Estado ────────────────────────────────────────────────────
+            st.markdown("### Estado de lead por fuente de tráfico")
+            grp = df.groupby(["fuente", "lead_status"]).size().reset_index(name="Total")
+            col1, col2 = st.columns(2)
+            with col1:
+                fig = px.bar(grp, x="fuente", y="Total", color="lead_status",
+                             barmode="stack", title="Volumen absoluto por fuente",
                              color_discrete_map=COLOR_ESTADOS,
                              category_orders={"lead_status": ESTADOS_ORDEN})
-                fig.update_layout(legend=dict(orientation="h", y=-0.45, font_size=10))
-                barca_layout(fig, 340)
+                fig.update_layout(legend=dict(orientation="h", y=-0.5, title="Estado",
+                                               font_size=10))
+                barca_layout(fig, 400)
                 st.plotly_chart(fig, use_container_width=True)
             with col2:
-                gm2 = df.groupby(["mes", "fuente"]).size().reset_index(name="Total")
-                fig = px.line(gm2, x="mes", y="Total", color="fuente",
-                              markers=True, title="Evolución por fuente de tráfico",
-                              color_discrete_sequence=COLOR_FUENTES)
-                fig.update_layout(legend=dict(orientation="h", y=-0.45, font_size=10))
-                barca_layout(fig, 340)
+                tot_f = df.groupby("fuente").size().reset_index(name="Total_fuente")
+                grp2 = grp.merge(tot_f, on="fuente")
+                grp2["Pct"] = (grp2["Total"] / grp2["Total_fuente"] * 100).round(1)
+                fig = px.bar(grp2, x="fuente", y="Pct", color="lead_status",
+                             barmode="stack", title="Composición % por fuente",
+                             color_discrete_map=COLOR_ESTADOS,
+                             category_orders={"lead_status": ESTADOS_ORDEN})
+                fig.update_layout(yaxis_title="%",
+                                  legend=dict(orientation="h", y=-0.5, title="Estado",
+                                               font_size=10))
+                barca_layout(fig, 400)
                 st.plotly_chart(fig, use_container_width=True)
 
-    # ── Matriculaciones del período ────────────────────────────────────────────
-    if not df_mat.empty:
-        st.markdown(f"""<hr style="border:1px solid {BARCA['line']};margin:32px 0 20px">""",
-                    unsafe_allow_html=True)
-        mat_label = "todos los tiempos" if fi == "todos" else periodo_txt
-        st.markdown(
-            f"### 🎓 Matriculaciones del período "
-            f"<span style='font-size:14px;color:{BARCA['ink60']};font-weight:400'>"
-            f"({len(df_mat)} matriculados · fecha real de matriculación · {mat_label})</span>",
-            unsafe_allow_html=True
-        )
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            mp = (df_mat.groupby("pais").size()
-                  .reset_index(name="Total")
-                  .sort_values("Total", ascending=False).head(12))
-            fig = px.bar(mp, x="Total", y="pais", orientation="h", text_auto=True,
-                         title="Matriculados por país (Top 12)",
-                         color="Total",
-                         color_continuous_scale=[BARCA["line2"], BARCA["gold"],
-                                                  BARCA["blue_ink"]])
-            fig.update_layout(coloraxis_showscale=False,
-                              yaxis=dict(categoryorder="total ascending"))
-            barca_layout(fig, 360)
-            st.plotly_chart(fig, use_container_width=True)
-        with col2:
-            mf = (df_mat.groupby("fuente").size()
-                  .reset_index(name="Total")
-                  .sort_values("Total", ascending=False))
-            fig = px.bar(mf, x="fuente", y="Total", text_auto=True,
-                         title="Matriculados por fuente de tráfico",
-                         color="Total",
-                         color_continuous_scale=[BARCA["line2"], BARCA["gold"],
-                                                  BARCA["garnet"]])
-            fig.update_layout(coloraxis_showscale=False)
-            barca_layout(fig, 360)
-            st.plotly_chart(fig, use_container_width=True)
-        with col3:
-            mm = (df_mat.groupby("mes").size()
-                  .reset_index(name="Matriculados")
-                  .sort_values("mes"))
-            if len(mm) > 1:
-                fig = px.line(mm, x="mes", y="Matriculados", markers=True,
-                              title="Evolución mensual de matriculaciones",
-                              color_discrete_sequence=[BARCA["gold"]])
-                fig.update_traces(line_width=3, marker_size=8)
-            else:
-                fig = px.bar(mm, x="mes", y="Matriculados", text_auto=True,
-                             title="Matriculaciones por mes",
-                             color_discrete_sequence=[BARCA["gold"]])
-            barca_layout(fig, 360)
-            st.plotly_chart(fig, use_container_width=True)
-
-    # ── Pipeline de Ventas ────────────────────────────────────────────────────
-    st.markdown(f"""<hr style="border:1px solid {BARCA['line']};margin:32px 0 20px">""",
-                unsafe_allow_html=True)
-    st.markdown("## 📊 Pipeline de Ventas")
-
-    if df_pipeline_periodo.empty:
-        st.info("No hay negocios en el pipeline para el período seleccionado.")
-    else:
-        # KPIs del pipeline
-        total_deals  = df_pipeline_periodo["deal_id"].nunique()
-        ganados_pip  = df_pipeline_periodo[df_pipeline_periodo["etapa"] == "Cierre Ganado"]["deal_id"].nunique()
-        perdidos_pip = df_pipeline_periodo[df_pipeline_periodo["etapa"] == "Cierre Perdido"]["deal_id"].nunique()
-        activos_pip  = total_deals - ganados_pip - perdidos_pip - \
-                       df_pipeline_periodo[df_pipeline_periodo["etapa"] == "Cierre Ganado (histórico)"]["deal_id"].nunique()
-
-        k1, k2, k3, k4 = st.columns(4)
-        kpi_card(k1, "Total deals",    total_deals,  BARCA["blue"])
-        kpi_card(k2, "Cierre Ganado",  ganados_pip,  "#2E7D32")
-        kpi_card(k3, "Cierre Perdido", perdidos_pip, BARCA["garnet"])
-        kpi_card(k4, "En proceso",     activos_pip,  BARCA["blue_deep"])
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # Deals por etapa — funnel + barra
-        col1, col2 = st.columns([1, 1])
-        with col1:
-            etapa_counts = (df_pipeline_periodo.drop_duplicates("deal_id")
-                            .groupby("etapa").size().reset_index(name="Deals"))
-            etapa_counts["orden"] = etapa_counts["etapa"].map(
-                {e: i for i, e in enumerate(PIPELINE_ORDEN)}).fillna(99)
-            etapa_counts = etapa_counts.sort_values("orden")
-            fig = px.funnel(etapa_counts, x="Deals", y="etapa",
-                            title="Embudo del pipeline",
-                            color="etapa",
-                            color_discrete_map=STAGE_COLORS)
-            barca_layout(fig, 420)
-            st.plotly_chart(fig, use_container_width=True)
-
-        with col2:
-            fig = px.bar(etapa_counts.sort_values("Deals", ascending=True),
-                         x="Deals", y="etapa", orientation="h",
-                         text_auto=True, title="Deals por etapa",
-                         color="etapa", color_discrete_map=STAGE_COLORS)
-            fig.update_layout(showlegend=False,
-                              yaxis=dict(categoryorder="total ascending"))
-            barca_layout(fig, 420)
-            st.plotly_chart(fig, use_container_width=True)
-
-        # Evolución mensual por etapa
-        if df_pipeline_periodo["mes"].nunique() > 1:
-            st.markdown("### Evolución mensual")
-            gm = (df_pipeline_periodo.drop_duplicates(["deal_id", "mes"])
-                  .groupby(["mes", "etapa"])["deal_id"].nunique().reset_index(name="Deals"))
-            fig = px.bar(gm, x="mes", y="Deals", color="etapa",
-                         barmode="stack", title="Deals por mes y etapa",
-                         color_discrete_map=STAGE_COLORS,
-                         category_orders={"etapa": PIPELINE_ORDEN})
-            fig.update_layout(legend=dict(orientation="h", y=-0.3, font_size=10))
-            barca_layout(fig, 360)
-            st.plotly_chart(fig, use_container_width=True)
-
-        # ── Modalidad de Negocio ───────────────────────────────────────────────
-        st.markdown("### Modalidad de negocio")
-        COLOR_MODALIDAD_N = {
-            "Presencial":    BARCA["blue_ink"],
-            "Online":        BARCA["gold"],
-            "Sin modalidad": BARCA["line2"],
-        }
-        col1, col2 = st.columns(2)
-        with col1:
-            mod_pip = (df_pipeline_periodo.drop_duplicates("deal_id")
-                       ["modalidad"].value_counts().reset_index())
-            mod_pip.columns = ["modalidad", "Deals"]
-            fig = px.pie(mod_pip, names="modalidad", values="Deals",
-                         title="Deals por modalidad", hole=0.55,
-                         color="modalidad", color_discrete_map=COLOR_MODALIDAD_N)
-            fig.update_traces(textposition="outside", textinfo="percent+label",
-                              marker=dict(line=dict(color=BARCA["white"], width=2)))
-            barca_layout(fig, 320)
-            st.plotly_chart(fig, use_container_width=True)
-        with col2:
-            grp_me = (df_pipeline_periodo.drop_duplicates("deal_id")
-                      .groupby(["modalidad", "etapa"])["deal_id"]
-                      .nunique().reset_index(name="Deals"))
-            fig = px.bar(grp_me, x="etapa", y="Deals", color="modalidad",
-                         barmode="stack", title="Modalidad por etapa del pipeline",
-                         color_discrete_map=COLOR_MODALIDAD_N,
-                         category_orders={"etapa": PIPELINE_ORDEN})
-            fig.update_layout(legend=dict(orientation="h", y=-0.3),
-                              xaxis_tickangle=-30)
-            barca_layout(fig, 340)
-            st.plotly_chart(fig, use_container_width=True)
-
-        # Tabla: deals por modalidad × etapa
-        st.markdown("#### Deals por modalidad y etapa")
-        pivot_mn = (df_pipeline_periodo.drop_duplicates("deal_id")
-                    .groupby(["modalidad", "etapa"])["deal_id"]
-                    .nunique().reset_index(name="Deals")
-                    .pivot(index="modalidad", columns="etapa", values="Deals")
-                    .fillna(0).astype(int))
-        pivot_mn.insert(0, "Total", pivot_mn.sum(axis=1))
-        pivot_mn = pivot_mn.sort_values("Total", ascending=False)
-        pivot_mn.index.name = "Modalidad"
-        st.dataframe(
-            pivot_mn.style.background_gradient(subset=["Total"], cmap="Blues"),
-            use_container_width=True,
-            height=min(300, len(pivot_mn) * 36 + 50),
-        )
-
-        # Motivos de cierre
-        st.markdown("### Motivo de cierre del negocio")
-        cerrados_df = df_pipeline_periodo[df_pipeline_periodo["etapa"].isin(
-            ["Cierre Ganado", "Cierre Perdido", "Cierre Ganado (histórico)"]
-        )]
-        if not cerrados_df.empty:
+            # ── País × Estado ──────────────────────────────────────────────────────
+            st.markdown("### Estado de lead por país (Top 10)")
+            top10 = df.groupby("pais").size().nlargest(10).index.tolist()
+            df_top = df[df["pais"].isin(top10)]
+            grp3 = df_top.groupby(["pais", "lead_status"]).size().reset_index(name="Total")
             col1, col2 = st.columns(2)
-
-            perdidos_df = df_pipeline_periodo[df_pipeline_periodo["etapa"] == "Cierre Perdido"]
-            ganados_df  = df_pipeline_periodo[df_pipeline_periodo["etapa"].isin(
-                ["Cierre Ganado", "Cierre Ganado (histórico)"]
-            )]
-
             with col1:
-                if not perdidos_df.empty:
-                    mc = (perdidos_df.groupby("motivo_cierre").size()
-                          .reset_index(name="Total")
-                          .sort_values("Total", ascending=True))
-                    fig = px.bar(mc, x="Total", y="motivo_cierre", orientation="h",
-                                 text_auto=True, title="Motivos — Cierre Perdido",
-                                 color_discrete_sequence=[BARCA["garnet"]])
-                    fig.update_layout(yaxis_title="")
-                    barca_layout(fig, max(320, len(mc) * 28 + 80))
-                    st.plotly_chart(fig, use_container_width=True)
-
+                fig = px.bar(grp3, x="pais", y="Total", color="lead_status",
+                             barmode="stack", title="Volumen por país",
+                             color_discrete_map=COLOR_ESTADOS,
+                             category_orders={"lead_status": ESTADOS_ORDEN})
+                fig.update_layout(legend=dict(orientation="h", y=-0.5, font_size=10))
+                barca_layout(fig, 400)
+                st.plotly_chart(fig, use_container_width=True)
             with col2:
-                if not ganados_df.empty:
-                    mc_g = (ganados_df.groupby("motivo_cierre").size()
-                            .reset_index(name="Total")
-                            .sort_values("Total", ascending=True))
-                    fig = px.bar(mc_g, x="Total", y="motivo_cierre", orientation="h",
-                                 text_auto=True, title="Motivos — Cierre Ganado",
-                                 color_discrete_sequence=["#2E7D32"])
-                    fig.update_layout(yaxis_title="")
-                    barca_layout(fig, max(320, len(mc_g) * 28 + 80))
+                tot_p = df_top.groupby("pais").size().reset_index(name="Total_pais")
+                grp4 = grp3.merge(tot_p, on="pais")
+                grp4["Pct"] = (grp4["Total"] / grp4["Total_pais"] * 100).round(1)
+                fig = px.bar(grp4, x="pais", y="Pct", color="lead_status",
+                             barmode="stack", title="Composición % por país",
+                             color_discrete_map=COLOR_ESTADOS,
+                             category_orders={"lead_status": ESTADOS_ORDEN})
+                fig.update_layout(yaxis_title="%",
+                                  legend=dict(orientation="h", y=-0.5, font_size=10))
+                barca_layout(fig, 400)
+                st.plotly_chart(fig, use_container_width=True)
+
+            # ── Tendencia mensual ──────────────────────────────────────────────────
+            if df["mes"].nunique() > 1:
+                st.markdown("### Tendencia mensual")
+                col1, col2 = st.columns(2)
+                with col1:
+                    gm = df.groupby(["mes", "lead_status"]).size().reset_index(name="Total")
+                    fig = px.bar(gm, x="mes", y="Total", color="lead_status",
+                                 barmode="stack", title="Evolución mensual por estado",
+                                 color_discrete_map=COLOR_ESTADOS,
+                                 category_orders={"lead_status": ESTADOS_ORDEN})
+                    fig.update_layout(legend=dict(orientation="h", y=-0.45, font_size=10))
+                    barca_layout(fig, 340)
+                    st.plotly_chart(fig, use_container_width=True)
+                with col2:
+                    gm2 = df.groupby(["mes", "fuente"]).size().reset_index(name="Total")
+                    fig = px.line(gm2, x="mes", y="Total", color="fuente",
+                                  markers=True, title="Evolución por fuente de tráfico",
+                                  color_discrete_sequence=COLOR_FUENTES)
+                    fig.update_layout(legend=dict(orientation="h", y=-0.45, font_size=10))
+                    barca_layout(fig, 340)
                     st.plotly_chart(fig, use_container_width=True)
 
-            # Tabla resumen: todos los motivos con etapa
-            st.markdown("#### Detalle por motivo y etapa")
-            tabla_m = (cerrados_df.groupby(["motivo_cierre", "etapa"]).size()
-                       .reset_index(name="Deals")
-                       .pivot(index="motivo_cierre", columns="etapa", values="Deals")
-                       .fillna(0).astype(int))
-            tabla_m.insert(0, "Total", tabla_m.sum(axis=1))
-            tabla_m = tabla_m.sort_values("Total", ascending=False)
-            tabla_m.index.name = "Motivo"
-            st.dataframe(
-                tabla_m.style.background_gradient(subset=["Total"], cmap="Blues"),
-                use_container_width=True,
-                height=min(600, len(tabla_m) * 36 + 40),
+        # ── Matriculaciones del período ────────────────────────────────────────────
+        if not df_mat.empty:
+            st.markdown(f"""<hr style="border:1px solid {BARCA['line']};margin:32px 0 20px">""",
+                        unsafe_allow_html=True)
+            mat_label = "todos los tiempos" if fi == "todos" else periodo_txt
+            st.markdown(
+                f"### 🎓 Matriculaciones del período "
+                f"<span style='font-size:14px;color:{BARCA['ink60']};font-weight:400'>"
+                f"({len(df_mat)} matriculados · fecha real de matriculación · {mat_label})</span>",
+                unsafe_allow_html=True
             )
-
-    # ── Negocios cerrados — tabla y gráficos ──────────────────────────────────
-    st.markdown(f"""<hr style="border:1px solid {BARCA['line']};margin:32px 0 20px">""",
-                unsafe_allow_html=True)
-    st.markdown("### 📊 Negocios Cerrados — Estados y Motivos de Cierre")
-
-    if df_deals_periodo.empty:
-        st.info("No hay negocios cerrados en el período seleccionado.")
-    else:
-        ganados  = df_deals_periodo[df_deals_periodo["etapa"] == "Cierre ganado"]
-        perdidos = df_deals_periodo[df_deals_periodo["etapa"] == "Cierre perdido"]
-        # KPIs rápidos
-        k1, k2, k3 = st.columns(3)
-        kpi_card(k1, "Total cerrados",   df_deals_periodo["deal_id"].nunique(), BARCA["blue"])
-        kpi_card(k2, "Cierre ganado",    ganados["deal_id"].nunique(),          BARCA["gold"])
-        kpi_card(k3, "Cierre perdido",   perdidos["deal_id"].nunique(),         BARCA["garnet"])
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        col1, col2 = st.columns(2)
-
-        # ── Gráfico: Motivos de cierre perdido ────────────────────────────────
-        with col1:
-            if not perdidos.empty:
-                mp = (perdidos.groupby("motivo_cierre")["deal_id"]
-                      .nunique().reset_index(name="Deals")
-                      .sort_values("Deals", ascending=True))
-                fig = px.bar(mp, x="Deals", y="motivo_cierre", orientation="h",
-                             text_auto=True,
-                             title=f"Motivos — Cierre perdido ({perdidos['deal_id'].nunique()} deals)",
-                             color="Deals",
-                             color_continuous_scale=[BARCA["line2"], BARCA["garnet_deep"],
-                                                      BARCA["garnet"]])
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                mp = (df_mat.groupby("pais").size()
+                      .reset_index(name="Total")
+                      .sort_values("Total", ascending=False).head(12))
+                fig = px.bar(mp, x="Total", y="pais", orientation="h", text_auto=True,
+                             title="Matriculados por país (Top 12)",
+                             color="Total",
+                             color_continuous_scale=[BARCA["line2"], BARCA["gold"],
+                                                      BARCA["blue_ink"]])
                 fig.update_layout(coloraxis_showscale=False,
                                   yaxis=dict(categoryorder="total ascending"))
                 barca_layout(fig, 360)
                 st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("Sin cierres perdidos en el período.")
-
-        # ── Gráfico: Evolución mensual ganado vs perdido ───────────────────────
-        with col2:
-            if df_deals_periodo["mes"].nunique() > 0:
-                gm = (df_deals_periodo.groupby(["mes", "etapa"])["deal_id"]
-                      .nunique().reset_index(name="Deals")
+            with col2:
+                mf = (df_mat.groupby("fuente").size()
+                      .reset_index(name="Total")
+                      .sort_values("Total", ascending=False))
+                fig = px.bar(mf, x="fuente", y="Total", text_auto=True,
+                             title="Matriculados por fuente de tráfico",
+                             color="Total",
+                             color_continuous_scale=[BARCA["line2"], BARCA["gold"],
+                                                      BARCA["garnet"]])
+                fig.update_layout(coloraxis_showscale=False)
+                barca_layout(fig, 360)
+                st.plotly_chart(fig, use_container_width=True)
+            with col3:
+                mm = (df_mat.groupby("mes").size()
+                      .reset_index(name="Matriculados")
                       .sort_values("mes"))
-                fig = px.bar(gm, x="mes", y="Deals", color="etapa",
-                             barmode="group", text_auto=True,
-                             title="Evolución mensual: Ganado vs Perdido",
-                             color_discrete_map={
-                                 "Cierre ganado":  BARCA["gold"],
-                                 "Cierre perdido": BARCA["garnet"],
-                             })
-                fig.update_layout(legend=dict(orientation="h", y=-0.25, title=""))
+                if len(mm) > 1:
+                    fig = px.line(mm, x="mes", y="Matriculados", markers=True,
+                                  title="Evolución mensual de matriculaciones",
+                                  color_discrete_sequence=[BARCA["gold"]])
+                    fig.update_traces(line_width=3, marker_size=8)
+                else:
+                    fig = px.bar(mm, x="mes", y="Matriculados", text_auto=True,
+                                 title="Matriculaciones por mes",
+                                 color_discrete_sequence=[BARCA["gold"]])
                 barca_layout(fig, 360)
                 st.plotly_chart(fig, use_container_width=True)
 
-        # ── Donut: distribución de motivos cierre perdido ─────────────────────
-        if not perdidos.empty:
-            col3, col4 = st.columns(2)
-            with col3:
-                mp_pie = (perdidos.groupby("motivo_cierre")["deal_id"]
-                          .nunique().reset_index(name="Deals"))
-                fig = px.pie(mp_pie, names="motivo_cierre", values="Deals",
-                             title="Distribución motivos cierre perdido",
-                             hole=0.5,
-                             color_discrete_sequence=[
-                                 BARCA["garnet"], BARCA["garnet_deep"], BARCA["blue"],
-                                 BARCA["gold"], BARCA["ink60"], BARCA["ink40"],
-                                 BARCA["yellow"], BARCA["blue_deep"],
-                             ])
+        # ── Pipeline de Ventas ────────────────────────────────────────────────────
+        st.markdown(f"""<hr style="border:1px solid {BARCA['line']};margin:32px 0 20px">""",
+                    unsafe_allow_html=True)
+        st.markdown("## 📊 Pipeline de Ventas")
+
+        if df_pipeline_periodo.empty:
+            st.info("No hay negocios en el pipeline para el período seleccionado.")
+        else:
+            # KPIs del pipeline
+            total_deals  = df_pipeline_periodo["deal_id"].nunique()
+            ganados_pip  = df_pipeline_periodo[df_pipeline_periodo["etapa"] == "Cierre Ganado"]["deal_id"].nunique()
+            perdidos_pip = df_pipeline_periodo[df_pipeline_periodo["etapa"] == "Cierre Perdido"]["deal_id"].nunique()
+            activos_pip  = total_deals - ganados_pip - perdidos_pip - \
+                           df_pipeline_periodo[df_pipeline_periodo["etapa"] == "Cierre Ganado (histórico)"]["deal_id"].nunique()
+
+            k1, k2, k3, k4 = st.columns(4)
+            kpi_card(k1, "Total deals",    total_deals,  BARCA["blue"])
+            kpi_card(k2, "Cierre Ganado",  ganados_pip,  "#2E7D32")
+            kpi_card(k3, "Cierre Perdido", perdidos_pip, BARCA["garnet"])
+            kpi_card(k4, "En proceso",     activos_pip,  BARCA["blue_deep"])
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            # Deals por etapa — funnel + barra
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                etapa_counts = (df_pipeline_periodo.drop_duplicates("deal_id")
+                                .groupby("etapa").size().reset_index(name="Deals"))
+                etapa_counts["orden"] = etapa_counts["etapa"].map(
+                    {e: i for i, e in enumerate(PIPELINE_ORDEN)}).fillna(99)
+                etapa_counts = etapa_counts.sort_values("orden")
+                fig = px.funnel(etapa_counts, x="Deals", y="etapa",
+                                title="Embudo del pipeline",
+                                color="etapa",
+                                color_discrete_map=STAGE_COLORS)
+                barca_layout(fig, 420)
+                st.plotly_chart(fig, use_container_width=True)
+
+            with col2:
+                fig = px.bar(etapa_counts.sort_values("Deals", ascending=True),
+                             x="Deals", y="etapa", orientation="h",
+                             text_auto=True, title="Deals por etapa",
+                             color="etapa", color_discrete_map=STAGE_COLORS)
+                fig.update_layout(showlegend=False,
+                                  yaxis=dict(categoryorder="total ascending"))
+                barca_layout(fig, 420)
+                st.plotly_chart(fig, use_container_width=True)
+
+            # Evolución mensual por etapa
+            if df_pipeline_periodo["mes"].nunique() > 1:
+                st.markdown("### Evolución mensual")
+                gm = (df_pipeline_periodo.drop_duplicates(["deal_id", "mes"])
+                      .groupby(["mes", "etapa"])["deal_id"].nunique().reset_index(name="Deals"))
+                fig = px.bar(gm, x="mes", y="Deals", color="etapa",
+                             barmode="stack", title="Deals por mes y etapa",
+                             color_discrete_map=STAGE_COLORS,
+                             category_orders={"etapa": PIPELINE_ORDEN})
+                fig.update_layout(legend=dict(orientation="h", y=-0.3, font_size=10))
+                barca_layout(fig, 360)
+                st.plotly_chart(fig, use_container_width=True)
+
+            # ── Modalidad de Negocio ───────────────────────────────────────────────
+            st.markdown("### Modalidad de negocio")
+            COLOR_MODALIDAD_N = {
+                "Presencial":    BARCA["blue_ink"],
+                "Online":        BARCA["gold"],
+                "Sin modalidad": BARCA["line2"],
+            }
+            col1, col2 = st.columns(2)
+            with col1:
+                mod_pip = (df_pipeline_periodo.drop_duplicates("deal_id")
+                           ["modalidad"].value_counts().reset_index())
+                mod_pip.columns = ["modalidad", "Deals"]
+                fig = px.pie(mod_pip, names="modalidad", values="Deals",
+                             title="Deals por modalidad", hole=0.55,
+                             color="modalidad", color_discrete_map=COLOR_MODALIDAD_N)
                 fig.update_traces(textposition="outside", textinfo="percent+label",
                                   marker=dict(line=dict(color=BARCA["white"], width=2)))
+                barca_layout(fig, 320)
+                st.plotly_chart(fig, use_container_width=True)
+            with col2:
+                grp_me = (df_pipeline_periodo.drop_duplicates("deal_id")
+                          .groupby(["modalidad", "etapa"])["deal_id"]
+                          .nunique().reset_index(name="Deals"))
+                fig = px.bar(grp_me, x="etapa", y="Deals", color="modalidad",
+                             barmode="stack", title="Modalidad por etapa del pipeline",
+                             color_discrete_map=COLOR_MODALIDAD_N,
+                             category_orders={"etapa": PIPELINE_ORDEN})
+                fig.update_layout(legend=dict(orientation="h", y=-0.3),
+                                  xaxis_tickangle=-30)
                 barca_layout(fig, 340)
                 st.plotly_chart(fig, use_container_width=True)
 
-            with col4:
-                if not ganados.empty:
-                    mg = (ganados.groupby("motivo_cierre")["deal_id"]
+            # Tabla: deals por modalidad × etapa
+            st.markdown("#### Deals por modalidad y etapa")
+            pivot_mn = (df_pipeline_periodo.drop_duplicates("deal_id")
+                        .groupby(["modalidad", "etapa"])["deal_id"]
+                        .nunique().reset_index(name="Deals")
+                        .pivot(index="modalidad", columns="etapa", values="Deals")
+                        .fillna(0).astype(int))
+            pivot_mn.insert(0, "Total", pivot_mn.sum(axis=1))
+            pivot_mn = pivot_mn.sort_values("Total", ascending=False)
+            pivot_mn.index.name = "Modalidad"
+            st.dataframe(
+                pivot_mn.style.background_gradient(subset=["Total"], cmap="Blues"),
+                use_container_width=True,
+                height=min(300, len(pivot_mn) * 36 + 50),
+            )
+
+            # Motivos de cierre
+            st.markdown("### Motivo de cierre del negocio")
+            cerrados_df = df_pipeline_periodo[df_pipeline_periodo["etapa"].isin(
+                ["Cierre Ganado", "Cierre Perdido", "Cierre Ganado (histórico)"]
+            )]
+            if not cerrados_df.empty:
+                col1, col2 = st.columns(2)
+
+                perdidos_df = df_pipeline_periodo[df_pipeline_periodo["etapa"] == "Cierre Perdido"]
+                ganados_df  = df_pipeline_periodo[df_pipeline_periodo["etapa"].isin(
+                    ["Cierre Ganado", "Cierre Ganado (histórico)"]
+                )]
+
+                with col1:
+                    if not perdidos_df.empty:
+                        mc = (perdidos_df.groupby("motivo_cierre").size()
+                              .reset_index(name="Total")
+                              .sort_values("Total", ascending=True))
+                        fig = px.bar(mc, x="Total", y="motivo_cierre", orientation="h",
+                                     text_auto=True, title="Motivos — Cierre Perdido",
+                                     color_discrete_sequence=[BARCA["garnet"]])
+                        fig.update_layout(yaxis_title="")
+                        barca_layout(fig, max(320, len(mc) * 28 + 80))
+                        st.plotly_chart(fig, use_container_width=True)
+
+                with col2:
+                    if not ganados_df.empty:
+                        mc_g = (ganados_df.groupby("motivo_cierre").size()
+                                .reset_index(name="Total")
+                                .sort_values("Total", ascending=True))
+                        fig = px.bar(mc_g, x="Total", y="motivo_cierre", orientation="h",
+                                     text_auto=True, title="Motivos — Cierre Ganado",
+                                     color_discrete_sequence=["#2E7D32"])
+                        fig.update_layout(yaxis_title="")
+                        barca_layout(fig, max(320, len(mc_g) * 28 + 80))
+                        st.plotly_chart(fig, use_container_width=True)
+
+                # Tabla resumen: todos los motivos con etapa
+                st.markdown("#### Detalle por motivo y etapa")
+                tabla_m = (cerrados_df.groupby(["motivo_cierre", "etapa"]).size()
+                           .reset_index(name="Deals")
+                           .pivot(index="motivo_cierre", columns="etapa", values="Deals")
+                           .fillna(0).astype(int))
+                tabla_m.insert(0, "Total", tabla_m.sum(axis=1))
+                tabla_m = tabla_m.sort_values("Total", ascending=False)
+                tabla_m.index.name = "Motivo"
+                st.dataframe(
+                    tabla_m.style.background_gradient(subset=["Total"], cmap="Blues"),
+                    use_container_width=True,
+                    height=min(600, len(tabla_m) * 36 + 40),
+                )
+
+        # ── Negocios cerrados — tabla y gráficos ──────────────────────────────────
+        st.markdown(f"""<hr style="border:1px solid {BARCA['line']};margin:32px 0 20px">""",
+                    unsafe_allow_html=True)
+        st.markdown("### 📊 Negocios Cerrados — Estados y Motivos de Cierre")
+
+        if df_deals_periodo.empty:
+            st.info("No hay negocios cerrados en el período seleccionado.")
+        else:
+            ganados  = df_deals_periodo[df_deals_periodo["etapa"] == "Cierre ganado"]
+            perdidos = df_deals_periodo[df_deals_periodo["etapa"] == "Cierre perdido"]
+            # KPIs rápidos
+            k1, k2, k3 = st.columns(3)
+            kpi_card(k1, "Total cerrados",   df_deals_periodo["deal_id"].nunique(), BARCA["blue"])
+            kpi_card(k2, "Cierre ganado",    ganados["deal_id"].nunique(),          BARCA["gold"])
+            kpi_card(k3, "Cierre perdido",   perdidos["deal_id"].nunique(),         BARCA["garnet"])
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            col1, col2 = st.columns(2)
+
+            # ── Gráfico: Motivos de cierre perdido ────────────────────────────────
+            with col1:
+                if not perdidos.empty:
+                    mp = (perdidos.groupby("motivo_cierre")["deal_id"]
                           .nunique().reset_index(name="Deals")
                           .sort_values("Deals", ascending=True))
-                    fig = px.bar(mg, x="Deals", y="motivo_cierre", orientation="h",
+                    fig = px.bar(mp, x="Deals", y="motivo_cierre", orientation="h",
                                  text_auto=True,
-                                 title=f"Motivos — Cierre ganado ({ganados['deal_id'].nunique()} deals)",
-                                 color_discrete_sequence=[BARCA["gold"]])
-                    fig.update_layout(yaxis=dict(categoryorder="total ascending"))
-                    barca_layout(fig, 340)
-                    st.plotly_chart(fig, use_container_width=True)
-
-        # ── Motivo × Fuente de tráfico ────────────────────────────────────────
-        st.markdown("#### 🔗 Motivo de cierre por fuente de tráfico")
-
-        for etapa_label, color_etapa in [("Cierre perdido", BARCA["garnet"]),
-                                          ("Cierre ganado",  BARCA["gold"])]:
-            subset = df_deals_periodo[df_deals_periodo["etapa"] == etapa_label]
-            if subset.empty:
-                continue
-
-            st.markdown(
-                f"<div style='font-weight:700;color:{color_etapa};"
-                f"font-size:15px;margin:16px 0 8px'>● {etapa_label}</div>",
-                unsafe_allow_html=True,
-            )
-            col_g, col_t = st.columns([3, 2])
-
-            with col_g:
-                grp = (subset.groupby(["motivo_cierre", "fuente"])["deal_id"]
-                       .nunique().reset_index(name="Deals"))
-                # ordenar motivos por total
-                orden_motivos = (grp.groupby("motivo_cierre")["Deals"]
-                                 .sum().sort_values(ascending=False).index.tolist())
-                fig = px.bar(
-                    grp, x="Deals", y="motivo_cierre", color="fuente",
-                    barmode="stack", orientation="h",
-                    title=f"{etapa_label} — Motivo × Fuente",
-                    category_orders={"motivo_cierre": orden_motivos},
-                    color_discrete_sequence=[
-                        BARCA["blue_ink"], BARCA["blue_deep"], BARCA["blue"],
-                        BARCA["garnet_deep"], BARCA["garnet"],
-                        BARCA["gold"], BARCA["yellow"],
-                        BARCA["ink60"], BARCA["ink40"], BARCA["ink20"],
-                    ],
-                )
-                fig.update_layout(
-                    legend=dict(orientation="h", y=-0.35, title="Fuente"),
-                    yaxis=dict(categoryorder="array", categoryarray=orden_motivos[::-1]),
-                )
-                barca_layout(fig, max(300, len(orden_motivos) * 45 + 80))
-                st.plotly_chart(fig, use_container_width=True)
-
-            with col_t:
-                tabla_mf = (subset.groupby(["motivo_cierre", "fuente"])["deal_id"]
-                            .nunique().reset_index(name="Deals")
-                            .sort_values(["Deals"], ascending=False))
-                total_etapa = tabla_mf["Deals"].sum()
-                tabla_mf["% total"] = (tabla_mf["Deals"] / total_etapa * 100).round(1).astype(str) + "%"
-                tabla_mf.columns = ["Motivo", "Fuente", "Deals", "% total"]
-                st.dataframe(tabla_mf, use_container_width=True, hide_index=True,
-                             height=min(400, len(tabla_mf) * 36 + 40))
-
-        # ── Tabla resumen general ──────────────────────────────────────────────
-        with st.expander("📋 Ver tabla completa de negocios cerrados"):
-            tabla = (df_deals_periodo
-                     .groupby(["etapa", "motivo_cierre", "fuente"])["deal_id"]
-                     .nunique()
-                     .reset_index(name="Nº Deals")
-                     .sort_values(["etapa", "Nº Deals"], ascending=[True, False]))
-            totales = tabla.groupby("etapa")["Nº Deals"].transform("sum")
-            tabla["% sobre etapa"] = (tabla["Nº Deals"] / totales * 100).round(1).astype(str) + "%"
-            tabla.columns = ["Etapa", "Motivo de cierre", "Fuente", "Nº Deals", "% sobre etapa"]
-            st.dataframe(tabla, use_container_width=True, hide_index=True)
-            st.download_button(
-                "⬇️ Descargar CSV",
-                data=tabla.to_csv(index=False, encoding="utf-8-sig"),
-                file_name=f"negocios_cerrados_{fi}_{ff}.csv",
-                mime="text/csv",
-                key="dl_negocios",
-            )
-
-    # ── Análisis y conclusiones ────────────────────────────────────────────────
-    if not df.empty:
-        conclusiones(df, df_mat, df_deals_periodo)
-
-    # ── Tabla y descarga ───────────────────────────────────────────────────────
-    if not df.empty:
-        with st.expander("📋 Ver datos completos"):
-            st.dataframe(
-                df[["fecha", "mes", "pais", "fuente", "lead_status", "lead_valido",
-                    "intentos", "motivo_cierre"]]
-                .sort_values(["fuente", "lead_status"]),
-                use_container_width=True, hide_index=True,
-            )
-            st.download_button(
-                "⬇️ Descargar CSV",
-                data=df.to_csv(index=False, encoding="utf-8-sig"),
-                file_name=f"{ACCOUNT_NAME.lower()}_rst_{fi}_{ff}.csv",
-                mime="text/csv",
-            )
-
-    # ══════════════════════════════════════════════════════════════════════════
-    # EMAIL MARKETING
-    # ══════════════════════════════════════════════════════════════════════════
-    st.markdown("<hr style='margin:44px 0 32px'>", unsafe_allow_html=True)
-    st.markdown(f"""
-    <div style="background:linear-gradient(135deg,{BARCA['blue_ink']} 0%,
-                {BARCA['blue_deep']} 100%);
-                padding:20px 28px;border-radius:10px;margin-bottom:24px;
-                border-bottom:4px solid {BARCA['gold']}">
-        <h2 style="color:{BARCA['white']};margin:0;font-size:20px;font-weight:800">
-            📧 Email Marketing
-        </h2>
-        <p style="color:{BARCA['line']};margin:4px 0 0;font-size:13px">
-            Análisis completo de campañas · HubSpot · período seleccionado
-        </p>
-    </div>""", unsafe_allow_html=True)
-
-    # ── Pre-compute aggregate stats (shared across tabs) ──────────────────────
-    if not df_emails.empty:
-        total_campanas   = len(df_emails)
-        total_enviados   = int(df_emails["enviados"].sum())
-        total_entregados = int(df_emails["entregados"].sum())
-        total_aperturas  = int(df_emails["aperturas"].sum())
-        total_clicks     = int(df_emails["clicks"].sum())
-        total_bajas      = int(df_emails["bajas"].sum())
-        total_rebotes    = int(df_emails["rebotes"].sum())
-        total_spam       = int(df_emails["spam"].sum()) if "spam" in df_emails.columns else 0
-        tasa_ap_global   = round(total_aperturas / total_enviados * 100, 1) if total_enviados else 0.0
-        ctr_global       = round(total_clicks    / total_enviados * 100, 1) if total_enviados else 0.0
-        ctor_global      = round(total_clicks    / total_aperturas * 100, 1) if total_aperturas else 0.0
-        tasa_baja_global = round(total_bajas     / total_enviados * 100, 2) if total_enviados else 0.0
-        bounce_rate      = round(total_rebotes   / total_enviados * 100, 2) if total_enviados else 0.0
-    else:
-        total_campanas = total_enviados = total_entregados = 0
-        total_aperturas = total_clicks = total_bajas = total_rebotes = total_spam = 0
-        tasa_ap_global = ctr_global = ctor_global = tasa_baja_global = bounce_rate = 0.0
-
-    em_tab1, em_tab2, em_tab3, em_tab4, em_tab5 = st.tabs([
-        "📊 Campañas enviadas",
-        "📈 Rendimiento",
-        "💡 Consejos",
-        "📅 Programados",
-        "📋 Listas y Segmentos",
-    ])
-
-    # ── Tab 1: Campañas enviadas ───────────────────────────────────────────────
-    with em_tab1:
-        if df_emails.empty:
-            st.info("No hay emails enviados en el período seleccionado.")
-        else:
-            ek1, ek2, ek3, ek4, ek5, ek6 = st.columns(6)
-            kpi_card(ek1, "Campañas enviadas",    total_campanas,         BARCA["blue"])
-            kpi_card(ek2, "Contactos impactados", f"{total_enviados:,}",  BARCA["blue_deep"])
-            kpi_card(ek3, "Tasa apertura",        f"{tasa_ap_global}%",   BARCA["gold"])
-            kpi_card(ek4, "CTR",                  f"{ctr_global}%",       BARCA["garnet"])
-            kpi_card(ek5, "CTOR",                 f"{ctor_global}%",      BARCA["blue"])
-            kpi_card(ek6, "Tasa de baja",         f"{tasa_baja_global}%", BARCA["garnet_deep"])
-            st.markdown("<br>", unsafe_allow_html=True)
-
-            ec1, ec2 = st.columns(2)
-            with ec1:
-                if df_emails["mes"].nunique() > 1:
-                    monthly = (df_emails.groupby("mes")
-                               .agg(Enviados=("enviados", "sum"),
-                                    Aperturas=("aperturas", "sum"),
-                                    Clicks=("clicks", "sum"))
-                               .reset_index().rename(columns={"mes": "Mes"}))
-                    fig = px.line(monthly, x="Mes", y=["Enviados", "Aperturas", "Clicks"],
-                                  title="Evolución mensual", markers=True,
-                                  color_discrete_sequence=[BARCA["blue"], BARCA["gold"],
-                                                            BARCA["garnet"]])
-                    barca_layout(fig, 340)
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    top_v = df_emails.nlargest(10, "enviados")
-                    fig = px.bar(top_v.sort_values("enviados"), x="enviados", y="nombre",
-                                 orientation="h", text_auto=True,
-                                 title="Emails por volumen enviado",
-                                 color_discrete_sequence=[BARCA["blue"]])
-                    fig.update_layout(yaxis=dict(categoryorder="total ascending"))
-                    barca_layout(fig, 340)
-                    st.plotly_chart(fig, use_container_width=True)
-
-            with ec2:
-                top_open = df_emails[df_emails["enviados"] >= 10].nlargest(10, "tasa_apertura")
-                if not top_open.empty:
-                    fig = px.bar(top_open.sort_values("tasa_apertura"),
-                                 x="tasa_apertura", y="nombre", orientation="h",
-                                 text_auto=True, title="Top 10 por tasa de apertura (%)",
-                                 color="tasa_apertura",
-                                 color_continuous_scale=[BARCA["line2"], BARCA["gold"]])
+                                 title=f"Motivos — Cierre perdido ({perdidos['deal_id'].nunique()} deals)",
+                                 color="Deals",
+                                 color_continuous_scale=[BARCA["line2"], BARCA["garnet_deep"],
+                                                          BARCA["garnet"]])
                     fig.update_layout(coloraxis_showscale=False,
                                       yaxis=dict(categoryorder="total ascending"))
+                    barca_layout(fig, 360)
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("Sin cierres perdidos en el período.")
+
+            # ── Gráfico: Evolución mensual ganado vs perdido ───────────────────────
+            with col2:
+                if df_deals_periodo["mes"].nunique() > 0:
+                    gm = (df_deals_periodo.groupby(["mes", "etapa"])["deal_id"]
+                          .nunique().reset_index(name="Deals")
+                          .sort_values("mes"))
+                    fig = px.bar(gm, x="mes", y="Deals", color="etapa",
+                                 barmode="group", text_auto=True,
+                                 title="Evolución mensual: Ganado vs Perdido",
+                                 color_discrete_map={
+                                     "Cierre ganado":  BARCA["gold"],
+                                     "Cierre perdido": BARCA["garnet"],
+                                 })
+                    fig.update_layout(legend=dict(orientation="h", y=-0.25, title=""))
+                    barca_layout(fig, 360)
+                    st.plotly_chart(fig, use_container_width=True)
+
+            # ── Donut: distribución de motivos cierre perdido ─────────────────────
+            if not perdidos.empty:
+                col3, col4 = st.columns(2)
+                with col3:
+                    mp_pie = (perdidos.groupby("motivo_cierre")["deal_id"]
+                              .nunique().reset_index(name="Deals"))
+                    fig = px.pie(mp_pie, names="motivo_cierre", values="Deals",
+                                 title="Distribución motivos cierre perdido",
+                                 hole=0.5,
+                                 color_discrete_sequence=[
+                                     BARCA["garnet"], BARCA["garnet_deep"], BARCA["blue"],
+                                     BARCA["gold"], BARCA["ink60"], BARCA["ink40"],
+                                     BARCA["yellow"], BARCA["blue_deep"],
+                                 ])
+                    fig.update_traces(textposition="outside", textinfo="percent+label",
+                                      marker=dict(line=dict(color=BARCA["white"], width=2)))
                     barca_layout(fig, 340)
                     st.plotly_chart(fig, use_container_width=True)
 
-            ec3, ec4 = st.columns([2, 1])
-            with ec3:
-                fig = px.scatter(df_emails[df_emails["enviados"] > 0],
-                                 x="tasa_apertura", y="ctr", hover_name="nombre",
-                                 size="enviados", size_max=40,
-                                 title="Apertura vs CTR (tamaño = enviados)",
-                                 labels={"tasa_apertura": "Apertura (%)", "ctr": "CTR (%)"},
-                                 color_discrete_sequence=[BARCA["blue"]])
-                barca_layout(fig, 340)
-                st.plotly_chart(fig, use_container_width=True)
-            with ec4:
-                st.markdown("#### Totales del período")
-                st.dataframe(pd.DataFrame([
-                    {"Métrica": "Campañas",      "Valor": f"{total_campanas}"},
-                    {"Métrica": "Enviados",      "Valor": f"{total_enviados:,}"},
-                    {"Métrica": "Entregados",    "Valor": f"{total_entregados:,}"},
-                    {"Métrica": "Aperturas",     "Valor": f"{total_aperturas:,}"},
-                    {"Métrica": "Tasa apertura", "Valor": f"{tasa_ap_global}%"},
-                    {"Métrica": "Clicks",        "Valor": f"{total_clicks:,}"},
-                    {"Métrica": "CTR",           "Valor": f"{ctr_global}%"},
-                    {"Métrica": "CTOR",          "Valor": f"{ctor_global}%"},
-                    {"Métrica": "Rebotes",       "Valor": f"{total_rebotes:,}"},
-                    {"Métrica": "Bajas",         "Valor": f"{total_bajas:,}"},
-                    {"Métrica": "Tasa baja",     "Valor": f"{tasa_baja_global}%"},
-                    {"Métrica": "Spam reports",  "Valor": f"{total_spam:,}"},
-                ]), use_container_width=True, hide_index=True, height=480)
+                with col4:
+                    if not ganados.empty:
+                        mg = (ganados.groupby("motivo_cierre")["deal_id"]
+                              .nunique().reset_index(name="Deals")
+                              .sort_values("Deals", ascending=True))
+                        fig = px.bar(mg, x="Deals", y="motivo_cierre", orientation="h",
+                                     text_auto=True,
+                                     title=f"Motivos — Cierre ganado ({ganados['deal_id'].nunique()} deals)",
+                                     color_discrete_sequence=[BARCA["gold"]])
+                        fig.update_layout(yaxis=dict(categoryorder="total ascending"))
+                        barca_layout(fig, 340)
+                        st.plotly_chart(fig, use_container_width=True)
 
-            # Full table
-            with st.expander("📋 Tabla completa de emails enviados"):
-                rename_em = {
-                    "nombre": "Nombre", "fecha": "Fecha", "asunto": "Asunto",
-                    "listas": "Listas", "enviados": "Enviados",
-                    "entregados": "Entregados", "aperturas": "Aperturas únicas",
-                    "tasa_apertura": "Apertura %", "clicks": "Clicks únicos",
-                    "ctr": "CTR %", "ctor": "CTOR %",
-                    "rebotes": "Rebotes", "bajas": "Bajas", "spam": "Spam",
-                }
-                cols_show = [c for c in rename_em if c in df_emails.columns]
-                tabla_em = df_emails[cols_show].rename(columns=rename_em)
-                st.dataframe(
-                    tabla_em.style
-                    .background_gradient(subset=["Apertura %", "CTR %"],
-                                         cmap="Blues", vmin=0, vmax=50)
-                    .format({"Apertura %": "{:.1f}%", "CTR %": "{:.1f}%",
-                             "CTOR %": "{:.1f}%"}),
-                    use_container_width=True, hide_index=True,
-                )
-                fi_label = str(fi) if fi != "todos" else "todos"
-                ff_label = str(ff) if ff != "todos" else "todos"
-                st.download_button("⬇️ Descargar CSV",
-                    data=tabla_em.to_csv(index=False, encoding="utf-8-sig"),
-                    file_name=f"email_marketing_{fi_label}_{ff_label}.csv",
-                    mime="text/csv", key="dl_emails")
+            # ── Motivo × Fuente de tráfico ────────────────────────────────────────
+            st.markdown("#### 🔗 Motivo de cierre por fuente de tráfico")
 
-            # URL click breakdown (lazy per-campaign)
-            with st.expander("🔗 URLs más clickeadas por campaña"):
-                nombres_cid = (df_emails[df_emails["campaign_id"] != ""][["nombre", "campaign_id"]]
-                               .drop_duplicates("nombre") if "campaign_id" in df_emails.columns
-                               else pd.DataFrame())
-                if nombres_cid.empty:
-                    st.info("No hay datos de campañas disponibles.")
-                else:
-                    sel_email = st.selectbox("Selecciona un email:",
-                                             nombres_cid["nombre"].tolist(),
-                                             key="sel_url_email")
-                    row_cid = nombres_cid[nombres_cid["nombre"] == sel_email]
-                    if not row_cid.empty:
-                        cid_sel = row_cid["campaign_id"].values[0]
-                        with st.spinner("Cargando URLs clickeadas..."):
-                            urls = fetch_click_urls(str(cid_sel))
-                        if urls:
-                            df_urls = pd.DataFrame(urls, columns=["URL", "Clicks"])
-                            st.dataframe(df_urls, use_container_width=True, hide_index=True)
-                        else:
-                            st.info("No se encontraron clicks registrados para este email.")
+            for etapa_label, color_etapa in [("Cierre perdido", BARCA["garnet"]),
+                                              ("Cierre ganado",  BARCA["gold"])]:
+                subset = df_deals_periodo[df_deals_periodo["etapa"] == etapa_label]
+                if subset.empty:
+                    continue
 
-    # ── Tab 2: Rendimiento ─────────────────────────────────────────────────────
-    with em_tab2:
-        if df_emails.empty:
-            st.info("No hay datos suficientes para el análisis.")
-        else:
-            # Benchmarks
-            st.markdown("### 📊 Métricas vs Benchmarks del sector")
-            st.caption("Referencias para email marketing de formación/educación · fuente: Mailchimp / HubSpot Industry Benchmarks")
-            bench_rows = []
-            for metrica, actual, bench, unit, es_negativo in [
-                ("Tasa apertura",  tasa_ap_global,  25.0, "%", False),
-                ("CTR",            ctr_global,       2.6, "%", False),
-                ("CTOR",           ctor_global,     10.0, "%", False),
-                ("Tasa rebote",    bounce_rate,      0.63, "%", True),
-                ("Tasa de baja",   tasa_baja_global, 0.25, "%", True),
-            ]:
-                diff = round(actual - bench, 2)
-                if es_negativo:
-                    ok = actual <= bench
-                    estado = "✅ OK" if ok else "⚠️ Alto"
-                else:
-                    ok = actual >= bench
-                    estado = "✅ OK" if ok else "⚠️ Bajo"
-                bench_rows.append({
-                    "Métrica": metrica,
-                    "Actual": f"{actual}{unit}",
-                    "Benchmark": f"{bench}{unit}",
-                    "Diferencia": f"{'+' if diff >= 0 else ''}{diff}{unit}",
-                    "Estado": estado,
-                })
-            st.dataframe(pd.DataFrame(bench_rows), use_container_width=True, hide_index=True)
-            st.markdown("<br>", unsafe_allow_html=True)
-
-            # Top 5 / Bottom 5
-            st.markdown("### 🏆 Mejores y peores campañas")
-            valid_df = df_emails[df_emails["enviados"] >= 20].copy()
-            if len(valid_df) >= 4:
-                rb1, rb2 = st.columns(2)
-                with rb1:
-                    top5 = valid_df.nlargest(5, "tasa_apertura")
-                    fig = px.bar(top5.sort_values("tasa_apertura"),
-                                 x="tasa_apertura", y="nombre", orientation="h",
-                                 text_auto=True, title="🏆 Top 5 — Mayor apertura",
-                                 color_discrete_sequence=[BARCA["gold"]])
-                    fig.update_layout(yaxis=dict(categoryorder="total ascending"))
-                    barca_layout(fig, 300)
-                    st.plotly_chart(fig, use_container_width=True)
-                with rb2:
-                    bot5 = valid_df.nsmallest(5, "tasa_apertura")
-                    fig = px.bar(bot5.sort_values("tasa_apertura", ascending=False),
-                                 x="tasa_apertura", y="nombre", orientation="h",
-                                 text_auto=True, title="📉 Bottom 5 — Menor apertura",
-                                 color_discrete_sequence=[BARCA["garnet"]])
-                    fig.update_layout(yaxis=dict(categoryorder="total ascending"))
-                    barca_layout(fig, 300)
-                    st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("Se necesitan al menos 4 campañas con >20 enviados para este análisis.")
-
-            # Day of week
-            if len(df_emails) >= 5:
-                st.markdown("### 📅 Rendimiento por día de la semana")
-                DIAS_ES = {0: "Lunes", 1: "Martes", 2: "Miércoles", 3: "Jueves",
-                           4: "Viernes", 5: "Sábado", 6: "Domingo"}
-                df_dow = df_emails[df_emails["fecha"] != ""].copy()
-                df_dow["dia_num"] = pd.to_datetime(df_dow["fecha"], errors="coerce").dt.dayofweek
-                df_dow = df_dow.dropna(subset=["dia_num"])
-                df_dow["dia_num"] = df_dow["dia_num"].astype(int)
-                df_dow["dia"] = df_dow["dia_num"].map(DIAS_ES)
-                dow_agg = (df_dow.groupby("dia_num")
-                           .agg(campanas=("nombre", "count"),
-                                avg_apertura=("tasa_apertura", "mean"),
-                                avg_ctr=("ctr", "mean"))
-                           .reset_index())
-                dow_agg["dia"] = dow_agg["dia_num"].map(DIAS_ES)
-                dow_agg["avg_apertura"] = dow_agg["avg_apertura"].round(1)
-                dow_agg = dow_agg.sort_values("dia_num")
-                rd1, rd2 = st.columns(2)
-                with rd1:
-                    fig = px.bar(dow_agg, x="dia", y="campanas",
-                                 title="Campañas enviadas por día de la semana",
-                                 color_discrete_sequence=[BARCA["blue"]])
-                    barca_layout(fig, 300)
-                    st.plotly_chart(fig, use_container_width=True)
-                with rd2:
-                    fig = px.bar(dow_agg, x="dia", y="avg_apertura",
-                                 title="Apertura promedio por día de la semana (%)",
-                                 color="avg_apertura",
-                                 color_continuous_scale=[BARCA["line2"], BARCA["gold"]])
-                    fig.update_layout(coloraxis_showscale=False)
-                    barca_layout(fig, 300)
-                    st.plotly_chart(fig, use_container_width=True)
-
-            # Subject length
-            st.markdown("### 📝 Longitud del asunto vs tasa de apertura")
-            df_subj = df_emails[(df_emails["asunto"] != "") & (df_emails["enviados"] >= 10)].copy()
-            if len(df_subj) >= 5:
-                df_subj["largo_asunto"] = df_subj["asunto"].str.len()
-                fig = px.scatter(df_subj, x="largo_asunto", y="tasa_apertura",
-                                 hover_name="nombre", size="enviados", size_max=30,
-                                 title="Nº caracteres del asunto vs Tasa de apertura",
-                                 labels={"largo_asunto": "Caracteres", "tasa_apertura": "Apertura (%)"},
-                                 color_discrete_sequence=[BARCA["blue_deep"]])
-                barca_layout(fig, 340)
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("Se necesitan más campañas para este análisis.")
-
-    # ── Tab 3: Consejos ────────────────────────────────────────────────────────
-    with em_tab3:
-        if df_emails.empty:
-            st.info("No hay datos para generar consejos.")
-        else:
-            st.markdown("### 💡 Diagnóstico del canal — basado en tus datos")
-
-            def _card_consejo(emoji, titulo, texto, color):
-                st.markdown(f"""
-                <div style="border-left:4px solid {color};padding:12px 16px;
-                            margin-bottom:12px;background:{BARCA['white']};
-                            border-radius:0 8px 8px 0;
-                            box-shadow:0 1px 3px rgba(0,0,0,.07)">
-                    <div style="font-weight:700;font-size:14px;
-                                color:{BARCA['blue_ink']};margin-bottom:4px">
-                        {emoji} {titulo}
-                    </div>
-                    <div style="font-size:13px;color:{BARCA['ink60']}">{texto}</div>
-                </div>""", unsafe_allow_html=True)
-
-            # Open rate
-            if tasa_ap_global >= 30:
-                _card_consejo("✅", f"Tasa apertura excelente ({tasa_ap_global}%)",
-                    "Muy por encima del benchmark (25%). Continúa con la estrategia actual de asuntos y segmentación.",
-                    BARCA["gold"])
-            elif tasa_ap_global >= 20:
-                _card_consejo("🟡", f"Tasa apertura aceptable ({tasa_ap_global}%)",
-                    "Cerca del benchmark (25%). Prueba A/B testing en asuntos: preguntas, urgencia, emojis. "
-                    "También optimiza el nombre del remitente para que sea reconocible.",
-                    "#f0a500")
-            else:
-                _card_consejo("🔴", f"Tasa apertura baja ({tasa_ap_global}%)",
-                    "Por debajo del benchmark (25%). Acciones clave: 1) Mejora los asuntos, 2) Revisa la hora/día de envío, "
-                    "3) Limpia los contactos inactivos de tus listas.",
-                    BARCA["garnet"])
-
-            # CTR
-            if ctr_global >= 3:
-                _card_consejo("✅", f"CTR sólido ({ctr_global}%)",
-                    "Por encima del benchmark (2.6%). Tu contenido y CTAs funcionan bien.",
-                    BARCA["gold"])
-            elif ctr_global >= 1.5:
-                _card_consejo("🟡", f"CTR mejorable ({ctr_global}%)",
-                    "Por debajo del benchmark (2.6%). Asegúrate de tener un CTA único, claro y con texto de acción: "
-                    "'Ver programa', 'Reservar plaza', 'Descubrir más'.",
-                    "#f0a500")
-            else:
-                _card_consejo("🔴", f"CTR bajo ({ctr_global}%)",
-                    "Significativamente bajo (benchmark 2.6%). Revisa: ¿hay un CTA visible above the fold? "
-                    "¿El diseño guía al lector hacia el click? ¿El CTA tiene contraste suficiente?",
-                    BARCA["garnet"])
-
-            # CTOR
-            if ctor_global >= 12:
-                _card_consejo("✅", f"CTOR excelente ({ctor_global}%)",
-                    "Quien abre el email, hace click. El contenido es relevante y el CTA efectivo.",
-                    BARCA["gold"])
-            elif ctor_global >= 7:
-                _card_consejo("🟡", f"CTOR correcto ({ctor_global}%)",
-                    "Benchmark ~10%. Hay margen. Prueba a posicionar el CTA más arriba en el email "
-                    "y a reducir el texto previo al mismo.",
-                    "#f0a500")
-            else:
-                _card_consejo("🔴", f"CTOR bajo ({ctor_global}%)",
-                    "Quienes abren el email no hacen click. El contenido puede no conectar con la expectativa "
-                    "generada por el asunto, o el CTA no es lo suficientemente atractivo.",
-                    BARCA["garnet"])
-
-            # Bounce
-            if bounce_rate > 2:
-                _card_consejo("🔴", f"Tasa de rebote alta ({bounce_rate}%)",
-                    "Benchmark <0.63%. Urgente: limpia la lista eliminando emails inválidos. "
-                    "Un bounce alto afecta la reputación del dominio enviador.",
-                    BARCA["garnet"])
-            elif bounce_rate > 0.63:
-                _card_consejo("🟡", f"Tasa de rebote moderada ({bounce_rate}%)",
-                    "Por encima del benchmark. Considera limpiar listas periódicamente con un proceso de validación de emails.",
-                    "#f0a500")
-            else:
-                _card_consejo("✅", f"Tasa de rebote saludable ({bounce_rate}%)",
-                    "Dentro del rango óptimo (<0.63%). Las listas están en buen estado.",
-                    BARCA["gold"])
-
-            # Unsubscribe
-            if tasa_baja_global > 0.5:
-                _card_consejo("🔴", f"Tasa de bajas alta ({tasa_baja_global}%)",
-                    "Benchmark <0.25%. Causas frecuentes: frecuencia excesiva, contenido irrelevante o "
-                    "listas captadas sin double opt-in. Revisa el calendario y la segmentación.",
-                    BARCA["garnet"])
-            elif tasa_baja_global > 0.25:
-                _card_consejo("🟡", f"Tasa de bajas moderada ({tasa_baja_global}%)",
-                    "Ligeramente por encima del benchmark. Considera segmentar mejor el contenido "
-                    "por interés o programa.",
-                    "#f0a500")
-            else:
-                _card_consejo("✅", f"Tasa de bajas saludable ({tasa_baja_global}%)",
-                    "Dentro del rango óptimo (<0.25%). Los contactos valoran el contenido.",
-                    BARCA["gold"])
-
-            # Frequency
-            meses_activos = max(df_emails["mes"].nunique(), 1)
-            freq = round(total_campanas / meses_activos, 1)
-            if freq < 2:
-                _card_consejo("🟡", f"Frecuencia de envío baja (~{freq}/mes)",
-                    "Para mantener el engagement se recomienda al menos 2-4 envíos/mes. "
-                    "La presencia constante refuerza el recall de marca.",
-                    "#f0a500")
-            elif freq > 12:
-                _card_consejo("🟡", f"Alta frecuencia (~{freq}/mes)",
-                    "Más de 3 envíos/semana puede generar fatiga. Monitoriza la tasa de bajas "
-                    "y considera segmentar para no saturar a toda la base.",
-                    "#f0a500")
-            else:
-                _card_consejo("✅", f"Frecuencia adecuada (~{freq}/mes)",
-                    "Frecuencia saludable para mantener presencia sin saturar.",
-                    BARCA["gold"])
-
-            st.markdown("<br>")
-            st.markdown("### 🚀 Oportunidades de mejora")
-            oportunidades = [
-                ("🧪", "A/B Testing de asuntos",
-                 "Prueba 2 versiones de asunto en cada envío relevante. HubSpot permite A/B testing nativo "
-                 "en emails de marketing. Aprenderás qué estilo conecta mejor con tu audiencia."),
-                ("⏰", "Optimización del horario de envío",
-                 "Analiza el día y la hora con mejor apertura en tu historial (ver pestaña Rendimiento). "
-                 "Estandariza los envíos importantes en ese slot."),
-                ("🎯", "Segmentación avanzada",
-                 "En lugar de enviar a toda la lista, crea segmentos por comportamiento: "
-                 "abrieron los últimos 3 emails, hicieron click, visitaron la web de un programa concreto."),
-                ("♻️", "Campaña de re-engagement",
-                 "Identifica contactos sin actividad en >90 días. Envía una campaña de reactivación "
-                 "('¿Sigues ahí?'). Elimina los que no reaccionan para mantener la reputación del dominio."),
-                ("📊", "Lead scoring por email",
-                 "Asigna puntos en HubSpot a los contactos que abren y hacen click sistemáticamente. "
-                 "Prioriza estos leads en el CRM para el equipo de ventas."),
-                ("🔄", "Automatización post-formulario",
-                 "Crea una secuencia automática tras cada formulario: bienvenida → contenido de valor "
-                 "→ propuesta → seguimiento. Reduce la carga manual del equipo RST."),
-            ]
-            for icon, titulo, texto in oportunidades:
-                st.markdown(f"""
-                <div style="padding:12px 16px;margin-bottom:10px;
-                            background:{BARCA['white']};border-radius:8px;
-                            box-shadow:0 1px 3px rgba(0,0,0,.06)">
-                    <div style="font-weight:700;font-size:14px;
-                                color:{BARCA['blue_deep']};margin-bottom:4px">
-                        {icon} {titulo}
-                    </div>
-                    <div style="font-size:13px;color:{BARCA['ink60']}">{texto}</div>
-                </div>""", unsafe_allow_html=True)
-
-    # ── Tab 4: Programados ─────────────────────────────────────────────────────
-    with em_tab4:
-        st.markdown("### 📅 Emails Programados")
-        if df_prog.empty:
-            st.info("No hay emails programados actualmente.")
-        else:
-            hoy_str = str(date.today())
-            rename_prog = {
-                "estado": "Estado", "nombre": "Nombre",
-                "fecha_programada": "Fecha programada", "asunto": "Asunto",
-                "remitente": "Remitente", "listas": "Listas",
-            }
-            disp_cols = [c for c in rename_prog if c in df_prog.columns]
-
-            if "fecha_sort" in df_prog.columns:
-                proximos = df_prog[df_prog["fecha_sort"] >= hoy_str]
-                pasados  = df_prog[df_prog["fecha_sort"] <  hoy_str]
-            else:
-                proximos = df_prog
-                pasados  = pd.DataFrame()
-
-            if not proximos.empty:
-                st.markdown(f"#### 🔜 Próximos envíos ({len(proximos)})")
-                st.dataframe(proximos[disp_cols].rename(columns=rename_prog),
-                             use_container_width=True, hide_index=True)
-            else:
-                st.info("No hay envíos futuros programados.")
-
-            if not pasados.empty:
-                st.markdown(f"#### ⚠️ Con fecha pasada — posiblemente pendientes ({len(pasados)})")
-                st.caption("Estos emails tienen fecha de envío en el pasado pero siguen en estado SCHEDULED.")
-                st.dataframe(pasados[disp_cols].rename(columns=rename_prog),
-                             use_container_width=True, hide_index=True)
-
-    # ── Tab 5: Listas y Segmentos ──────────────────────────────────────────────
-    with em_tab5:
-        st.markdown("### 📋 Listas y Segmentos de HubSpot")
-        with st.spinner("Cargando listas..."):
-            df_lists = fetch_all_lists()
-
-        # Add ILS lists found in email campaigns that aren't in v1 lists
-        if not df_emails.empty and "list_ids_raw" in df_emails.columns:
-            known_ids = set(df_lists["list_id"].tolist()) if not df_lists.empty else set()
-            email_ids: set = set()
-            for ids_str in df_emails["list_ids_raw"].dropna():
-                for lid in str(ids_str).split(","):
-                    lid = lid.strip()
-                    if lid:
-                        email_ids.add(lid)
-            missing_ids = email_ids - known_ids
-            if missing_ids:
-                with st.spinner(f"Cargando {len(missing_ids)} listas adicionales (ILS)..."):
-                    ils_names = _fetch_list_names(tuple(sorted(missing_ids)))
-                ils_rows = []
-                for lid, name in ils_names.items():
-                    ils_rows.append({
-                        "list_id": lid, "nombre": name,
-                        "tipo": "ILS", "size": 0,
-                        "created": "", "updated": "",
-                    })
-                if ils_rows:
-                    df_ils = pd.DataFrame(ils_rows)
-                    df_lists = pd.concat([df_lists, df_ils], ignore_index=True)
-
-        if df_lists.empty:
-            st.info("No se pudieron obtener las listas.")
-        else:
-            # Cross-reference lists with email sends using list names
-            def _avg(lst):
-                return round(sum(lst) / len(lst), 1) if lst else 0.0
-
-            if not df_emails.empty:
-                list_stats: dict = {}
-                for _, row_e in df_emails.iterrows():
-                    listas_str = str(row_e.get("listas") or "")
-                    if listas_str and listas_str != "—":
-                        for lname in listas_str.split(", "):
-                            lname = lname.strip()
-                            if lname and lname != "—":
-                                if lname not in list_stats:
-                                    list_stats[lname] = {"n": 0, "ap": [], "ctr": []}
-                                list_stats[lname]["n"] += 1
-                                list_stats[lname]["ap"].append(row_e["tasa_apertura"])
-                                list_stats[lname]["ctr"].append(row_e["ctr"])
-
-                df_lists["emails_enviados"] = df_lists["nombre"].apply(
-                    lambda n: list_stats.get(n, {}).get("n", 0))
-                df_lists["avg_apertura"] = df_lists["nombre"].apply(
-                    lambda n: _avg(list_stats.get(n, {}).get("ap", [])))
-                df_lists["avg_ctr"] = df_lists["nombre"].apply(
-                    lambda n: _avg(list_stats.get(n, {}).get("ctr", [])))
-            else:
-                df_lists["emails_enviados"] = 0
-                df_lists["avg_apertura"]    = 0.0
-                df_lists["avg_ctr"]         = 0.0
-
-            # KPIs
-            kl1, kl2, kl3 = st.columns(3)
-            kpi_card(kl1, "Total listas/segmentos", len(df_lists), BARCA["blue"])
-            kpi_card(kl2, "Total contactos",
-                     f"{int(df_lists['size'].sum()):,}" if "size" in df_lists.columns else "—",
-                     BARCA["blue_deep"])
-            kpi_card(kl3, "Listas con envíos",
-                     int((df_lists["emails_enviados"] > 0).sum()),
-                     BARCA["gold"])
-            st.markdown("<br>", unsafe_allow_html=True)
-
-            # Filter controls
-            fcol1, fcol2, fcol3 = st.columns([3, 1, 1])
-            with fcol1:
-                busqueda = st.text_input("🔍 Buscar lista por nombre",
-                                         placeholder="Escribe para filtrar...",
-                                         key="busq_lista")
-            with fcol2:
-                solo_con_envios = st.checkbox("Solo con envíos", key="chk_envios")
-            with fcol3:
-                tipo_filtro = st.selectbox("Tipo", ["Todos", "DYNAMIC", "STATIC", "ILS"],
-                                           key="tipo_lista")
-
-            # Apply filters
-            df_disp = df_lists.copy()
-            if busqueda:
-                df_disp = df_disp[df_disp["nombre"].str.contains(busqueda, case=False, na=False)]
-            if solo_con_envios:
-                df_disp = df_disp[df_disp["emails_enviados"] > 0]
-            if tipo_filtro != "Todos":
-                df_disp = df_disp[df_disp["tipo"] == tipo_filtro]
-
-            df_disp = df_disp.sort_values("emails_enviados", ascending=False)
-
-            st.caption(f"Mostrando {len(df_disp)} de {len(df_lists)} listas")
-
-            rename_lists = {
-                "nombre": "Nombre", "tipo": "Tipo", "size": "Contactos",
-                "emails_enviados": "Emails enviados",
-                "avg_apertura": "Apertura % prom.",
-                "avg_ctr": "CTR % prom.",
-                "created": "Creada", "updated": "Actualizada",
-            }
-            cols_disp = [c for c in rename_lists if c in df_disp.columns]
-            st.dataframe(df_disp[cols_disp].rename(columns=rename_lists),
-                         use_container_width=True, hide_index=True,
-                         height=600)
-
-            # Per-list email detail
-            if not df_emails.empty:
-                listas_con_envios = (df_lists[df_lists["emails_enviados"] > 0]
-                                     .sort_values("emails_enviados", ascending=False)["nombre"]
-                                     .tolist())
-                if listas_con_envios:
-                    with st.expander("📧 Ver campañas asociadas a una lista"):
-                        sel_lista = st.selectbox("Selecciona una lista:",
-                                                 listas_con_envios, key="sel_lista_email")
-                        emails_lista = df_emails[
-                            df_emails["listas"].str.contains(sel_lista, na=False, regex=False)
-                        ]
-                        if not emails_lista.empty:
-                            cols_em = [c for c in ["nombre", "fecha", "asunto", "enviados",
-                                                    "tasa_apertura", "ctr", "ctor", "bajas"]
-                                       if c in emails_lista.columns]
-                            ren_em = {"nombre": "Email", "fecha": "Fecha",
-                                      "asunto": "Asunto", "enviados": "Enviados",
-                                      "tasa_apertura": "Apertura %", "ctr": "CTR %",
-                                      "ctor": "CTOR %", "bajas": "Bajas"}
-                            st.dataframe(emails_lista[cols_em].rename(columns=ren_em),
-                                         use_container_width=True, hide_index=True)
-
-    # ── WORKFLOWS & SECUENCIAS ─────────────────────────────────────────────────
-    st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown(
-        f"<div style='border-top:2px solid {BARCA['gold']};margin:24px 0 16px 0'></div>",
-        unsafe_allow_html=True,
-    )
-    st.markdown(
-        f"<h2 style='color:{BARCA['blue_ink']};font-size:22px;font-weight:700;margin-bottom:4px'>"
-        "⚡ Workflows &amp; Secuencias</h2>"
-        f"<p style='color:{BARCA['ink60']};font-size:13px;margin-top:0'>"
-        "Automatizaciones activas en HubSpot – workflows de marketing y secuencias de ventas</p>",
-        unsafe_allow_html=True,
-    )
-
-    wf_tab1, wf_tab2 = st.tabs(["⚡ Workflows activos", "📨 Secuencias de ventas"])
-
-    with wf_tab1:
-        with st.spinner("Cargando workflows... (primera vez puede tardar ~10 s)"):
-            df_wf = fetch_workflows()
-
-        if df_wf.empty:
-            st.warning("No se pudieron obtener los workflows.")
-        else:
-            wf_total    = len(df_wf)
-            wf_active   = int(df_wf["activo"].sum())
-            wf_disabled = wf_total - wf_active
-            wf_email    = int((df_wf["n_emails"] > 0).sum())
-
-            wk1, wk2, wk3, wk4 = st.columns(4)
-            kpi_card(wk1, "Total workflows",   wf_total,    BARCA["blue"])
-            kpi_card(wk2, "Workflows activos", wf_active,   BARCA["gold"])
-            kpi_card(wk3, "Desactivados",      wf_disabled, BARCA["blue_deep"])
-            kpi_card(wk4, "Disparan email",    wf_email,    "#2e7d32")
-            st.markdown("<br>", unsafe_allow_html=True)
-
-            wfc1, wfc2 = st.columns([2, 3])
-            with wfc1:
-                wf_estado = st.radio("Mostrar:", ["Activos", "Todos", "Desactivados"],
-                                     horizontal=True, key="wf_estado")
-            with wfc2:
-                wf_busq = st.text_input("🔍 Buscar por nombre o email", key="wf_busq")
-
-            df_wf_show = df_wf.copy()
-            if wf_estado == "Activos":
-                df_wf_show = df_wf_show[df_wf_show["activo"]]
-            elif wf_estado == "Desactivados":
-                df_wf_show = df_wf_show[~df_wf_show["activo"]]
-            if wf_busq:
-                wf_mask = (
-                    df_wf_show["nombre"].str.contains(wf_busq, case=False, na=False) |
-                    df_wf_show["emails"].str.contains(wf_busq, case=False, na=False)
-                )
-                df_wf_show = df_wf_show[wf_mask]
-
-            # ---- Main table (includes avg metrics for workflows with emails) ----
-            def _fmt_pct(v):
-                return f"{v}%" if v is not None else "—"
-
-            table_rows = []
-            for _, wrow in df_wf_show.iterrows():
-                table_rows.append({
-                    "Nombre del Workflow":  wrow["nombre"],
-                    "Activo":               wrow["activo"],
-                    "Tipo de acción":       wrow["acciones"],
-                    "Email(s) que dispara": wrow["emails"],
-                    "Enviados (total)":     int(wrow["enviados_total"]) if wrow["n_emails"] > 0 else "—",
-                    "Apertura %":           _fmt_pct(wrow["avg_apertura"]) if wrow["n_emails"] > 0 else "—",
-                    "CTR %":                _fmt_pct(wrow["avg_ctr"])      if wrow["n_emails"] > 0 else "—",
-                    "CTOR %":               _fmt_pct(wrow["avg_ctor"])     if wrow["n_emails"] > 0 else "—",
-                    "Actualizado":          wrow["actualizado"],
-                })
-            st.dataframe(pd.DataFrame(table_rows), use_container_width=True, hide_index=True)
-
-            # ---- Drilldown: per-email metrics ----
-            df_wf_email = df_wf_show[df_wf_show["n_emails"] > 0]
-            if not df_wf_email.empty:
-                with st.expander(
-                    f"📧 Métricas detalladas — {len(df_wf_email)} workflow(s) con email"
-                ):
-                    import json as _json_disp
-                    for _, wrow in df_wf_email.sort_values("nombre").iterrows():
-                        estado_icon = "✅ Activo" if wrow["activo"] else "⏸ Desactivado"
-                        st.markdown(
-                            f"**{wrow['nombre']}** &nbsp;·&nbsp; {estado_icon}",
-                            unsafe_allow_html=True,
-                        )
-                        try:
-                            email_detail = _json_disp.loads(wrow["email_detail"] or "[]")
-                        except Exception:
-                            email_detail = []
-                        if email_detail:
-                            detail_rows = []
-                            for em in email_detail:
-                                ap  = em.get("tasa_apertura")
-                                ctr = em.get("ctr")
-                                ctor = em.get("ctor")
-                                reb  = em.get("tasa_rebote")
-                                detail_rows.append({
-                                    "Email":       em.get("nombre", "—"),
-                                    "Enviados":    int(em.get("sent", 0)),
-                                    "Apertura %":  f"{ap}%"   if ap  is not None else "—",
-                                    "CTR %":       f"{ctr}%"  if ctr is not None else "—",
-                                    "CTOR %":      f"{ctor}%" if ctor is not None else "—",
-                                    "Rebote %":    f"{reb}%"  if reb is not None else "—",
-                                    "Bajas":       int(em.get("unsubs", 0)),
-                                })
-                            st.dataframe(
-                                pd.DataFrame(detail_rows),
-                                use_container_width=True,
-                                hide_index=True,
-                            )
-                        st.markdown(
-                            f"<small style='color:{BARCA['ink40']}'>Actualizado: {wrow['actualizado']}</small>",
-                            unsafe_allow_html=True,
-                        )
-                        st.markdown("---")
-
-            # Breakdown chart: workflows by action type
-            action_counts: dict = {}
-            for row_ac in df_wf_show["acciones"]:
-                for ac in str(row_ac).split(", "):
-                    ac = ac.strip()
-                    if ac and ac != "—":
-                        action_counts[ac] = action_counts.get(ac, 0) + 1
-            if action_counts:
-                import plotly.graph_objects as go
-                st.markdown("<br>", unsafe_allow_html=True)
                 st.markdown(
-                    f"<p style='font-weight:600;color:{BARCA['blue_ink']};font-size:14px'>"
-                    "Distribución por tipo de acción</p>",
+                    f"<div style='font-weight:700;color:{color_etapa};"
+                    f"font-size:15px;margin:16px 0 8px'>● {etapa_label}</div>",
                     unsafe_allow_html=True,
                 )
-                ac_df = pd.DataFrame(
-                    sorted(action_counts.items(), key=lambda x: x[1], reverse=True),
-                    columns=["Tipo", "Workflows"],
+                col_g, col_t = st.columns([3, 2])
+
+                with col_g:
+                    grp = (subset.groupby(["motivo_cierre", "fuente"])["deal_id"]
+                           .nunique().reset_index(name="Deals"))
+                    # ordenar motivos por total
+                    orden_motivos = (grp.groupby("motivo_cierre")["Deals"]
+                                     .sum().sort_values(ascending=False).index.tolist())
+                    fig = px.bar(
+                        grp, x="Deals", y="motivo_cierre", color="fuente",
+                        barmode="stack", orientation="h",
+                        title=f"{etapa_label} — Motivo × Fuente",
+                        category_orders={"motivo_cierre": orden_motivos},
+                        color_discrete_sequence=[
+                            BARCA["blue_ink"], BARCA["blue_deep"], BARCA["blue"],
+                            BARCA["garnet_deep"], BARCA["garnet"],
+                            BARCA["gold"], BARCA["yellow"],
+                            BARCA["ink60"], BARCA["ink40"], BARCA["ink20"],
+                        ],
+                    )
+                    fig.update_layout(
+                        legend=dict(orientation="h", y=-0.35, title="Fuente"),
+                        yaxis=dict(categoryorder="array", categoryarray=orden_motivos[::-1]),
+                    )
+                    barca_layout(fig, max(300, len(orden_motivos) * 45 + 80))
+                    st.plotly_chart(fig, use_container_width=True)
+
+                with col_t:
+                    tabla_mf = (subset.groupby(["motivo_cierre", "fuente"])["deal_id"]
+                                .nunique().reset_index(name="Deals")
+                                .sort_values(["Deals"], ascending=False))
+                    total_etapa = tabla_mf["Deals"].sum()
+                    tabla_mf["% total"] = (tabla_mf["Deals"] / total_etapa * 100).round(1).astype(str) + "%"
+                    tabla_mf.columns = ["Motivo", "Fuente", "Deals", "% total"]
+                    st.dataframe(tabla_mf, use_container_width=True, hide_index=True,
+                                 height=min(400, len(tabla_mf) * 36 + 40))
+
+            # ── Tabla resumen general ──────────────────────────────────────────────
+            with st.expander("📋 Ver tabla completa de negocios cerrados"):
+                tabla = (df_deals_periodo
+                         .groupby(["etapa", "motivo_cierre", "fuente"])["deal_id"]
+                         .nunique()
+                         .reset_index(name="Nº Deals")
+                         .sort_values(["etapa", "Nº Deals"], ascending=[True, False]))
+                totales = tabla.groupby("etapa")["Nº Deals"].transform("sum")
+                tabla["% sobre etapa"] = (tabla["Nº Deals"] / totales * 100).round(1).astype(str) + "%"
+                tabla.columns = ["Etapa", "Motivo de cierre", "Fuente", "Nº Deals", "% sobre etapa"]
+                st.dataframe(tabla, use_container_width=True, hide_index=True)
+                st.download_button(
+                    "⬇️ Descargar CSV",
+                    data=tabla.to_csv(index=False, encoding="utf-8-sig"),
+                    file_name=f"negocios_cerrados_{fi}_{ff}.csv",
+                    mime="text/csv",
+                    key="dl_negocios",
                 )
-                fig_ac = go.Figure(go.Bar(
-                    x=ac_df["Tipo"],
-                    y=ac_df["Workflows"],
-                    marker_color=BARCA["blue"],
-                    text=ac_df["Workflows"],
-                    textposition="outside",
-                ))
-                fig_ac = barca_layout(fig_ac, height=300)
-                fig_ac.update_layout(xaxis_title="", yaxis_title="Nº workflows")
-                st.plotly_chart(fig_ac, use_container_width=True)
 
-    with wf_tab2:
-        with st.spinner("Cargando secuencias... (primera vez puede tardar ~15 s)"):
-            df_seq = fetch_sequences()
+        # ── Análisis y conclusiones ────────────────────────────────────────────────
+        if not df.empty:
+            conclusiones(df, df_mat, df_deals_periodo)
 
-        if df_seq.empty:
-            st.info("No se encontraron secuencias de ventas.")
+        # ── Tabla y descarga ───────────────────────────────────────────────────────
+        if not df.empty:
+            with st.expander("📋 Ver datos completos"):
+                st.dataframe(
+                    df[["fecha", "mes", "pais", "fuente", "lead_status", "lead_valido",
+                        "intentos", "motivo_cierre"]]
+                    .sort_values(["fuente", "lead_status"]),
+                    use_container_width=True, hide_index=True,
+                )
+                st.download_button(
+                    "⬇️ Descargar CSV",
+                    data=df.to_csv(index=False, encoding="utf-8-sig"),
+                    file_name=f"{ACCOUNT_NAME.lower()}_rst_{fi}_{ff}.csv",
+                    mime="text/csv",
+                )
+
+        # ══════════════════════════════════════════════════════════════════════════
+        # EMAIL MARKETING
+        # ══════════════════════════════════════════════════════════════════════════
+        st.markdown("<hr style='margin:44px 0 32px'>", unsafe_allow_html=True)
+        st.markdown(f"""
+        <div style="background:linear-gradient(135deg,{BARCA['blue_ink']} 0%,
+                    {BARCA['blue_deep']} 100%);
+                    padding:20px 28px;border-radius:10px;margin-bottom:24px;
+                    border-bottom:4px solid {BARCA['gold']}">
+            <h2 style="color:{BARCA['white']};margin:0;font-size:20px;font-weight:800">
+                📧 Email Marketing
+            </h2>
+            <p style="color:{BARCA['line']};margin:4px 0 0;font-size:13px">
+                Análisis completo de campañas · HubSpot · período seleccionado
+            </p>
+        </div>""", unsafe_allow_html=True)
+
+        # ── Pre-compute aggregate stats (shared across tabs) ──────────────────────
+        if not df_emails.empty:
+            total_campanas   = len(df_emails)
+            total_enviados   = int(df_emails["enviados"].sum())
+            total_entregados = int(df_emails["entregados"].sum())
+            total_aperturas  = int(df_emails["aperturas"].sum())
+            total_clicks     = int(df_emails["clicks"].sum())
+            total_bajas      = int(df_emails["bajas"].sum())
+            total_rebotes    = int(df_emails["rebotes"].sum())
+            total_spam       = int(df_emails["spam"].sum()) if "spam" in df_emails.columns else 0
+            tasa_ap_global   = round(total_aperturas / total_enviados * 100, 1) if total_enviados else 0.0
+            ctr_global       = round(total_clicks    / total_enviados * 100, 1) if total_enviados else 0.0
+            ctor_global      = round(total_clicks    / total_aperturas * 100, 1) if total_aperturas else 0.0
+            tasa_baja_global = round(total_bajas     / total_enviados * 100, 2) if total_enviados else 0.0
+            bounce_rate      = round(total_rebotes   / total_enviados * 100, 2) if total_enviados else 0.0
         else:
-            sq1, sq2, sq3, sq4 = st.columns(4)
-            kpi_card(sq1, "Secuencias únicas",          len(df_seq),                BARCA["blue"])
-            kpi_card(sq2, "Total emails en secuencias", int(df_seq["emails"].sum()), BARCA["gold"])
-            kpi_card(sq3, "Total tareas en secuencias", int(df_seq["tareas"].sum()), BARCA["blue_deep"])
-            kpi_card(sq4, "Promedio pasos/secuencia",
-                     round(df_seq["total_pasos"].mean(), 1) if not df_seq.empty else 0,
-                     "#2e7d32")
-            st.markdown("<br>", unsafe_allow_html=True)
+            total_campanas = total_enviados = total_entregados = 0
+            total_aperturas = total_clicks = total_bajas = total_rebotes = total_spam = 0
+            tasa_ap_global = ctr_global = ctor_global = tasa_baja_global = bounce_rate = 0.0
 
-            seq_busq = st.text_input("🔍 Buscar secuencia", key="seq_busq")
-            df_seq_show = df_seq.copy()
-            if seq_busq:
-                df_seq_show = df_seq_show[
-                    df_seq_show["nombre"].str.contains(seq_busq, case=False, na=False)
+        em_tab1, em_tab2, em_tab3, em_tab4, em_tab5 = st.tabs([
+            "📊 Campañas enviadas",
+            "📈 Rendimiento",
+            "💡 Consejos",
+            "📅 Programados",
+            "📋 Listas y Segmentos",
+        ])
+
+        # ── Tab 1: Campañas enviadas ───────────────────────────────────────────────
+        with em_tab1:
+            if df_emails.empty:
+                st.info("No hay emails enviados en el período seleccionado.")
+            else:
+                ek1, ek2, ek3, ek4, ek5, ek6 = st.columns(6)
+                kpi_card(ek1, "Campañas enviadas",    total_campanas,         BARCA["blue"])
+                kpi_card(ek2, "Contactos impactados", f"{total_enviados:,}",  BARCA["blue_deep"])
+                kpi_card(ek3, "Tasa apertura",        f"{tasa_ap_global}%",   BARCA["gold"])
+                kpi_card(ek4, "CTR",                  f"{ctr_global}%",       BARCA["garnet"])
+                kpi_card(ek5, "CTOR",                 f"{ctor_global}%",      BARCA["blue"])
+                kpi_card(ek6, "Tasa de baja",         f"{tasa_baja_global}%", BARCA["garnet_deep"])
+                st.markdown("<br>", unsafe_allow_html=True)
+
+                ec1, ec2 = st.columns(2)
+                with ec1:
+                    if df_emails["mes"].nunique() > 1:
+                        monthly = (df_emails.groupby("mes")
+                                   .agg(Enviados=("enviados", "sum"),
+                                        Aperturas=("aperturas", "sum"),
+                                        Clicks=("clicks", "sum"))
+                                   .reset_index().rename(columns={"mes": "Mes"}))
+                        fig = px.line(monthly, x="Mes", y=["Enviados", "Aperturas", "Clicks"],
+                                      title="Evolución mensual", markers=True,
+                                      color_discrete_sequence=[BARCA["blue"], BARCA["gold"],
+                                                                BARCA["garnet"]])
+                        barca_layout(fig, 340)
+                        st.plotly_chart(fig, use_container_width=True)
+                    else:
+                        top_v = df_emails.nlargest(10, "enviados")
+                        fig = px.bar(top_v.sort_values("enviados"), x="enviados", y="nombre",
+                                     orientation="h", text_auto=True,
+                                     title="Emails por volumen enviado",
+                                     color_discrete_sequence=[BARCA["blue"]])
+                        fig.update_layout(yaxis=dict(categoryorder="total ascending"))
+                        barca_layout(fig, 340)
+                        st.plotly_chart(fig, use_container_width=True)
+
+                with ec2:
+                    top_open = df_emails[df_emails["enviados"] >= 10].nlargest(10, "tasa_apertura")
+                    if not top_open.empty:
+                        fig = px.bar(top_open.sort_values("tasa_apertura"),
+                                     x="tasa_apertura", y="nombre", orientation="h",
+                                     text_auto=True, title="Top 10 por tasa de apertura (%)",
+                                     color="tasa_apertura",
+                                     color_continuous_scale=[BARCA["line2"], BARCA["gold"]])
+                        fig.update_layout(coloraxis_showscale=False,
+                                          yaxis=dict(categoryorder="total ascending"))
+                        barca_layout(fig, 340)
+                        st.plotly_chart(fig, use_container_width=True)
+
+                ec3, ec4 = st.columns([2, 1])
+                with ec3:
+                    fig = px.scatter(df_emails[df_emails["enviados"] > 0],
+                                     x="tasa_apertura", y="ctr", hover_name="nombre",
+                                     size="enviados", size_max=40,
+                                     title="Apertura vs CTR (tamaño = enviados)",
+                                     labels={"tasa_apertura": "Apertura (%)", "ctr": "CTR (%)"},
+                                     color_discrete_sequence=[BARCA["blue"]])
+                    barca_layout(fig, 340)
+                    st.plotly_chart(fig, use_container_width=True)
+                with ec4:
+                    st.markdown("#### Totales del período")
+                    st.dataframe(pd.DataFrame([
+                        {"Métrica": "Campañas",      "Valor": f"{total_campanas}"},
+                        {"Métrica": "Enviados",      "Valor": f"{total_enviados:,}"},
+                        {"Métrica": "Entregados",    "Valor": f"{total_entregados:,}"},
+                        {"Métrica": "Aperturas",     "Valor": f"{total_aperturas:,}"},
+                        {"Métrica": "Tasa apertura", "Valor": f"{tasa_ap_global}%"},
+                        {"Métrica": "Clicks",        "Valor": f"{total_clicks:,}"},
+                        {"Métrica": "CTR",           "Valor": f"{ctr_global}%"},
+                        {"Métrica": "CTOR",          "Valor": f"{ctor_global}%"},
+                        {"Métrica": "Rebotes",       "Valor": f"{total_rebotes:,}"},
+                        {"Métrica": "Bajas",         "Valor": f"{total_bajas:,}"},
+                        {"Métrica": "Tasa baja",     "Valor": f"{tasa_baja_global}%"},
+                        {"Métrica": "Spam reports",  "Valor": f"{total_spam:,}"},
+                    ]), use_container_width=True, hide_index=True, height=480)
+
+                # Full table
+                with st.expander("📋 Tabla completa de emails enviados"):
+                    rename_em = {
+                        "nombre": "Nombre", "fecha": "Fecha", "asunto": "Asunto",
+                        "listas": "Listas", "enviados": "Enviados",
+                        "entregados": "Entregados", "aperturas": "Aperturas únicas",
+                        "tasa_apertura": "Apertura %", "clicks": "Clicks únicos",
+                        "ctr": "CTR %", "ctor": "CTOR %",
+                        "rebotes": "Rebotes", "bajas": "Bajas", "spam": "Spam",
+                    }
+                    cols_show = [c for c in rename_em if c in df_emails.columns]
+                    tabla_em = df_emails[cols_show].rename(columns=rename_em)
+                    st.dataframe(
+                        tabla_em.style
+                        .background_gradient(subset=["Apertura %", "CTR %"],
+                                             cmap="Blues", vmin=0, vmax=50)
+                        .format({"Apertura %": "{:.1f}%", "CTR %": "{:.1f}%",
+                                 "CTOR %": "{:.1f}%"}),
+                        use_container_width=True, hide_index=True,
+                    )
+                    fi_label = str(fi) if fi != "todos" else "todos"
+                    ff_label = str(ff) if ff != "todos" else "todos"
+                    st.download_button("⬇️ Descargar CSV",
+                        data=tabla_em.to_csv(index=False, encoding="utf-8-sig"),
+                        file_name=f"email_marketing_{fi_label}_{ff_label}.csv",
+                        mime="text/csv", key="dl_emails")
+
+                # URL click breakdown (lazy per-campaign)
+                with st.expander("🔗 URLs más clickeadas por campaña"):
+                    nombres_cid = (df_emails[df_emails["campaign_id"] != ""][["nombre", "campaign_id"]]
+                                   .drop_duplicates("nombre") if "campaign_id" in df_emails.columns
+                                   else pd.DataFrame())
+                    if nombres_cid.empty:
+                        st.info("No hay datos de campañas disponibles.")
+                    else:
+                        sel_email = st.selectbox("Selecciona un email:",
+                                                 nombres_cid["nombre"].tolist(),
+                                                 key="sel_url_email")
+                        row_cid = nombres_cid[nombres_cid["nombre"] == sel_email]
+                        if not row_cid.empty:
+                            cid_sel = row_cid["campaign_id"].values[0]
+                            with st.spinner("Cargando URLs clickeadas..."):
+                                urls = fetch_click_urls(str(cid_sel))
+                            if urls:
+                                df_urls = pd.DataFrame(urls, columns=["URL", "Clicks"])
+                                st.dataframe(df_urls, use_container_width=True, hide_index=True)
+                            else:
+                                st.info("No se encontraron clicks registrados para este email.")
+
+        # ── Tab 2: Rendimiento ─────────────────────────────────────────────────────
+        with em_tab2:
+            if df_emails.empty:
+                st.info("No hay datos suficientes para el análisis.")
+            else:
+                # Benchmarks
+                st.markdown("### 📊 Métricas vs Benchmarks del sector")
+                st.caption("Referencias para email marketing de formación/educación · fuente: Mailchimp / HubSpot Industry Benchmarks")
+                bench_rows = []
+                for metrica, actual, bench, unit, es_negativo in [
+                    ("Tasa apertura",  tasa_ap_global,  25.0, "%", False),
+                    ("CTR",            ctr_global,       2.6, "%", False),
+                    ("CTOR",           ctor_global,     10.0, "%", False),
+                    ("Tasa rebote",    bounce_rate,      0.63, "%", True),
+                    ("Tasa de baja",   tasa_baja_global, 0.25, "%", True),
+                ]:
+                    diff = round(actual - bench, 2)
+                    if es_negativo:
+                        ok = actual <= bench
+                        estado = "✅ OK" if ok else "⚠️ Alto"
+                    else:
+                        ok = actual >= bench
+                        estado = "✅ OK" if ok else "⚠️ Bajo"
+                    bench_rows.append({
+                        "Métrica": metrica,
+                        "Actual": f"{actual}{unit}",
+                        "Benchmark": f"{bench}{unit}",
+                        "Diferencia": f"{'+' if diff >= 0 else ''}{diff}{unit}",
+                        "Estado": estado,
+                    })
+                st.dataframe(pd.DataFrame(bench_rows), use_container_width=True, hide_index=True)
+                st.markdown("<br>", unsafe_allow_html=True)
+
+                # Top 5 / Bottom 5
+                st.markdown("### 🏆 Mejores y peores campañas")
+                valid_df = df_emails[df_emails["enviados"] >= 20].copy()
+                if len(valid_df) >= 4:
+                    rb1, rb2 = st.columns(2)
+                    with rb1:
+                        top5 = valid_df.nlargest(5, "tasa_apertura")
+                        fig = px.bar(top5.sort_values("tasa_apertura"),
+                                     x="tasa_apertura", y="nombre", orientation="h",
+                                     text_auto=True, title="🏆 Top 5 — Mayor apertura",
+                                     color_discrete_sequence=[BARCA["gold"]])
+                        fig.update_layout(yaxis=dict(categoryorder="total ascending"))
+                        barca_layout(fig, 300)
+                        st.plotly_chart(fig, use_container_width=True)
+                    with rb2:
+                        bot5 = valid_df.nsmallest(5, "tasa_apertura")
+                        fig = px.bar(bot5.sort_values("tasa_apertura", ascending=False),
+                                     x="tasa_apertura", y="nombre", orientation="h",
+                                     text_auto=True, title="📉 Bottom 5 — Menor apertura",
+                                     color_discrete_sequence=[BARCA["garnet"]])
+                        fig.update_layout(yaxis=dict(categoryorder="total ascending"))
+                        barca_layout(fig, 300)
+                        st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("Se necesitan al menos 4 campañas con >20 enviados para este análisis.")
+
+                # Day of week
+                if len(df_emails) >= 5:
+                    st.markdown("### 📅 Rendimiento por día de la semana")
+                    DIAS_ES = {0: "Lunes", 1: "Martes", 2: "Miércoles", 3: "Jueves",
+                               4: "Viernes", 5: "Sábado", 6: "Domingo"}
+                    df_dow = df_emails[df_emails["fecha"] != ""].copy()
+                    df_dow["dia_num"] = pd.to_datetime(df_dow["fecha"], errors="coerce").dt.dayofweek
+                    df_dow = df_dow.dropna(subset=["dia_num"])
+                    df_dow["dia_num"] = df_dow["dia_num"].astype(int)
+                    df_dow["dia"] = df_dow["dia_num"].map(DIAS_ES)
+                    dow_agg = (df_dow.groupby("dia_num")
+                               .agg(campanas=("nombre", "count"),
+                                    avg_apertura=("tasa_apertura", "mean"),
+                                    avg_ctr=("ctr", "mean"))
+                               .reset_index())
+                    dow_agg["dia"] = dow_agg["dia_num"].map(DIAS_ES)
+                    dow_agg["avg_apertura"] = dow_agg["avg_apertura"].round(1)
+                    dow_agg = dow_agg.sort_values("dia_num")
+                    rd1, rd2 = st.columns(2)
+                    with rd1:
+                        fig = px.bar(dow_agg, x="dia", y="campanas",
+                                     title="Campañas enviadas por día de la semana",
+                                     color_discrete_sequence=[BARCA["blue"]])
+                        barca_layout(fig, 300)
+                        st.plotly_chart(fig, use_container_width=True)
+                    with rd2:
+                        fig = px.bar(dow_agg, x="dia", y="avg_apertura",
+                                     title="Apertura promedio por día de la semana (%)",
+                                     color="avg_apertura",
+                                     color_continuous_scale=[BARCA["line2"], BARCA["gold"]])
+                        fig.update_layout(coloraxis_showscale=False)
+                        barca_layout(fig, 300)
+                        st.plotly_chart(fig, use_container_width=True)
+
+                # Subject length
+                st.markdown("### 📝 Longitud del asunto vs tasa de apertura")
+                df_subj = df_emails[(df_emails["asunto"] != "") & (df_emails["enviados"] >= 10)].copy()
+                if len(df_subj) >= 5:
+                    df_subj["largo_asunto"] = df_subj["asunto"].str.len()
+                    fig = px.scatter(df_subj, x="largo_asunto", y="tasa_apertura",
+                                     hover_name="nombre", size="enviados", size_max=30,
+                                     title="Nº caracteres del asunto vs Tasa de apertura",
+                                     labels={"largo_asunto": "Caracteres", "tasa_apertura": "Apertura (%)"},
+                                     color_discrete_sequence=[BARCA["blue_deep"]])
+                    barca_layout(fig, 340)
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.info("Se necesitan más campañas para este análisis.")
+
+        # ── Tab 3: Consejos ────────────────────────────────────────────────────────
+        with em_tab3:
+            if df_emails.empty:
+                st.info("No hay datos para generar consejos.")
+            else:
+                st.markdown("### 💡 Diagnóstico del canal — basado en tus datos")
+
+                def _card_consejo(emoji, titulo, texto, color):
+                    st.markdown(f"""
+                    <div style="border-left:4px solid {color};padding:12px 16px;
+                                margin-bottom:12px;background:{BARCA['white']};
+                                border-radius:0 8px 8px 0;
+                                box-shadow:0 1px 3px rgba(0,0,0,.07)">
+                        <div style="font-weight:700;font-size:14px;
+                                    color:{BARCA['blue_ink']};margin-bottom:4px">
+                            {emoji} {titulo}
+                        </div>
+                        <div style="font-size:13px;color:{BARCA['ink60']}">{texto}</div>
+                    </div>""", unsafe_allow_html=True)
+
+                # Open rate
+                if tasa_ap_global >= 30:
+                    _card_consejo("✅", f"Tasa apertura excelente ({tasa_ap_global}%)",
+                        "Muy por encima del benchmark (25%). Continúa con la estrategia actual de asuntos y segmentación.",
+                        BARCA["gold"])
+                elif tasa_ap_global >= 20:
+                    _card_consejo("🟡", f"Tasa apertura aceptable ({tasa_ap_global}%)",
+                        "Cerca del benchmark (25%). Prueba A/B testing en asuntos: preguntas, urgencia, emojis. "
+                        "También optimiza el nombre del remitente para que sea reconocible.",
+                        "#f0a500")
+                else:
+                    _card_consejo("🔴", f"Tasa apertura baja ({tasa_ap_global}%)",
+                        "Por debajo del benchmark (25%). Acciones clave: 1) Mejora los asuntos, 2) Revisa la hora/día de envío, "
+                        "3) Limpia los contactos inactivos de tus listas.",
+                        BARCA["garnet"])
+
+                # CTR
+                if ctr_global >= 3:
+                    _card_consejo("✅", f"CTR sólido ({ctr_global}%)",
+                        "Por encima del benchmark (2.6%). Tu contenido y CTAs funcionan bien.",
+                        BARCA["gold"])
+                elif ctr_global >= 1.5:
+                    _card_consejo("🟡", f"CTR mejorable ({ctr_global}%)",
+                        "Por debajo del benchmark (2.6%). Asegúrate de tener un CTA único, claro y con texto de acción: "
+                        "'Ver programa', 'Reservar plaza', 'Descubrir más'.",
+                        "#f0a500")
+                else:
+                    _card_consejo("🔴", f"CTR bajo ({ctr_global}%)",
+                        "Significativamente bajo (benchmark 2.6%). Revisa: ¿hay un CTA visible above the fold? "
+                        "¿El diseño guía al lector hacia el click? ¿El CTA tiene contraste suficiente?",
+                        BARCA["garnet"])
+
+                # CTOR
+                if ctor_global >= 12:
+                    _card_consejo("✅", f"CTOR excelente ({ctor_global}%)",
+                        "Quien abre el email, hace click. El contenido es relevante y el CTA efectivo.",
+                        BARCA["gold"])
+                elif ctor_global >= 7:
+                    _card_consejo("🟡", f"CTOR correcto ({ctor_global}%)",
+                        "Benchmark ~10%. Hay margen. Prueba a posicionar el CTA más arriba en el email "
+                        "y a reducir el texto previo al mismo.",
+                        "#f0a500")
+                else:
+                    _card_consejo("🔴", f"CTOR bajo ({ctor_global}%)",
+                        "Quienes abren el email no hacen click. El contenido puede no conectar con la expectativa "
+                        "generada por el asunto, o el CTA no es lo suficientemente atractivo.",
+                        BARCA["garnet"])
+
+                # Bounce
+                if bounce_rate > 2:
+                    _card_consejo("🔴", f"Tasa de rebote alta ({bounce_rate}%)",
+                        "Benchmark <0.63%. Urgente: limpia la lista eliminando emails inválidos. "
+                        "Un bounce alto afecta la reputación del dominio enviador.",
+                        BARCA["garnet"])
+                elif bounce_rate > 0.63:
+                    _card_consejo("🟡", f"Tasa de rebote moderada ({bounce_rate}%)",
+                        "Por encima del benchmark. Considera limpiar listas periódicamente con un proceso de validación de emails.",
+                        "#f0a500")
+                else:
+                    _card_consejo("✅", f"Tasa de rebote saludable ({bounce_rate}%)",
+                        "Dentro del rango óptimo (<0.63%). Las listas están en buen estado.",
+                        BARCA["gold"])
+
+                # Unsubscribe
+                if tasa_baja_global > 0.5:
+                    _card_consejo("🔴", f"Tasa de bajas alta ({tasa_baja_global}%)",
+                        "Benchmark <0.25%. Causas frecuentes: frecuencia excesiva, contenido irrelevante o "
+                        "listas captadas sin double opt-in. Revisa el calendario y la segmentación.",
+                        BARCA["garnet"])
+                elif tasa_baja_global > 0.25:
+                    _card_consejo("🟡", f"Tasa de bajas moderada ({tasa_baja_global}%)",
+                        "Ligeramente por encima del benchmark. Considera segmentar mejor el contenido "
+                        "por interés o programa.",
+                        "#f0a500")
+                else:
+                    _card_consejo("✅", f"Tasa de bajas saludable ({tasa_baja_global}%)",
+                        "Dentro del rango óptimo (<0.25%). Los contactos valoran el contenido.",
+                        BARCA["gold"])
+
+                # Frequency
+                meses_activos = max(df_emails["mes"].nunique(), 1)
+                freq = round(total_campanas / meses_activos, 1)
+                if freq < 2:
+                    _card_consejo("🟡", f"Frecuencia de envío baja (~{freq}/mes)",
+                        "Para mantener el engagement se recomienda al menos 2-4 envíos/mes. "
+                        "La presencia constante refuerza el recall de marca.",
+                        "#f0a500")
+                elif freq > 12:
+                    _card_consejo("🟡", f"Alta frecuencia (~{freq}/mes)",
+                        "Más de 3 envíos/semana puede generar fatiga. Monitoriza la tasa de bajas "
+                        "y considera segmentar para no saturar a toda la base.",
+                        "#f0a500")
+                else:
+                    _card_consejo("✅", f"Frecuencia adecuada (~{freq}/mes)",
+                        "Frecuencia saludable para mantener presencia sin saturar.",
+                        BARCA["gold"])
+
+                st.markdown("<br>")
+                st.markdown("### 🚀 Oportunidades de mejora")
+                oportunidades = [
+                    ("🧪", "A/B Testing de asuntos",
+                     "Prueba 2 versiones de asunto en cada envío relevante. HubSpot permite A/B testing nativo "
+                     "en emails de marketing. Aprenderás qué estilo conecta mejor con tu audiencia."),
+                    ("⏰", "Optimización del horario de envío",
+                     "Analiza el día y la hora con mejor apertura en tu historial (ver pestaña Rendimiento). "
+                     "Estandariza los envíos importantes en ese slot."),
+                    ("🎯", "Segmentación avanzada",
+                     "En lugar de enviar a toda la lista, crea segmentos por comportamiento: "
+                     "abrieron los últimos 3 emails, hicieron click, visitaron la web de un programa concreto."),
+                    ("♻️", "Campaña de re-engagement",
+                     "Identifica contactos sin actividad en >90 días. Envía una campaña de reactivación "
+                     "('¿Sigues ahí?'). Elimina los que no reaccionan para mantener la reputación del dominio."),
+                    ("📊", "Lead scoring por email",
+                     "Asigna puntos en HubSpot a los contactos que abren y hacen click sistemáticamente. "
+                     "Prioriza estos leads en el CRM para el equipo de ventas."),
+                    ("🔄", "Automatización post-formulario",
+                     "Crea una secuencia automática tras cada formulario: bienvenida → contenido de valor "
+                     "→ propuesta → seguimiento. Reduce la carga manual del equipo RST."),
                 ]
+                for icon, titulo, texto in oportunidades:
+                    st.markdown(f"""
+                    <div style="padding:12px 16px;margin-bottom:10px;
+                                background:{BARCA['white']};border-radius:8px;
+                                box-shadow:0 1px 3px rgba(0,0,0,.06)">
+                        <div style="font-weight:700;font-size:14px;
+                                    color:{BARCA['blue_deep']};margin-bottom:4px">
+                            {icon} {titulo}
+                        </div>
+                        <div style="font-size:13px;color:{BARCA['ink60']}">{texto}</div>
+                    </div>""", unsafe_allow_html=True)
 
-            st.dataframe(
-                df_seq_show[["nombre", "total_pasos", "emails", "tareas", "n_resp", "creado"]]
-                .rename(columns={
-                    "nombre":      "Nombre de la secuencia",
-                    "total_pasos": "Total pasos",
-                    "emails":      "Emails",
-                    "tareas":      "Tareas",
-                    "n_resp":      "Comerciales asignados",
-                    "creado":      "Creada",
-                }),
-                use_container_width=True,
-                hide_index=True,
-            )
+        # ── Tab 4: Programados ─────────────────────────────────────────────────────
+        with em_tab4:
+            st.markdown("### 📅 Emails Programados")
+            if df_prog.empty:
+                st.info("No hay emails programados actualmente.")
+            else:
+                hoy_str = str(date.today())
+                rename_prog = {
+                    "estado": "Estado", "nombre": "Nombre",
+                    "fecha_programada": "Fecha programada", "asunto": "Asunto",
+                    "remitente": "Remitente", "listas": "Listas",
+                }
+                disp_cols = [c for c in rename_prog if c in df_prog.columns]
 
-            with st.expander("🔍 Ver pasos completos de cada secuencia"):
-                for _, srow in df_seq_show.iterrows():
+                if "fecha_sort" in df_prog.columns:
+                    proximos = df_prog[df_prog["fecha_sort"] >= hoy_str]
+                    pasados  = df_prog[df_prog["fecha_sort"] <  hoy_str]
+                else:
+                    proximos = df_prog
+                    pasados  = pd.DataFrame()
+
+                if not proximos.empty:
+                    st.markdown(f"#### 🔜 Próximos envíos ({len(proximos)})")
+                    st.dataframe(proximos[disp_cols].rename(columns=rename_prog),
+                                 use_container_width=True, hide_index=True)
+                else:
+                    st.info("No hay envíos futuros programados.")
+
+                if not pasados.empty:
+                    st.markdown(f"#### ⚠️ Con fecha pasada — posiblemente pendientes ({len(pasados)})")
+                    st.caption("Estos emails tienen fecha de envío en el pasado pero siguen en estado SCHEDULED.")
+                    st.dataframe(pasados[disp_cols].rename(columns=rename_prog),
+                                 use_container_width=True, hide_index=True)
+
+        # ── Tab 5: Listas y Segmentos ──────────────────────────────────────────────
+        with em_tab5:
+            st.markdown("### 📋 Listas y Segmentos de HubSpot")
+            with st.spinner("Cargando listas..."):
+                df_lists = fetch_all_lists()
+
+            # Add ILS lists found in email campaigns that aren't in v1 lists
+            if not df_emails.empty and "list_ids_raw" in df_emails.columns:
+                known_ids = set(df_lists["list_id"].tolist()) if not df_lists.empty else set()
+                email_ids: set = set()
+                for ids_str in df_emails["list_ids_raw"].dropna():
+                    for lid in str(ids_str).split(","):
+                        lid = lid.strip()
+                        if lid:
+                            email_ids.add(lid)
+                missing_ids = email_ids - known_ids
+                if missing_ids:
+                    with st.spinner(f"Cargando {len(missing_ids)} listas adicionales (ILS)..."):
+                        ils_names = _fetch_list_names(tuple(sorted(missing_ids)))
+                    ils_rows = []
+                    for lid, name in ils_names.items():
+                        ils_rows.append({
+                            "list_id": lid, "nombre": name,
+                            "tipo": "ILS", "size": 0,
+                            "created": "", "updated": "",
+                        })
+                    if ils_rows:
+                        df_ils = pd.DataFrame(ils_rows)
+                        df_lists = pd.concat([df_lists, df_ils], ignore_index=True)
+
+            if df_lists.empty:
+                st.info("No se pudieron obtener las listas.")
+            else:
+                # Cross-reference lists with email sends using list names
+                def _avg(lst):
+                    return round(sum(lst) / len(lst), 1) if lst else 0.0
+
+                if not df_emails.empty:
+                    list_stats: dict = {}
+                    for _, row_e in df_emails.iterrows():
+                        listas_str = str(row_e.get("listas") or "")
+                        if listas_str and listas_str != "—":
+                            for lname in listas_str.split(", "):
+                                lname = lname.strip()
+                                if lname and lname != "—":
+                                    if lname not in list_stats:
+                                        list_stats[lname] = {"n": 0, "ap": [], "ctr": []}
+                                    list_stats[lname]["n"] += 1
+                                    list_stats[lname]["ap"].append(row_e["tasa_apertura"])
+                                    list_stats[lname]["ctr"].append(row_e["ctr"])
+
+                    df_lists["emails_enviados"] = df_lists["nombre"].apply(
+                        lambda n: list_stats.get(n, {}).get("n", 0))
+                    df_lists["avg_apertura"] = df_lists["nombre"].apply(
+                        lambda n: _avg(list_stats.get(n, {}).get("ap", [])))
+                    df_lists["avg_ctr"] = df_lists["nombre"].apply(
+                        lambda n: _avg(list_stats.get(n, {}).get("ctr", [])))
+                else:
+                    df_lists["emails_enviados"] = 0
+                    df_lists["avg_apertura"]    = 0.0
+                    df_lists["avg_ctr"]         = 0.0
+
+                # KPIs
+                kl1, kl2, kl3 = st.columns(3)
+                kpi_card(kl1, "Total listas/segmentos", len(df_lists), BARCA["blue"])
+                kpi_card(kl2, "Total contactos",
+                         f"{int(df_lists['size'].sum()):,}" if "size" in df_lists.columns else "—",
+                         BARCA["blue_deep"])
+                kpi_card(kl3, "Listas con envíos",
+                         int((df_lists["emails_enviados"] > 0).sum()),
+                         BARCA["gold"])
+                st.markdown("<br>", unsafe_allow_html=True)
+
+                # Filter controls
+                fcol1, fcol2, fcol3 = st.columns([3, 1, 1])
+                with fcol1:
+                    busqueda = st.text_input("🔍 Buscar lista por nombre",
+                                             placeholder="Escribe para filtrar...",
+                                             key="busq_lista")
+                with fcol2:
+                    solo_con_envios = st.checkbox("Solo con envíos", key="chk_envios")
+                with fcol3:
+                    tipo_filtro = st.selectbox("Tipo", ["Todos", "DYNAMIC", "STATIC", "ILS"],
+                                               key="tipo_lista")
+
+                # Apply filters
+                df_disp = df_lists.copy()
+                if busqueda:
+                    df_disp = df_disp[df_disp["nombre"].str.contains(busqueda, case=False, na=False)]
+                if solo_con_envios:
+                    df_disp = df_disp[df_disp["emails_enviados"] > 0]
+                if tipo_filtro != "Todos":
+                    df_disp = df_disp[df_disp["tipo"] == tipo_filtro]
+
+                df_disp = df_disp.sort_values("emails_enviados", ascending=False)
+
+                st.caption(f"Mostrando {len(df_disp)} de {len(df_lists)} listas")
+
+                rename_lists = {
+                    "nombre": "Nombre", "tipo": "Tipo", "size": "Contactos",
+                    "emails_enviados": "Emails enviados",
+                    "avg_apertura": "Apertura % prom.",
+                    "avg_ctr": "CTR % prom.",
+                    "created": "Creada", "updated": "Actualizada",
+                }
+                cols_disp = [c for c in rename_lists if c in df_disp.columns]
+                st.dataframe(df_disp[cols_disp].rename(columns=rename_lists),
+                             use_container_width=True, hide_index=True,
+                             height=600)
+
+                # Per-list email detail
+                if not df_emails.empty:
+                    listas_con_envios = (df_lists[df_lists["emails_enviados"] > 0]
+                                         .sort_values("emails_enviados", ascending=False)["nombre"]
+                                         .tolist())
+                    if listas_con_envios:
+                        with st.expander("📧 Ver campañas asociadas a una lista"):
+                            sel_lista = st.selectbox("Selecciona una lista:",
+                                                     listas_con_envios, key="sel_lista_email")
+                            emails_lista = df_emails[
+                                df_emails["listas"].str.contains(sel_lista, na=False, regex=False)
+                            ]
+                            if not emails_lista.empty:
+                                cols_em = [c for c in ["nombre", "fecha", "asunto", "enviados",
+                                                        "tasa_apertura", "ctr", "ctor", "bajas"]
+                                           if c in emails_lista.columns]
+                                ren_em = {"nombre": "Email", "fecha": "Fecha",
+                                          "asunto": "Asunto", "enviados": "Enviados",
+                                          "tasa_apertura": "Apertura %", "ctr": "CTR %",
+                                          "ctor": "CTOR %", "bajas": "Bajas"}
+                                st.dataframe(emails_lista[cols_em].rename(columns=ren_em),
+                                             use_container_width=True, hide_index=True)
+
+        # ── WORKFLOWS & SECUENCIAS ─────────────────────────────────────────────────
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown(
+            f"<div style='border-top:2px solid {BARCA['gold']};margin:24px 0 16px 0'></div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown(
+            f"<h2 style='color:{BARCA['blue_ink']};font-size:22px;font-weight:700;margin-bottom:4px'>"
+            "⚡ Workflows &amp; Secuencias</h2>"
+            f"<p style='color:{BARCA['ink60']};font-size:13px;margin-top:0'>"
+            "Automatizaciones activas en HubSpot – workflows de marketing y secuencias de ventas</p>",
+            unsafe_allow_html=True,
+        )
+
+        wf_tab1, wf_tab2 = st.tabs(["⚡ Workflows activos", "📨 Secuencias de ventas"])
+
+        with wf_tab1:
+            with st.spinner("Cargando workflows... (primera vez puede tardar ~10 s)"):
+                df_wf = fetch_workflows()
+
+            if df_wf.empty:
+                st.warning("No se pudieron obtener los workflows.")
+            else:
+                wf_total    = len(df_wf)
+                wf_active   = int(df_wf["activo"].sum())
+                wf_disabled = wf_total - wf_active
+                wf_email    = int((df_wf["n_emails"] > 0).sum())
+
+                wk1, wk2, wk3, wk4 = st.columns(4)
+                kpi_card(wk1, "Total workflows",   wf_total,    BARCA["blue"])
+                kpi_card(wk2, "Workflows activos", wf_active,   BARCA["gold"])
+                kpi_card(wk3, "Desactivados",      wf_disabled, BARCA["blue_deep"])
+                kpi_card(wk4, "Disparan email",    wf_email,    "#2e7d32")
+                st.markdown("<br>", unsafe_allow_html=True)
+
+                wfc1, wfc2 = st.columns([2, 3])
+                with wfc1:
+                    wf_estado = st.radio("Mostrar:", ["Activos", "Todos", "Desactivados"],
+                                         horizontal=True, key="wf_estado")
+                with wfc2:
+                    wf_busq = st.text_input("🔍 Buscar por nombre o email", key="wf_busq")
+
+                df_wf_show = df_wf.copy()
+                if wf_estado == "Activos":
+                    df_wf_show = df_wf_show[df_wf_show["activo"]]
+                elif wf_estado == "Desactivados":
+                    df_wf_show = df_wf_show[~df_wf_show["activo"]]
+                if wf_busq:
+                    wf_mask = (
+                        df_wf_show["nombre"].str.contains(wf_busq, case=False, na=False) |
+                        df_wf_show["emails"].str.contains(wf_busq, case=False, na=False)
+                    )
+                    df_wf_show = df_wf_show[wf_mask]
+
+                # ---- Main table (includes avg metrics for workflows with emails) ----
+                def _fmt_pct(v):
+                    return f"{v}%" if v is not None else "—"
+
+                table_rows = []
+                for _, wrow in df_wf_show.iterrows():
+                    table_rows.append({
+                        "Nombre del Workflow":  wrow["nombre"],
+                        "Activo":               wrow["activo"],
+                        "Tipo de acción":       wrow["acciones"],
+                        "Email(s) que dispara": wrow["emails"],
+                        "Enviados (total)":     int(wrow["enviados_total"]) if wrow["n_emails"] > 0 else "—",
+                        "Apertura %":           _fmt_pct(wrow["avg_apertura"]) if wrow["n_emails"] > 0 else "—",
+                        "CTR %":                _fmt_pct(wrow["avg_ctr"])      if wrow["n_emails"] > 0 else "—",
+                        "CTOR %":               _fmt_pct(wrow["avg_ctor"])     if wrow["n_emails"] > 0 else "—",
+                        "Actualizado":          wrow["actualizado"],
+                    })
+                st.dataframe(pd.DataFrame(table_rows), use_container_width=True, hide_index=True)
+
+                # ---- Drilldown: per-email metrics ----
+                df_wf_email = df_wf_show[df_wf_show["n_emails"] > 0]
+                if not df_wf_email.empty:
+                    with st.expander(
+                        f"📧 Métricas detalladas — {len(df_wf_email)} workflow(s) con email"
+                    ):
+                        import json as _json_disp
+                        for _, wrow in df_wf_email.sort_values("nombre").iterrows():
+                            estado_icon = "✅ Activo" if wrow["activo"] else "⏸ Desactivado"
+                            st.markdown(
+                                f"**{wrow['nombre']}** &nbsp;·&nbsp; {estado_icon}",
+                                unsafe_allow_html=True,
+                            )
+                            try:
+                                email_detail = _json_disp.loads(wrow["email_detail"] or "[]")
+                            except Exception:
+                                email_detail = []
+                            if email_detail:
+                                detail_rows = []
+                                for em in email_detail:
+                                    ap  = em.get("tasa_apertura")
+                                    ctr = em.get("ctr")
+                                    ctor = em.get("ctor")
+                                    reb  = em.get("tasa_rebote")
+                                    detail_rows.append({
+                                        "Email":       em.get("nombre", "—"),
+                                        "Enviados":    int(em.get("sent", 0)),
+                                        "Apertura %":  f"{ap}%"   if ap  is not None else "—",
+                                        "CTR %":       f"{ctr}%"  if ctr is not None else "—",
+                                        "CTOR %":      f"{ctor}%" if ctor is not None else "—",
+                                        "Rebote %":    f"{reb}%"  if reb is not None else "—",
+                                        "Bajas":       int(em.get("unsubs", 0)),
+                                    })
+                                st.dataframe(
+                                    pd.DataFrame(detail_rows),
+                                    use_container_width=True,
+                                    hide_index=True,
+                                )
+                            st.markdown(
+                                f"<small style='color:{BARCA['ink40']}'>Actualizado: {wrow['actualizado']}</small>",
+                                unsafe_allow_html=True,
+                            )
+                            st.markdown("---")
+
+                # Breakdown chart: workflows by action type
+                action_counts: dict = {}
+                for row_ac in df_wf_show["acciones"]:
+                    for ac in str(row_ac).split(", "):
+                        ac = ac.strip()
+                        if ac and ac != "—":
+                            action_counts[ac] = action_counts.get(ac, 0) + 1
+                if action_counts:
+                    import plotly.graph_objects as go
+                    st.markdown("<br>", unsafe_allow_html=True)
                     st.markdown(
-                        f"**{srow['nombre']}** &nbsp;·&nbsp; "
-                        f"{srow['total_pasos']} pasos &nbsp;·&nbsp; "
-                        f"{srow['emails']} emails &nbsp;·&nbsp; "
-                        f"{srow['tareas']} tareas",
+                        f"<p style='font-weight:600;color:{BARCA['blue_ink']};font-size:14px'>"
+                        "Distribución por tipo de acción</p>",
                         unsafe_allow_html=True,
                     )
-                    pasos_str = str(srow["pasos"])
-                    if pasos_str and pasos_str != "—":
-                        for p in pasos_str.split(" → "):
-                            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;→ {p.strip()}")
-                    owners_str = str(srow["responsables"])
-                    if owners_str:
-                        st.markdown(
-                            f"<small style='color:{BARCA['ink40']}'>Comerciales: {owners_str}</small>",
-                            unsafe_allow_html=True,
-                        )
-                    st.markdown("---")
-
-    # ── Análisis por Programa ───────────────────────────────────────────────────
-    st.markdown(
-        f"<h2 style='color:{BARCA['garnet']};margin-top:2rem'>🎓 Análisis por Programa</h2>",
-        unsafe_allow_html=True,
-    )
-
-    df_prog = df if not df.empty else pd.DataFrame(columns=df.columns)
-    df_prog_sin = df_prog[df_prog["programa"] != "Sin programa"]
-
-    # ── Filtro local de modalidad ──────────────────────────────────────────────
-    _modal_opts = ["Todas las modalidades", "Presencial", "Online", "Sin modalidad"]
-    _modal_sel  = st.radio(
-        "Modalidad",
-        _modal_opts,
-        index=0,
-        horizontal=True,
-        key="prog_modal_filter",
-    )
-    if _modal_sel != "Todas las modalidades":
-        df_prog     = df_prog[df_prog["modalidad"] == _modal_sel]
-        df_prog_sin = df_prog_sin[df_prog_sin["modalidad"] == _modal_sel]
-
-    prog_tab1, prog_tab2, prog_tab3, prog_tab4 = st.tabs([
-        "📊 Leads por Programa",
-        "🔀 Programa × Fuente",
-        "✅ Calidad por Programa",
-        "🌍 Mercado",
-    ])
-
-    with prog_tab1:
-        if df_prog_sin.empty:
-            st.info("No hay contactos con programa asignado en el período seleccionado.")
-        else:
-            # KPIs
-            n_prog_total = len(df_prog_sin)
-            n_programas  = df_prog_sin["programa"].nunique()
-            top_prog     = df_prog_sin["programa"].value_counts().idxmax()
-            top_prog_n   = df_prog_sin["programa"].value_counts().max()
-
-            kc1, kc2, kc3 = st.columns(3)
-            kc1.metric("Leads con programa", f"{n_prog_total:,}")
-            kc2.metric("Programas distintos", f"{n_programas}")
-            kc3.metric("Programa más solicitado", top_prog, f"{top_prog_n} leads")
-
-            st.markdown("---")
-
-            # Bar chart — top 25 programs
-            prog_counts = (df_prog_sin["programa"]
-                           .value_counts()
-                           .reset_index()
-                           .rename(columns={"index": "Programa", "programa": "Leads"}))
-            prog_counts.columns = ["Programa", "Leads"]
-            top25 = prog_counts.head(25)
-            fig_prog = px.bar(
-                top25, x="Leads", y="Programa", orientation="h",
-                title=f"Top {len(top25)} programas por número de leads",
-                color="Leads",
-                color_continuous_scale=[[0, BARCA["yellow"]], [1, BARCA["garnet"]]],
-                text="Leads",
-            )
-            fig_prog.update_layout(
-                yaxis={"categoryorder": "total ascending"},
-                showlegend=False,
-                coloraxis_showscale=False,
-                height=max(400, len(top25) * 28),
-                margin={"l": 0, "r": 20, "t": 40, "b": 20},
-            )
-            fig_prog.update_traces(textposition="outside")
-            st.plotly_chart(fig_prog, use_container_width=True)
-
-            with st.expander("📋 Tabla completa de leads por programa"):
-                prog_full = prog_counts.copy()
-                prog_full["% del total"] = (prog_full["Leads"] / prog_full["Leads"].sum() * 100).round(1)
-                # Añadir columnas por modalidad
-                for _mod in ["Presencial", "Online", "Sin modalidad"]:
-                    prog_full[_mod] = (
-                        df_prog_sin[df_prog_sin["modalidad"] == _mod]
-                        .groupby("programa").size()
-                        .reindex(prog_full["Programa"]).fillna(0).astype(int).values
+                    ac_df = pd.DataFrame(
+                        sorted(action_counts.items(), key=lambda x: x[1], reverse=True),
+                        columns=["Tipo", "Workflows"],
                     )
+                    fig_ac = go.Figure(go.Bar(
+                        x=ac_df["Tipo"],
+                        y=ac_df["Workflows"],
+                        marker_color=BARCA["blue"],
+                        text=ac_df["Workflows"],
+                        textposition="outside",
+                    ))
+                    fig_ac = barca_layout(fig_ac, height=300)
+                    fig_ac.update_layout(xaxis_title="", yaxis_title="Nº workflows")
+                    st.plotly_chart(fig_ac, use_container_width=True)
+
+        with wf_tab2:
+            with st.spinner("Cargando secuencias... (primera vez puede tardar ~15 s)"):
+                df_seq = fetch_sequences()
+
+            if df_seq.empty:
+                st.info("No se encontraron secuencias de ventas.")
+            else:
+                sq1, sq2, sq3, sq4 = st.columns(4)
+                kpi_card(sq1, "Secuencias únicas",          len(df_seq),                BARCA["blue"])
+                kpi_card(sq2, "Total emails en secuencias", int(df_seq["emails"].sum()), BARCA["gold"])
+                kpi_card(sq3, "Total tareas en secuencias", int(df_seq["tareas"].sum()), BARCA["blue_deep"])
+                kpi_card(sq4, "Promedio pasos/secuencia",
+                         round(df_seq["total_pasos"].mean(), 1) if not df_seq.empty else 0,
+                         "#2e7d32")
+                st.markdown("<br>", unsafe_allow_html=True)
+
+                seq_busq = st.text_input("🔍 Buscar secuencia", key="seq_busq")
+                df_seq_show = df_seq.copy()
+                if seq_busq:
+                    df_seq_show = df_seq_show[
+                        df_seq_show["nombre"].str.contains(seq_busq, case=False, na=False)
+                    ]
+
                 st.dataframe(
-                    prog_full.style
-                        .background_gradient(subset=["Leads"], cmap="Reds")
-                        .format({"% del total": "{:.1f}%"}),
+                    df_seq_show[["nombre", "total_pasos", "emails", "tareas", "n_resp", "creado"]]
+                    .rename(columns={
+                        "nombre":      "Nombre de la secuencia",
+                        "total_pasos": "Total pasos",
+                        "emails":      "Emails",
+                        "tareas":      "Tareas",
+                        "n_resp":      "Comerciales asignados",
+                        "creado":      "Creada",
+                    }),
                     use_container_width=True,
                     hide_index=True,
                 )
 
-            # Gráfico: programa × modalidad
-            if _modal_sel == "Todas las modalidades":
-                pm_grp2 = (df_prog_sin[df_prog_sin["programa"].isin(top25["Programa"])]
-                            .groupby(["programa", "modalidad"])
-                            .size().reset_index(name="Leads"))
-                fig_pm2 = px.bar(
-                    pm_grp2, x="Leads", y="programa", color="modalidad", orientation="h",
-                    title="Leads por programa y modalidad",
-                    barmode="stack",
-                    color_discrete_map={
-                        "Presencial": BARCA["garnet"],
-                        "Online":     BARCA["blue"],
-                        "Sin modalidad": BARCA["ink20"],
-                    },
+                with st.expander("🔍 Ver pasos completos de cada secuencia"):
+                    for _, srow in df_seq_show.iterrows():
+                        st.markdown(
+                            f"**{srow['nombre']}** &nbsp;·&nbsp; "
+                            f"{srow['total_pasos']} pasos &nbsp;·&nbsp; "
+                            f"{srow['emails']} emails &nbsp;·&nbsp; "
+                            f"{srow['tareas']} tareas",
+                            unsafe_allow_html=True,
+                        )
+                        pasos_str = str(srow["pasos"])
+                        if pasos_str and pasos_str != "—":
+                            for p in pasos_str.split(" → "):
+                                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;→ {p.strip()}")
+                        owners_str = str(srow["responsables"])
+                        if owners_str:
+                            st.markdown(
+                                f"<small style='color:{BARCA['ink40']}'>Comerciales: {owners_str}</small>",
+                                unsafe_allow_html=True,
+                            )
+                        st.markdown("---")
+
+        # ── Análisis por Programa ───────────────────────────────────────────────────
+        st.markdown(
+            f"<h2 style='color:{BARCA['garnet']};margin-top:2rem'>🎓 Análisis por Programa</h2>",
+            unsafe_allow_html=True,
+        )
+
+        df_prog = df if not df.empty else pd.DataFrame(columns=df.columns)
+        df_prog_sin = df_prog[df_prog["programa"] != "Sin programa"]
+
+        # ── Filtro local de modalidad ──────────────────────────────────────────────
+        _modal_opts = ["Todas las modalidades", "Presencial", "Online", "Sin modalidad"]
+        _modal_sel  = st.radio(
+            "Modalidad",
+            _modal_opts,
+            index=0,
+            horizontal=True,
+            key="prog_modal_filter",
+        )
+        if _modal_sel != "Todas las modalidades":
+            df_prog     = df_prog[df_prog["modalidad"] == _modal_sel]
+            df_prog_sin = df_prog_sin[df_prog_sin["modalidad"] == _modal_sel]
+
+        prog_tab1, prog_tab2, prog_tab3, prog_tab4 = st.tabs([
+            "📊 Leads por Programa",
+            "🔀 Programa × Fuente",
+            "✅ Calidad por Programa",
+            "🌍 Mercado",
+        ])
+
+        with prog_tab1:
+            if df_prog_sin.empty:
+                st.info("No hay contactos con programa asignado en el período seleccionado.")
+            else:
+                # KPIs
+                n_prog_total = len(df_prog_sin)
+                n_programas  = df_prog_sin["programa"].nunique()
+                top_prog     = df_prog_sin["programa"].value_counts().idxmax()
+                top_prog_n   = df_prog_sin["programa"].value_counts().max()
+
+                kc1, kc2, kc3 = st.columns(3)
+                kc1.metric("Leads con programa", f"{n_prog_total:,}")
+                kc2.metric("Programas distintos", f"{n_programas}")
+                kc3.metric("Programa más solicitado", top_prog, f"{top_prog_n} leads")
+
+                st.markdown("---")
+
+                # Bar chart — top 25 programs
+                prog_counts = (df_prog_sin["programa"]
+                               .value_counts()
+                               .reset_index()
+                               .rename(columns={"index": "Programa", "programa": "Leads"}))
+                prog_counts.columns = ["Programa", "Leads"]
+                top25 = prog_counts.head(25)
+                fig_prog = px.bar(
+                    top25, x="Leads", y="Programa", orientation="h",
+                    title=f"Top {len(top25)} programas por número de leads",
+                    color="Leads",
+                    color_continuous_scale=[[0, BARCA["yellow"]], [1, BARCA["garnet"]]],
                     text="Leads",
                 )
-                fig_pm2.update_layout(
+                fig_prog.update_layout(
                     yaxis={"categoryorder": "total ascending"},
+                    showlegend=False,
+                    coloraxis_showscale=False,
                     height=max(400, len(top25) * 28),
                     margin={"l": 0, "r": 20, "t": 40, "b": 20},
-                    legend={"title": "Modalidad"},
                 )
-                fig_pm2.update_traces(textposition="inside", textfont_size=11)
-                st.plotly_chart(fig_pm2, use_container_width=True)
+                fig_prog.update_traces(textposition="outside")
+                st.plotly_chart(fig_prog, use_container_width=True)
 
-    with prog_tab2:
-        if df_prog_sin.empty:
-            st.info("No hay contactos con programa asignado en el período seleccionado.")
-        else:
-            # Filter: choose top-N programs to avoid visual overload
-            top_n_opts = [10, 15, 20, 30]
-            top_n = st.selectbox("Mostrar top N programas", top_n_opts, index=0, key="prog_topn")
-            top_progs = (df_prog_sin["programa"].value_counts().head(top_n).index.tolist())
-            df_pf = df_prog_sin[df_prog_sin["programa"].isin(top_progs)]
+                with st.expander("📋 Tabla completa de leads por programa"):
+                    prog_full = prog_counts.copy()
+                    prog_full["% del total"] = (prog_full["Leads"] / prog_full["Leads"].sum() * 100).round(1)
+                    # Añadir columnas por modalidad
+                    for _mod in ["Presencial", "Online", "Sin modalidad"]:
+                        prog_full[_mod] = (
+                            df_prog_sin[df_prog_sin["modalidad"] == _mod]
+                            .groupby("programa").size()
+                            .reindex(prog_full["Programa"]).fillna(0).astype(int).values
+                        )
+                    st.dataframe(
+                        prog_full.style
+                            .background_gradient(subset=["Leads"], cmap="Reds")
+                            .format({"% del total": "{:.1f}%"}),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
 
-            # Stacked bar: programa × fuente
-            pf_grp = (df_pf.groupby(["programa", "fuente"])
-                       .size()
-                       .reset_index(name="Leads"))
-            fig_pf = px.bar(
-                pf_grp, x="Leads", y="programa", color="fuente", orientation="h",
-                title=f"Leads por programa y fuente de tráfico (Top {top_n})",
-                barmode="stack",
-                text="Leads",
-            )
-            fig_pf.update_layout(
-                yaxis={"categoryorder": "total ascending"},
-                height=max(450, top_n * 30),
-                margin={"l": 0, "r": 20, "t": 40, "b": 20},
-                legend={"title": "Fuente"},
-            )
-            fig_pf.update_traces(textposition="inside", textfont_size=11)
-            st.plotly_chart(fig_pf, use_container_width=True)
+                # Gráfico: programa × modalidad
+                if _modal_sel == "Todas las modalidades":
+                    pm_grp2 = (df_prog_sin[df_prog_sin["programa"].isin(top25["Programa"])]
+                                .groupby(["programa", "modalidad"])
+                                .size().reset_index(name="Leads"))
+                    fig_pm2 = px.bar(
+                        pm_grp2, x="Leads", y="programa", color="modalidad", orientation="h",
+                        title="Leads por programa y modalidad",
+                        barmode="stack",
+                        color_discrete_map={
+                            "Presencial": BARCA["garnet"],
+                            "Online":     BARCA["blue"],
+                            "Sin modalidad": BARCA["ink20"],
+                        },
+                        text="Leads",
+                    )
+                    fig_pm2.update_layout(
+                        yaxis={"categoryorder": "total ascending"},
+                        height=max(400, len(top25) * 28),
+                        margin={"l": 0, "r": 20, "t": 40, "b": 20},
+                        legend={"title": "Modalidad"},
+                    )
+                    fig_pm2.update_traces(textposition="inside", textfont_size=11)
+                    st.plotly_chart(fig_pm2, use_container_width=True)
 
-            st.markdown("#### Tabla pivote: Programa × Fuente")
-            pivot_pf = (pf_grp.pivot(index="programa", columns="fuente", values="Leads")
-                        .fillna(0).astype(int))
-            pivot_pf["Total"] = pivot_pf.sum(axis=1)
-            # Añadir columnas de modalidad
-            for _mod in ["Presencial", "Online", "Sin modalidad"]:
-                pivot_pf[_mod] = (
-                    df_pf[df_pf["modalidad"] == _mod]
-                    .groupby("programa").size()
-                    .reindex(pivot_pf.index).fillna(0).astype(int)
+        with prog_tab2:
+            if df_prog_sin.empty:
+                st.info("No hay contactos con programa asignado en el período seleccionado.")
+            else:
+                # Filter: choose top-N programs to avoid visual overload
+                top_n_opts = [10, 15, 20, 30]
+                top_n = st.selectbox("Mostrar top N programas", top_n_opts, index=0, key="prog_topn")
+                top_progs = (df_prog_sin["programa"].value_counts().head(top_n).index.tolist())
+                df_pf = df_prog_sin[df_prog_sin["programa"].isin(top_progs)]
+
+                # Stacked bar: programa × fuente
+                pf_grp = (df_pf.groupby(["programa", "fuente"])
+                           .size()
+                           .reset_index(name="Leads"))
+                fig_pf = px.bar(
+                    pf_grp, x="Leads", y="programa", color="fuente", orientation="h",
+                    title=f"Leads por programa y fuente de tráfico (Top {top_n})",
+                    barmode="stack",
+                    text="Leads",
                 )
-            pivot_pf = pivot_pf.sort_values("Total", ascending=False)
-            st.dataframe(
-                pivot_pf.style.background_gradient(subset=["Total"], cmap="Reds"),
-                use_container_width=True,
-            )
+                fig_pf.update_layout(
+                    yaxis={"categoryorder": "total ascending"},
+                    height=max(450, top_n * 30),
+                    margin={"l": 0, "r": 20, "t": 40, "b": 20},
+                    legend={"title": "Fuente"},
+                )
+                fig_pf.update_traces(textposition="inside", textfont_size=11)
+                st.plotly_chart(fig_pf, use_container_width=True)
 
-            # Programa × Modalidad (solo cuando no hay filtro activo)
-            if _modal_sel == "Todas las modalidades":
-                st.markdown("#### Tabla pivote: Programa × Modalidad")
-                pm_pivot = (df_pf.groupby(["programa", "modalidad"])
-                             .size().unstack(fill_value=0))
-                pm_pivot["Total"] = pm_pivot.sum(axis=1)
-                pm_pivot = pm_pivot.sort_values("Total", ascending=False)
+                st.markdown("#### Tabla pivote: Programa × Fuente")
+                pivot_pf = (pf_grp.pivot(index="programa", columns="fuente", values="Leads")
+                            .fillna(0).astype(int))
+                pivot_pf["Total"] = pivot_pf.sum(axis=1)
+                # Añadir columnas de modalidad
+                for _mod in ["Presencial", "Online", "Sin modalidad"]:
+                    pivot_pf[_mod] = (
+                        df_pf[df_pf["modalidad"] == _mod]
+                        .groupby("programa").size()
+                        .reindex(pivot_pf.index).fillna(0).astype(int)
+                    )
+                pivot_pf = pivot_pf.sort_values("Total", ascending=False)
                 st.dataframe(
-                    pm_pivot.style.background_gradient(subset=["Total"], cmap="Reds"),
+                    pivot_pf.style.background_gradient(subset=["Total"], cmap="Reds"),
                     use_container_width=True,
                 )
 
-    with prog_tab3:
-        if df_prog_sin.empty:
-            st.info("No hay contactos con programa asignado en el período seleccionado.")
-        else:
-            CALIDAD_ORDER   = ["Cierre Ganado", "En proceso", "Perdido", "No válido"]
-            CALIDAD_COLORS  = {
-                "Cierre Ganado": BARCA["gold"],
-                "En proceso":    BARCA["blue"],
-                "Perdido":       BARCA["garnet"],
-                "No válido":     BARCA["ink40"],
-            }
+                # Programa × Modalidad (solo cuando no hay filtro activo)
+                if _modal_sel == "Todas las modalidades":
+                    st.markdown("#### Tabla pivote: Programa × Modalidad")
+                    pm_pivot = (df_pf.groupby(["programa", "modalidad"])
+                                 .size().unstack(fill_value=0))
+                    pm_pivot["Total"] = pm_pivot.sum(axis=1)
+                    pm_pivot = pm_pivot.sort_values("Total", ascending=False)
+                    st.dataframe(
+                        pm_pivot.style.background_gradient(subset=["Total"], cmap="Reds"),
+                        use_container_width=True,
+                    )
 
-            # Top-N filter
-            top_n_cal = st.selectbox("Mostrar top N programas", [10, 15, 20, 30],
-                                      index=0, key="cal_topn")
-            top_progs_cal = (df_prog_sin["programa"].value_counts()
-                             .head(top_n_cal).index.tolist())
-            df_cal = df_prog_sin[df_prog_sin["programa"].isin(top_progs_cal)]
-
-            # KPIs de calidad global
-            q_ganado  = (df_prog_sin["calidad"] == "Cierre Ganado").sum()
-            q_proceso = (df_prog_sin["calidad"] == "En proceso").sum()
-            q_perdido = (df_prog_sin["calidad"] == "Perdido").sum()
-            q_novalid = (df_prog_sin["calidad"] == "No válido").sum()
-            q_total   = len(df_prog_sin)
-
-            kq1, kq2, kq3, kq4 = st.columns(4)
-            kq1.metric("Cierre Ganado", f"{q_ganado}",
-                       f"{q_ganado/q_total*100:.1f}%" if q_total else "—")
-            kq2.metric("En proceso",    f"{q_proceso}",
-                       f"{q_proceso/q_total*100:.1f}%" if q_total else "—")
-            kq3.metric("Perdidos",      f"{q_perdido}",
-                       f"{q_perdido/q_total*100:.1f}%" if q_total else "—")
-            kq4.metric("No válido",     f"{q_novalid}",
-                       f"{q_novalid/q_total*100:.1f}%" if q_total else "—")
-
-            st.markdown("---")
-
-            # Stacked bar: calidad por programa
-            cal_grp = (df_cal.groupby(["programa", "calidad"])
-                        .size()
-                        .reset_index(name="Leads"))
-            cal_grp["calidad"] = pd.Categorical(cal_grp["calidad"],
-                                                 categories=CALIDAD_ORDER, ordered=True)
-            fig_cal = px.bar(
-                cal_grp.sort_values("calidad"),
-                x="Leads", y="programa", color="calidad", orientation="h",
-                title=f"Calidad de leads por programa (Top {top_n_cal})",
-                barmode="stack",
-                color_discrete_map=CALIDAD_COLORS,
-                text="Leads",
-                category_orders={"calidad": CALIDAD_ORDER},
-            )
-            fig_cal.update_layout(
-                yaxis={"categoryorder": "total ascending"},
-                height=max(450, top_n_cal * 30),
-                margin={"l": 0, "r": 20, "t": 40, "b": 20},
-                legend={"title": "Calidad"},
-            )
-            fig_cal.update_traces(textposition="inside", textfont_size=11)
-            st.plotly_chart(fig_cal, use_container_width=True)
-
-            # Stacked bar: calidad por fuente dentro de un programa seleccionado
-            st.markdown("#### Calidad por fuente — detalle por programa")
-            prog_sel = st.selectbox(
-                "Selecciona un programa",
-                top_progs_cal,
-                key="cal_prog_sel",
-            )
-            df_prog_det = df_prog_sin[df_prog_sin["programa"] == prog_sel]
-            det_grp = (df_prog_det.groupby(["fuente", "calidad"])
-                        .size()
-                        .reset_index(name="Leads"))
-            if det_grp.empty:
-                st.info("Sin datos para el programa seleccionado.")
+        with prog_tab3:
+            if df_prog_sin.empty:
+                st.info("No hay contactos con programa asignado en el período seleccionado.")
             else:
-                fig_det = px.bar(
-                    det_grp, x="fuente", y="Leads", color="calidad",
-                    title=f"Calidad de leads para «{prog_sel}» por fuente",
+                CALIDAD_ORDER   = ["Cierre Ganado", "En proceso", "Perdido", "No válido"]
+                CALIDAD_COLORS  = {
+                    "Cierre Ganado": BARCA["gold"],
+                    "En proceso":    BARCA["blue"],
+                    "Perdido":       BARCA["garnet"],
+                    "No válido":     BARCA["ink40"],
+                }
+
+                # Top-N filter
+                top_n_cal = st.selectbox("Mostrar top N programas", [10, 15, 20, 30],
+                                          index=0, key="cal_topn")
+                top_progs_cal = (df_prog_sin["programa"].value_counts()
+                                 .head(top_n_cal).index.tolist())
+                df_cal = df_prog_sin[df_prog_sin["programa"].isin(top_progs_cal)]
+
+                # KPIs de calidad global
+                q_ganado  = (df_prog_sin["calidad"] == "Cierre Ganado").sum()
+                q_proceso = (df_prog_sin["calidad"] == "En proceso").sum()
+                q_perdido = (df_prog_sin["calidad"] == "Perdido").sum()
+                q_novalid = (df_prog_sin["calidad"] == "No válido").sum()
+                q_total   = len(df_prog_sin)
+
+                kq1, kq2, kq3, kq4 = st.columns(4)
+                kq1.metric("Cierre Ganado", f"{q_ganado}",
+                           f"{q_ganado/q_total*100:.1f}%" if q_total else "—")
+                kq2.metric("En proceso",    f"{q_proceso}",
+                           f"{q_proceso/q_total*100:.1f}%" if q_total else "—")
+                kq3.metric("Perdidos",      f"{q_perdido}",
+                           f"{q_perdido/q_total*100:.1f}%" if q_total else "—")
+                kq4.metric("No válido",     f"{q_novalid}",
+                           f"{q_novalid/q_total*100:.1f}%" if q_total else "—")
+
+                st.markdown("---")
+
+                # Stacked bar: calidad por programa
+                cal_grp = (df_cal.groupby(["programa", "calidad"])
+                            .size()
+                            .reset_index(name="Leads"))
+                cal_grp["calidad"] = pd.Categorical(cal_grp["calidad"],
+                                                     categories=CALIDAD_ORDER, ordered=True)
+                fig_cal = px.bar(
+                    cal_grp.sort_values("calidad"),
+                    x="Leads", y="programa", color="calidad", orientation="h",
+                    title=f"Calidad de leads por programa (Top {top_n_cal})",
                     barmode="stack",
                     color_discrete_map=CALIDAD_COLORS,
                     text="Leads",
                     category_orders={"calidad": CALIDAD_ORDER},
                 )
-                fig_det.update_layout(
+                fig_cal.update_layout(
+                    yaxis={"categoryorder": "total ascending"},
+                    height=max(450, top_n_cal * 30),
                     margin={"l": 0, "r": 20, "t": 40, "b": 20},
                     legend={"title": "Calidad"},
                 )
-                fig_det.update_traces(textposition="inside")
-                st.plotly_chart(fig_det, use_container_width=True)
+                fig_cal.update_traces(textposition="inside", textfont_size=11)
+                st.plotly_chart(fig_cal, use_container_width=True)
 
-            # Pivot table: programa × calidad
-            with st.expander("📋 Tabla pivote: Programa × Calidad"):
-                pivot_cal = (df_prog_sin.groupby(["programa", "calidad"])
-                             .size()
-                             .unstack(fill_value=0))
-                for col in CALIDAD_ORDER:
-                    if col not in pivot_cal.columns:
-                        pivot_cal[col] = 0
-                pivot_cal = pivot_cal[
-                    [c for c in CALIDAD_ORDER if c in pivot_cal.columns]
-                ]
-                pivot_cal["Total"] = pivot_cal.sum(axis=1)
-                if "Cierre Ganado" in pivot_cal.columns and "Total" in pivot_cal.columns:
-                    pivot_cal["Tasa CG %"] = (
-                        pivot_cal["Cierre Ganado"] / pivot_cal["Total"] * 100
-                    ).round(1)
-                # Añadir columnas de modalidad
-                for _mod in ["Presencial", "Online", "Sin modalidad"]:
-                    pivot_cal[_mod] = (
-                        df_prog_sin[df_prog_sin["modalidad"] == _mod]
-                        .groupby("programa").size()
-                        .reindex(pivot_cal.index).fillna(0).astype(int)
+                # Stacked bar: calidad por fuente dentro de un programa seleccionado
+                st.markdown("#### Calidad por fuente — detalle por programa")
+                prog_sel = st.selectbox(
+                    "Selecciona un programa",
+                    top_progs_cal,
+                    key="cal_prog_sel",
+                )
+                df_prog_det = df_prog_sin[df_prog_sin["programa"] == prog_sel]
+                det_grp = (df_prog_det.groupby(["fuente", "calidad"])
+                            .size()
+                            .reset_index(name="Leads"))
+                if det_grp.empty:
+                    st.info("Sin datos para el programa seleccionado.")
+                else:
+                    fig_det = px.bar(
+                        det_grp, x="fuente", y="Leads", color="calidad",
+                        title=f"Calidad de leads para «{prog_sel}» por fuente",
+                        barmode="stack",
+                        color_discrete_map=CALIDAD_COLORS,
+                        text="Leads",
+                        category_orders={"calidad": CALIDAD_ORDER},
                     )
-                pivot_cal = pivot_cal.sort_values("Total", ascending=False)
-                st.dataframe(
-                    pivot_cal.style
-                        .background_gradient(subset=["Total"], cmap="Reds")
-                        .format({"Tasa CG %": "{:.1f}%"}, na_rep="—"),
-                    use_container_width=True,
+                    fig_det.update_layout(
+                        margin={"l": 0, "r": 20, "t": 40, "b": 20},
+                        legend={"title": "Calidad"},
+                    )
+                    fig_det.update_traces(textposition="inside")
+                    st.plotly_chart(fig_det, use_container_width=True)
+
+                # Pivot table: programa × calidad
+                with st.expander("📋 Tabla pivote: Programa × Calidad"):
+                    pivot_cal = (df_prog_sin.groupby(["programa", "calidad"])
+                                 .size()
+                                 .unstack(fill_value=0))
+                    for col in CALIDAD_ORDER:
+                        if col not in pivot_cal.columns:
+                            pivot_cal[col] = 0
+                    pivot_cal = pivot_cal[
+                        [c for c in CALIDAD_ORDER if c in pivot_cal.columns]
+                    ]
+                    pivot_cal["Total"] = pivot_cal.sum(axis=1)
+                    if "Cierre Ganado" in pivot_cal.columns and "Total" in pivot_cal.columns:
+                        pivot_cal["Tasa CG %"] = (
+                            pivot_cal["Cierre Ganado"] / pivot_cal["Total"] * 100
+                        ).round(1)
+                    # Añadir columnas de modalidad
+                    for _mod in ["Presencial", "Online", "Sin modalidad"]:
+                        pivot_cal[_mod] = (
+                            df_prog_sin[df_prog_sin["modalidad"] == _mod]
+                            .groupby("programa").size()
+                            .reindex(pivot_cal.index).fillna(0).astype(int)
+                        )
+                    pivot_cal = pivot_cal.sort_values("Total", ascending=False)
+                    st.dataframe(
+                        pivot_cal.style
+                            .background_gradient(subset=["Total"], cmap="Reds")
+                            .format({"Tasa CG %": "{:.1f}%"}, na_rep="—"),
+                        use_container_width=True,
+                    )
+
+                st.markdown("---")
+                st.markdown("#### Leads válidos / no válidos por programa")
+
+                VALIDO_COLORS = {
+                    "Válido":        BARCA["blue"],
+                    "No válido":     BARCA["garnet"],
+                    "Sin clasificar": BARCA["ink20"],
+                }
+                VALIDO_ORDER = ["Válido", "No válido", "Sin clasificar"]
+
+                df_val = df_prog_sin.copy()
+                df_val["validez"] = df_val["lead_valido"].apply(
+                    lambda v: "Válido" if v == "Válido"
+                              else ("No válido" if v == "No válido" else "Sin clasificar")
                 )
 
-            st.markdown("---")
-            st.markdown("#### Leads válidos / no válidos por programa")
+                # KPIs validez
+                v_val   = (df_val["validez"] == "Válido").sum()
+                v_noval = (df_val["validez"] == "No válido").sum()
+                v_sin   = (df_val["validez"] == "Sin clasificar").sum()
+                v_total = len(df_val)
+                kv1, kv2, kv3 = st.columns(3)
+                kv1.metric("Válidos",         f"{v_val}",
+                           f"{v_val/v_total*100:.1f}%" if v_total else "—")
+                kv2.metric("No válidos",       f"{v_noval}",
+                           f"{v_noval/v_total*100:.1f}%" if v_total else "—")
+                kv3.metric("Sin clasificar",   f"{v_sin}",
+                           f"{v_sin/v_total*100:.1f}%" if v_total else "—")
 
-            VALIDO_COLORS = {
-                "Válido":        BARCA["blue"],
-                "No válido":     BARCA["garnet"],
-                "Sin clasificar": BARCA["ink20"],
-            }
-            VALIDO_ORDER = ["Válido", "No válido", "Sin clasificar"]
+                top_progs_val = (df_prog_sin["programa"].value_counts()
+                                 .head(top_n_cal).index.tolist())
+                df_val_top = df_val[df_val["programa"].isin(top_progs_val)]
 
-            df_val = df_prog_sin.copy()
-            df_val["validez"] = df_val["lead_valido"].apply(
-                lambda v: "Válido" if v == "Válido"
-                          else ("No válido" if v == "No válido" else "Sin clasificar")
-            )
-
-            # KPIs validez
-            v_val   = (df_val["validez"] == "Válido").sum()
-            v_noval = (df_val["validez"] == "No válido").sum()
-            v_sin   = (df_val["validez"] == "Sin clasificar").sum()
-            v_total = len(df_val)
-            kv1, kv2, kv3 = st.columns(3)
-            kv1.metric("Válidos",         f"{v_val}",
-                       f"{v_val/v_total*100:.1f}%" if v_total else "—")
-            kv2.metric("No válidos",       f"{v_noval}",
-                       f"{v_noval/v_total*100:.1f}%" if v_total else "—")
-            kv3.metric("Sin clasificar",   f"{v_sin}",
-                       f"{v_sin/v_total*100:.1f}%" if v_total else "—")
-
-            top_progs_val = (df_prog_sin["programa"].value_counts()
-                             .head(top_n_cal).index.tolist())
-            df_val_top = df_val[df_val["programa"].isin(top_progs_val)]
-
-            val_grp = (df_val_top.groupby(["programa", "validez"])
-                       .size().reset_index(name="Leads"))
-            val_grp["validez"] = pd.Categorical(val_grp["validez"],
-                                                 categories=VALIDO_ORDER, ordered=True)
-            fig_val = px.bar(
-                val_grp.sort_values("validez"),
-                x="Leads", y="programa", color="validez", orientation="h",
-                title=f"Válidos / No válidos por programa (Top {top_n_cal})",
-                barmode="stack",
-                color_discrete_map=VALIDO_COLORS,
-                text="Leads",
-                category_orders={"validez": VALIDO_ORDER},
-            )
-            fig_val.update_layout(
-                yaxis={"categoryorder": "total ascending"},
-                height=max(420, top_n_cal * 30),
-                margin={"l": 0, "r": 20, "t": 40, "b": 20},
-                legend={"title": "Validez"},
-            )
-            fig_val.update_traces(textposition="inside", textfont_size=11)
-            st.plotly_chart(fig_val, use_container_width=True)
-
-            st.markdown("#### Leads válidos / no válidos por fuente — detalle por programa")
-            prog_sel_val = st.selectbox(
-                "Selecciona un programa",
-                top_progs_val,
-                key="val_prog_sel",
-            )
-            df_val_det = df_val[df_val["programa"] == prog_sel_val]
-            val_det_grp = (df_val_det.groupby(["fuente", "validez"])
+                val_grp = (df_val_top.groupby(["programa", "validez"])
                            .size().reset_index(name="Leads"))
-            if val_det_grp.empty:
-                st.info("Sin datos para el programa seleccionado.")
-            else:
-                fig_val_det = px.bar(
-                    val_det_grp, x="fuente", y="Leads", color="validez",
-                    title=f"Validez de leads para «{prog_sel_val}» por fuente",
+                val_grp["validez"] = pd.Categorical(val_grp["validez"],
+                                                     categories=VALIDO_ORDER, ordered=True)
+                fig_val = px.bar(
+                    val_grp.sort_values("validez"),
+                    x="Leads", y="programa", color="validez", orientation="h",
+                    title=f"Válidos / No válidos por programa (Top {top_n_cal})",
                     barmode="stack",
                     color_discrete_map=VALIDO_COLORS,
                     text="Leads",
                     category_orders={"validez": VALIDO_ORDER},
                 )
-                fig_val_det.update_layout(
+                fig_val.update_layout(
+                    yaxis={"categoryorder": "total ascending"},
+                    height=max(420, top_n_cal * 30),
                     margin={"l": 0, "r": 20, "t": 40, "b": 20},
                     legend={"title": "Validez"},
                 )
-                fig_val_det.update_traces(textposition="inside")
-                st.plotly_chart(fig_val_det, use_container_width=True)
+                fig_val.update_traces(textposition="inside", textfont_size=11)
+                st.plotly_chart(fig_val, use_container_width=True)
 
-            with st.expander("📋 Tabla pivote: Programa × Validez"):
-                pivot_val = (df_val.groupby(["programa", "validez"])
-                             .size().unstack(fill_value=0))
-                for col in VALIDO_ORDER:
-                    if col not in pivot_val.columns:
-                        pivot_val[col] = 0
-                pivot_val = pivot_val[[c for c in VALIDO_ORDER if c in pivot_val.columns]]
-                pivot_val["Total"] = pivot_val.sum(axis=1)
-                if "No válido" in pivot_val.columns:
-                    pivot_val["Tasa No válido %"] = (
-                        pivot_val["No válido"] / pivot_val["Total"] * 100
-                    ).round(1)
-                # Añadir columnas de modalidad
-                for _mod in ["Presencial", "Online", "Sin modalidad"]:
-                    pivot_val[_mod] = (
-                        df_val[df_val["modalidad"] == _mod]
-                        .groupby("programa").size()
-                        .reindex(pivot_val.index).fillna(0).astype(int)
+                st.markdown("#### Leads válidos / no válidos por fuente — detalle por programa")
+                prog_sel_val = st.selectbox(
+                    "Selecciona un programa",
+                    top_progs_val,
+                    key="val_prog_sel",
+                )
+                df_val_det = df_val[df_val["programa"] == prog_sel_val]
+                val_det_grp = (df_val_det.groupby(["fuente", "validez"])
+                               .size().reset_index(name="Leads"))
+                if val_det_grp.empty:
+                    st.info("Sin datos para el programa seleccionado.")
+                else:
+                    fig_val_det = px.bar(
+                        val_det_grp, x="fuente", y="Leads", color="validez",
+                        title=f"Validez de leads para «{prog_sel_val}» por fuente",
+                        barmode="stack",
+                        color_discrete_map=VALIDO_COLORS,
+                        text="Leads",
+                        category_orders={"validez": VALIDO_ORDER},
                     )
-                pivot_val = pivot_val.sort_values("Total", ascending=False)
-                st.dataframe(
-                    pivot_val.style
-                        .background_gradient(subset=["Total"], cmap="Reds")
-                        .format({"Tasa No válido %": "{:.1f}%"}, na_rep="—"),
-                    use_container_width=True,
+                    fig_val_det.update_layout(
+                        margin={"l": 0, "r": 20, "t": 40, "b": 20},
+                        legend={"title": "Validez"},
+                    )
+                    fig_val_det.update_traces(textposition="inside")
+                    st.plotly_chart(fig_val_det, use_container_width=True)
+
+                with st.expander("📋 Tabla pivote: Programa × Validez"):
+                    pivot_val = (df_val.groupby(["programa", "validez"])
+                                 .size().unstack(fill_value=0))
+                    for col in VALIDO_ORDER:
+                        if col not in pivot_val.columns:
+                            pivot_val[col] = 0
+                    pivot_val = pivot_val[[c for c in VALIDO_ORDER if c in pivot_val.columns]]
+                    pivot_val["Total"] = pivot_val.sum(axis=1)
+                    if "No válido" in pivot_val.columns:
+                        pivot_val["Tasa No válido %"] = (
+                            pivot_val["No válido"] / pivot_val["Total"] * 100
+                        ).round(1)
+                    # Añadir columnas de modalidad
+                    for _mod in ["Presencial", "Online", "Sin modalidad"]:
+                        pivot_val[_mod] = (
+                            df_val[df_val["modalidad"] == _mod]
+                            .groupby("programa").size()
+                            .reindex(pivot_val.index).fillna(0).astype(int)
+                        )
+                    pivot_val = pivot_val.sort_values("Total", ascending=False)
+                    st.dataframe(
+                        pivot_val.style
+                            .background_gradient(subset=["Total"], cmap="Reds")
+                            .format({"Tasa No válido %": "{:.1f}%"}, na_rep="—"),
+                        use_container_width=True,
+                    )
+
+        with prog_tab4:
+            MERCADO_COLORS = {
+                "España":    BARCA["garnet"],
+                "Latam":     BARCA["blue"],
+                "Otro":      BARCA["yellow"],
+                "Sin datos": BARCA["ink20"],
+            }
+            MERCADO_ORDER = ["España", "Latam", "Otro", "Sin datos"]
+
+            n_es  = (df["mercado"] == "España").sum()
+            n_lat = (df["mercado"] == "Latam").sum()
+            n_ot  = (df["mercado"] == "Otro").sum()
+            n_sd  = (df["mercado"] == "Sin datos").sum()
+            n_tot = len(df)
+
+            km1, km2, km3, km4 = st.columns(4)
+            km1.metric("España",    f"{n_es:,}",  f"{n_es/n_tot*100:.1f}%" if n_tot else "—")
+            km2.metric("Latam",     f"{n_lat:,}", f"{n_lat/n_tot*100:.1f}%" if n_tot else "—")
+            km3.metric("Otro",      f"{n_ot:,}",  f"{n_ot/n_tot*100:.1f}%" if n_tot else "—")
+            km4.metric("Sin datos", f"{n_sd:,}",  f"{n_sd/n_tot*100:.1f}%" if n_tot else "—")
+
+            if n_sd > 0:
+                pct_sd = n_sd / n_tot * 100 if n_tot else 0
+                st.info(
+                    f"ℹ️ **{n_sd:,} contactos ({pct_sd:.1f}%) no tienen país registrado** en HubSpot "
+                    f"(ningún campo `ip_country`, `country` ni `pais_de_residencia` relleno). "
+                    f"Pueden incluir leads de España y Latam que no se geocodificaron. "
+                    f"España captura: Spain, España, ES, Espanya, Andorra y variantes regionales."
                 )
 
-    with prog_tab4:
-        MERCADO_COLORS = {
-            "España":    BARCA["garnet"],
-            "Latam":     BARCA["blue"],
-            "Otro":      BARCA["yellow"],
-            "Sin datos": BARCA["ink20"],
-        }
-        MERCADO_ORDER = ["España", "Latam", "Otro", "Sin datos"]
+            st.markdown("---")
 
-        n_es  = (df["mercado"] == "España").sum()
-        n_lat = (df["mercado"] == "Latam").sum()
-        n_ot  = (df["mercado"] == "Otro").sum()
-        n_sd  = (df["mercado"] == "Sin datos").sum()
-        n_tot = len(df)
+            col_pie, col_src = st.columns([1, 2])
 
-        km1, km2, km3, km4 = st.columns(4)
-        km1.metric("España",    f"{n_es:,}",  f"{n_es/n_tot*100:.1f}%" if n_tot else "—")
-        km2.metric("Latam",     f"{n_lat:,}", f"{n_lat/n_tot*100:.1f}%" if n_tot else "—")
-        km3.metric("Otro",      f"{n_ot:,}",  f"{n_ot/n_tot*100:.1f}%" if n_tot else "—")
-        km4.metric("Sin datos", f"{n_sd:,}",  f"{n_sd/n_tot*100:.1f}%" if n_tot else "—")
+            with col_pie:
+                merc_dist = (df.groupby("mercado").size()
+                              .reset_index(name="Leads")
+                              .sort_values("Leads", ascending=False))
+                fig_pie = px.pie(
+                    merc_dist, names="mercado", values="Leads",
+                    title="Distribución por mercado",
+                    hole=0.55,
+                    color="mercado",
+                    color_discrete_map=MERCADO_COLORS,
+                )
+                fig_pie.update_traces(textposition="outside", textinfo="percent+label")
+                fig_pie.update_layout(showlegend=False,
+                                       margin={"l": 0, "r": 0, "t": 40, "b": 0})
+                st.plotly_chart(fig_pie, use_container_width=True)
 
-        if n_sd > 0:
-            pct_sd = n_sd / n_tot * 100 if n_tot else 0
-            st.info(
-                f"ℹ️ **{n_sd:,} contactos ({pct_sd:.1f}%) no tienen país registrado** en HubSpot "
-                f"(ningún campo `ip_country`, `country` ni `pais_de_residencia` relleno). "
-                f"Pueden incluir leads de España y Latam que no se geocodificaron. "
-                f"España captura: Spain, España, ES, Espanya, Andorra y variantes regionales."
-            )
+            with col_src:
+                merc_src = (df.groupby(["mercado", "fuente"])
+                             .size().reset_index(name="Leads"))
+                fig_ms = px.bar(
+                    merc_src, x="fuente", y="Leads", color="mercado",
+                    title="Fuente de tráfico por mercado",
+                    barmode="stack",
+                    color_discrete_map=MERCADO_COLORS,
+                    category_orders={"mercado": MERCADO_ORDER},
+                )
+                fig_ms.update_layout(
+                    margin={"l": 0, "r": 0, "t": 40, "b": 20},
+                    legend={"title": "Mercado"},
+                )
+                st.plotly_chart(fig_ms, use_container_width=True)
 
-        st.markdown("---")
+            # ── Latam: leads por país ───────────────────────────────────────────
+            st.markdown("### 🌎 Latam — Leads por país")
+            df_lat = df[df["mercado"] == "Latam"].copy()
 
-        col_pie, col_src = st.columns([1, 2])
+            if df_lat.empty:
+                st.info("No hay leads de Latam en el período seleccionado.")
+            else:
+                df_lat["pais_lat"] = df_lat["pais"].apply(
+                    lambda p: LATAM_PAIS_ES.get(p, p)
+                )
 
-        with col_pie:
-            merc_dist = (df.groupby("mercado").size()
-                          .reset_index(name="Leads")
-                          .sort_values("Leads", ascending=False))
-            fig_pie = px.pie(
-                merc_dist, names="mercado", values="Leads",
-                title="Distribución por mercado",
-                hole=0.55,
-                color="mercado",
-                color_discrete_map=MERCADO_COLORS,
-            )
-            fig_pie.update_traces(textposition="outside", textinfo="percent+label")
-            fig_pie.update_layout(showlegend=False,
-                                   margin={"l": 0, "r": 0, "t": 40, "b": 0})
-            st.plotly_chart(fig_pie, use_container_width=True)
+                # KPIs latam
+                n_paises_lat = df_lat["pais_lat"].nunique()
+                top_pais_lat = df_lat["pais_lat"].value_counts().idxmax()
+                top_pais_n   = df_lat["pais_lat"].value_counts().max()
+                lk1, lk2 = st.columns(2)
+                lk1.metric("Países Latam", f"{n_paises_lat}")
+                lk2.metric("País top", top_pais_lat, f"{top_pais_n} leads")
 
-        with col_src:
-            merc_src = (df.groupby(["mercado", "fuente"])
-                         .size().reset_index(name="Leads"))
-            fig_ms = px.bar(
-                merc_src, x="fuente", y="Leads", color="mercado",
-                title="Fuente de tráfico por mercado",
-                barmode="stack",
-                color_discrete_map=MERCADO_COLORS,
-                category_orders={"mercado": MERCADO_ORDER},
-            )
-            fig_ms.update_layout(
-                margin={"l": 0, "r": 0, "t": 40, "b": 20},
-                legend={"title": "Mercado"},
-            )
-            st.plotly_chart(fig_ms, use_container_width=True)
+                lat_paises = (df_lat.groupby("pais_lat").size()
+                               .reset_index(name="Leads")
+                               .sort_values("Leads", ascending=False))
 
-        # ── Latam: leads por país ───────────────────────────────────────────
-        st.markdown("### 🌎 Latam — Leads por país")
-        df_lat = df[df["mercado"] == "Latam"].copy()
+                fig_lat_p = px.bar(
+                    lat_paises, x="Leads", y="pais_lat", orientation="h",
+                    title="Leads por país — Latam",
+                    color="Leads",
+                    color_continuous_scale=[[0, BARCA["bone"]], [1, BARCA["blue"]]],
+                    text="Leads",
+                )
+                fig_lat_p.update_layout(
+                    yaxis={"categoryorder": "total ascending"},
+                    coloraxis_showscale=False,
+                    height=max(350, len(lat_paises) * 30),
+                    margin={"l": 0, "r": 20, "t": 40, "b": 20},
+                )
+                fig_lat_p.update_traces(textposition="outside")
+                st.plotly_chart(fig_lat_p, use_container_width=True)
 
-        if df_lat.empty:
-            st.info("No hay leads de Latam en el período seleccionado.")
-        else:
-            df_lat["pais_lat"] = df_lat["pais"].apply(
-                lambda p: LATAM_PAIS_ES.get(p, p)
-            )
+                # País × Fuente — Latam
+                st.markdown("#### País × Fuente de tráfico (Latam)")
+                lat_pf = (df_lat.groupby(["pais_lat", "fuente"])
+                           .size().reset_index(name="Leads"))
+                fig_lat_pf = px.bar(
+                    lat_pf, x="Leads", y="pais_lat", color="fuente", orientation="h",
+                    title="Fuente de tráfico por país — Latam",
+                    barmode="stack",
+                    text="Leads",
+                )
+                fig_lat_pf.update_layout(
+                    yaxis={"categoryorder": "total ascending"},
+                    height=max(350, len(lat_paises) * 30),
+                    margin={"l": 0, "r": 20, "t": 40, "b": 20},
+                    legend={"title": "Fuente"},
+                )
+                fig_lat_pf.update_traces(textposition="inside", textfont_size=11)
+                st.plotly_chart(fig_lat_pf, use_container_width=True)
 
-            # KPIs latam
-            n_paises_lat = df_lat["pais_lat"].nunique()
-            top_pais_lat = df_lat["pais_lat"].value_counts().idxmax()
-            top_pais_n   = df_lat["pais_lat"].value_counts().max()
-            lk1, lk2 = st.columns(2)
-            lk1.metric("Países Latam", f"{n_paises_lat}")
-            lk2.metric("País top", top_pais_lat, f"{top_pais_n} leads")
+                # País × Calidad — Latam
+                st.markdown("#### Calidad de leads por país — Latam")
+                CALIDAD_ORDER_M = ["Cierre Ganado", "En proceso", "Perdido", "No válido"]
+                CALIDAD_COLORS_M = {
+                    "Cierre Ganado": BARCA["gold"],
+                    "En proceso":    BARCA["blue"],
+                    "Perdido":       BARCA["garnet"],
+                    "No válido":     BARCA["ink40"],
+                }
+                lat_cal = (df_lat.groupby(["pais_lat", "calidad"])
+                            .size().reset_index(name="Leads"))
+                lat_cal["calidad"] = pd.Categorical(lat_cal["calidad"],
+                                                      categories=CALIDAD_ORDER_M, ordered=True)
+                fig_lat_cal = px.bar(
+                    lat_cal.sort_values("calidad"),
+                    x="Leads", y="pais_lat", color="calidad", orientation="h",
+                    title="Calidad de leads por país — Latam",
+                    barmode="stack",
+                    color_discrete_map=CALIDAD_COLORS_M,
+                    text="Leads",
+                    category_orders={"calidad": CALIDAD_ORDER_M},
+                )
+                fig_lat_cal.update_layout(
+                    yaxis={"categoryorder": "total ascending"},
+                    height=max(350, len(lat_paises) * 30),
+                    margin={"l": 0, "r": 20, "t": 40, "b": 20},
+                    legend={"title": "Calidad"},
+                )
+                fig_lat_cal.update_traces(textposition="inside", textfont_size=11)
+                st.plotly_chart(fig_lat_cal, use_container_width=True)
 
-            lat_paises = (df_lat.groupby("pais_lat").size()
-                           .reset_index(name="Leads")
-                           .sort_values("Leads", ascending=False))
-
-            fig_lat_p = px.bar(
-                lat_paises, x="Leads", y="pais_lat", orientation="h",
-                title="Leads por país — Latam",
-                color="Leads",
-                color_continuous_scale=[[0, BARCA["bone"]], [1, BARCA["blue"]]],
-                text="Leads",
-            )
-            fig_lat_p.update_layout(
-                yaxis={"categoryorder": "total ascending"},
-                coloraxis_showscale=False,
-                height=max(350, len(lat_paises) * 30),
-                margin={"l": 0, "r": 20, "t": 40, "b": 20},
-            )
-            fig_lat_p.update_traces(textposition="outside")
-            st.plotly_chart(fig_lat_p, use_container_width=True)
-
-            # País × Fuente — Latam
-            st.markdown("#### País × Fuente de tráfico (Latam)")
-            lat_pf = (df_lat.groupby(["pais_lat", "fuente"])
-                       .size().reset_index(name="Leads"))
-            fig_lat_pf = px.bar(
-                lat_pf, x="Leads", y="pais_lat", color="fuente", orientation="h",
-                title="Fuente de tráfico por país — Latam",
-                barmode="stack",
-                text="Leads",
-            )
-            fig_lat_pf.update_layout(
-                yaxis={"categoryorder": "total ascending"},
-                height=max(350, len(lat_paises) * 30),
-                margin={"l": 0, "r": 20, "t": 40, "b": 20},
-                legend={"title": "Fuente"},
-            )
-            fig_lat_pf.update_traces(textposition="inside", textfont_size=11)
-            st.plotly_chart(fig_lat_pf, use_container_width=True)
-
-            # País × Calidad — Latam
-            st.markdown("#### Calidad de leads por país — Latam")
-            CALIDAD_ORDER_M = ["Cierre Ganado", "En proceso", "Perdido", "No válido"]
-            CALIDAD_COLORS_M = {
-                "Cierre Ganado": BARCA["gold"],
-                "En proceso":    BARCA["blue"],
-                "Perdido":       BARCA["garnet"],
-                "No válido":     BARCA["ink40"],
-            }
-            lat_cal = (df_lat.groupby(["pais_lat", "calidad"])
-                        .size().reset_index(name="Leads"))
-            lat_cal["calidad"] = pd.Categorical(lat_cal["calidad"],
-                                                  categories=CALIDAD_ORDER_M, ordered=True)
-            fig_lat_cal = px.bar(
-                lat_cal.sort_values("calidad"),
-                x="Leads", y="pais_lat", color="calidad", orientation="h",
-                title="Calidad de leads por país — Latam",
-                barmode="stack",
-                color_discrete_map=CALIDAD_COLORS_M,
-                text="Leads",
-                category_orders={"calidad": CALIDAD_ORDER_M},
-            )
-            fig_lat_cal.update_layout(
-                yaxis={"categoryorder": "total ascending"},
-                height=max(350, len(lat_paises) * 30),
-                margin={"l": 0, "r": 20, "t": 40, "b": 20},
-                legend={"title": "Calidad"},
-            )
-            fig_lat_cal.update_traces(textposition="inside", textfont_size=11)
-            st.plotly_chart(fig_lat_cal, use_container_width=True)
-
-            # Tabla completa Latam
-            with st.expander("📋 Tabla completa — Leads Latam por país"):
-                lat_tabla = (df_lat.groupby("pais_lat")
-                              .agg(
-                                  Total=("email", "count"),
-                                  Cierre_Ganado=("calidad", lambda x: (x == "Cierre Ganado").sum()),
-                                  En_proceso=("calidad", lambda x: (x == "En proceso").sum()),
-                                  Perdidos=("calidad", lambda x: (x == "Perdido").sum()),
-                                  No_valido=("calidad", lambda x: (x == "No válido").sum()),
-                              )
-                              .reset_index()
-                              .rename(columns={"pais_lat": "País",
-                                               "Cierre_Ganado": "Cierre Ganado",
-                                               "En_proceso": "En proceso",
-                                               "No_valido": "No válido"})
-                              .sort_values("Total", ascending=False))
-                lat_tabla["Tasa CG %"] = (
-                    lat_tabla["Cierre Ganado"] / lat_tabla["Total"] * 100
-                ).round(1)
-                # Columnas por modalidad
-                for _mod in ["Presencial", "Online", "Sin modalidad"]:
-                    lat_tabla[_mod] = (
-                        df_lat[df_lat["modalidad"] == _mod]
-                        .groupby("pais_lat").size()
-                        .reindex(lat_tabla["País"]).fillna(0).astype(int).values
+                # Tabla completa Latam
+                with st.expander("📋 Tabla completa — Leads Latam por país"):
+                    lat_tabla = (df_lat.groupby("pais_lat")
+                                  .agg(
+                                      Total=("email", "count"),
+                                      Cierre_Ganado=("calidad", lambda x: (x == "Cierre Ganado").sum()),
+                                      En_proceso=("calidad", lambda x: (x == "En proceso").sum()),
+                                      Perdidos=("calidad", lambda x: (x == "Perdido").sum()),
+                                      No_valido=("calidad", lambda x: (x == "No válido").sum()),
+                                  )
+                                  .reset_index()
+                                  .rename(columns={"pais_lat": "País",
+                                                   "Cierre_Ganado": "Cierre Ganado",
+                                                   "En_proceso": "En proceso",
+                                                   "No_valido": "No válido"})
+                                  .sort_values("Total", ascending=False))
+                    lat_tabla["Tasa CG %"] = (
+                        lat_tabla["Cierre Ganado"] / lat_tabla["Total"] * 100
+                    ).round(1)
+                    # Columnas por modalidad
+                    for _mod in ["Presencial", "Online", "Sin modalidad"]:
+                        lat_tabla[_mod] = (
+                            df_lat[df_lat["modalidad"] == _mod]
+                            .groupby("pais_lat").size()
+                            .reindex(lat_tabla["País"]).fillna(0).astype(int).values
+                        )
+                    st.dataframe(
+                        lat_tabla.style
+                            .background_gradient(subset=["Total"], cmap="Blues")
+                            .format({"Tasa CG %": "{:.1f}%"}, na_rep="—"),
+                        use_container_width=True,
+                        hide_index=True,
                     )
+
+            # ── Programa por Mercado ────────────────────────────────────────────
+            st.markdown("---")
+            st.markdown("### 📚 Programas por mercado")
+            df_prog_merc = df[df["programa"] != "Sin programa"]
+            if not df_prog_merc.empty:
+                top_n_merc = st.selectbox("Top N programas", [10, 15, 20], key="merc_topn")
+                top_progs_m = (df_prog_merc["programa"].value_counts()
+                               .head(top_n_merc).index.tolist())
+                pm_grp = (df_prog_merc[df_prog_merc["programa"].isin(top_progs_m)]
+                           .groupby(["programa", "mercado"])
+                           .size().reset_index(name="Leads"))
+                fig_pm = px.bar(
+                    pm_grp, x="Leads", y="programa", color="mercado", orientation="h",
+                    title=f"Leads por programa y mercado (Top {top_n_merc})",
+                    barmode="stack",
+                    color_discrete_map=MERCADO_COLORS,
+                    text="Leads",
+                    category_orders={"mercado": MERCADO_ORDER},
+                )
+                fig_pm.update_layout(
+                    yaxis={"categoryorder": "total ascending"},
+                    height=max(420, top_n_merc * 30),
+                    margin={"l": 0, "r": 20, "t": 40, "b": 20},
+                    legend={"title": "Mercado"},
+                )
+                fig_pm.update_traces(textposition="inside", textfont_size=11)
+                st.plotly_chart(fig_pm, use_container_width=True)
+
+                with st.expander("📋 Tabla pivote: Programa × Mercado"):
+                    pivot_pm = (pm_grp.pivot(index="programa", columns="mercado", values="Leads")
+                                 .fillna(0).astype(int))
+                    pivot_pm["Total"] = pivot_pm.sum(axis=1)
+                    # Añadir columnas de modalidad
+                    _df_pm_base = df_prog_merc[df_prog_merc["programa"].isin(top_progs_m)]
+                    for _mod in ["Presencial", "Online", "Sin modalidad"]:
+                        pivot_pm[_mod] = (
+                            _df_pm_base[_df_pm_base["modalidad"] == _mod]
+                            .groupby("programa").size()
+                            .reindex(pivot_pm.index).fillna(0).astype(int)
+                        )
+                    pivot_pm = pivot_pm.sort_values("Total", ascending=False)
+                    st.dataframe(
+                        pivot_pm.style.background_gradient(subset=["Total"], cmap="Reds"),
+                        use_container_width=True,
+                    )
+
+
+
+    with tab_campana:
+        st.subheader("📍 Leads por Campaña, País y Programa")
+        st.caption("Análisis de leads por fuente de tráfico, país y programa — datos en tiempo real de HubSpot CRM")
+
+        if df.empty:
+            st.info("No hay leads para el período y filtros seleccionados.")
+        else:
+            _PLATS_PAGO_RST = {"Social pagado", "Búsqueda pagada"}
+
+            # ── Filtros inline ────────────────────────────────────────────────────
+            _filt_col1, _filt_col2, _filt_col3, _filt_col4 = st.columns(4)
+            with _filt_col1:
+                _excl_eventos = st.checkbox("Excluir Webinar / Open Day", value=True, key="cpn_excl")
+            
+            df_cpn = df.copy()
+            if _excl_eventos:
+                _CATS_EXCL = {"Webinar", "Open Day", "Open Day Digital", "Sesión Informativa Online"}
+                df_cpn = df_cpn[~df_cpn["categoria"].isin(_CATS_EXCL)]
+
+            _plat_opts = sorted(df_cpn["fuente"].dropna().unique().tolist())
+            _pais_opts = sorted(df_cpn["pais"].dropna().unique().tolist())
+            _prog_opts = sorted(df_cpn["programa"].dropna().unique().tolist())
+
+            with _filt_col2:
+                _filtro_plat = st.multiselect("Fuente", _plat_opts, default=_plat_opts, key="cpn_plat")
+            with _filt_col3:
+                _filtro_pais = st.multiselect("País", _pais_opts, default=_pais_opts, key="cpn_pais")
+            with _filt_col4:
+                _filtro_prog = st.multiselect("Programa", _prog_opts, default=_prog_opts, key="cpn_prog")
+
+            if _filtro_plat:
+                df_cpn = df_cpn[df_cpn["fuente"].isin(_filtro_plat)]
+            if _filtro_pais:
+                df_cpn = df_cpn[df_cpn["pais"].isin(_filtro_pais)]
+            if _filtro_prog:
+                df_cpn = df_cpn[df_cpn["programa"].isin(_filtro_prog)]
+
+            if df_cpn.empty:
+                st.info("No hay leads con los filtros aplicados.")
+            else:
+                # ── KPIs ──────────────────────────────────────────────────────────────
+                _total_cpn    = len(df_cpn)
+                _leads_pagado = len(df_cpn[df_cpn["fuente"].isin(_PLATS_PAGO_RST)])
+                _paises_n     = df_cpn["pais"].nunique()
+                _pct_pago     = _leads_pagado / _total_cpn * 100 if _total_cpn > 0 else 0
+
+                _k1, _k2, _k3, _k4 = st.columns(4)
+                kpi_card(_k1, "Total Leads",    _total_cpn,                   BARCA["blue"])
+                kpi_card(_k2, "Leads Pagados",  _leads_pagado,                BARCA["garnet"])
+                kpi_card(_k3, "Países",         _paises_n,                    BARCA["blue_deep"])
+                kpi_card(_k4, "% Pagados",      f"{_pct_pago:.0f}%",        BARCA["gold"])
+
+                st.markdown("<br>", unsafe_allow_html=True)
+
+                # Sub-chips por fuente
+                _fuentes_presentes = df_cpn["fuente"].value_counts()
+                _MAX_C = 5
+                _chunks = [_fuentes_presentes.index.tolist()[i:i+_MAX_C]
+                           for i in range(0, len(_fuentes_presentes), _MAX_C)]
+                for _chunk in _chunks:
+                    _pcols = st.columns(len(_chunk))
+                    for _ci, _fuente in enumerate(_chunk):
+                        _n = int(_fuentes_presentes[_fuente])
+                        with _pcols[_ci]:
+                            with st.container(border=True):
+                                st.markdown(f"**{_fuente}**")
+                                st.metric("Leads", f"{_n:,}")
+
+                st.divider()
+
+                # ── Leads diarios por fuente ─────────────────────────────────────────
+                st.markdown("### 📅 Leads Diarios por Fuente")
+                _df_day = (
+                    df_cpn.groupby(["fecha", "fuente"])
+                    .size().reset_index(name="leads")
+                    .sort_values("fecha")
+                )
+                _df_day["fecha_str"] = pd.to_datetime(_df_day["fecha"]).dt.strftime("%d/%m")
+                _fig_day = px.bar(
+                    _df_day, x="fecha_str", y="leads",
+                    color="fuente", barmode="stack",
+                    color_discrete_sequence=COLOR_FUENTES,
+                    labels={"fecha_str": "", "leads": "Leads", "fuente": ""},
+                    text_auto=".0f",
+                )
+                _fig_day.update_traces(textposition="inside", textfont_size=9)
+                barca_layout(_fig_day, 340)
+                st.plotly_chart(_fig_day, use_container_width=True)
+
+                st.divider()
+
+                # ── País y Programa ──────────────────────────────────────────────────
+                _col_p1, _col_p2 = st.columns(2)
+
+                with _col_p1:
+                    st.markdown("### 🌍 Leads por País")
+                    _df_pais = (
+                        df_cpn.groupby("pais").size()
+                        .reset_index(name="Leads")
+                        .sort_values("Leads", ascending=True)
+                        .tail(15)
+                    )
+                    _fig_p = px.bar(
+                        _df_pais, x="Leads", y="pais", orientation="h",
+                        text_auto=".0f",
+                        color="Leads",
+                        color_continuous_scale=[BARCA["line2"], BARCA["blue_deep"], BARCA["blue_ink"]],
+                        labels={"pais": ""},
+                    )
+                    _fig_p.update_layout(coloraxis_showscale=False,
+                                         yaxis=dict(categoryorder="total ascending"))
+                    barca_layout(_fig_p, max(280, len(_df_pais) * 30))
+                    st.plotly_chart(_fig_p, use_container_width=True)
+
+                with _col_p2:
+                    st.markdown("### 🎓 Leads por Programa")
+                    _df_prog_c = (
+                        df_cpn[df_cpn["programa"] != "Sin programa"]
+                        .groupby("programa").size()
+                        .reset_index(name="Leads")
+                        .sort_values("Leads", ascending=True)
+                        .tail(15)
+                    )
+                    if _df_prog_c.empty:
+                        st.info("Sin datos de programa.")
+                    else:
+                        _fig_pg = px.bar(
+                            _df_prog_c, x="Leads", y="programa", orientation="h",
+                            text_auto=".0f",
+                            color="Leads",
+                            color_continuous_scale=[BARCA["bone"], BARCA["blue"], BARCA["blue_ink"]],
+                            labels={"programa": ""},
+                        )
+                        _fig_pg.update_layout(coloraxis_showscale=False,
+                                              yaxis=dict(categoryorder="total ascending"))
+                        barca_layout(_fig_pg, max(280, len(_df_prog_c) * 30))
+                        st.plotly_chart(_fig_pg, use_container_width=True)
+
+                st.divider()
+
+                # ── Tabla principal: Fuente × País × Programa ────────────────────────
+                st.markdown("### 📋 Detalle por Fuente, País y Programa")
+                _df_tabla = (
+                    df_cpn.groupby(["fuente", "pais", "programa"])
+                    .size().reset_index(name="Leads")
+                    .sort_values("Leads", ascending=False)
+                    .rename(columns={"fuente": "Fuente", "pais": "País", "programa": "Programa"})
+                )
                 st.dataframe(
-                    lat_tabla.style
-                        .background_gradient(subset=["Total"], cmap="Blues")
-                        .format({"Tasa CG %": "{:.1f}%"}, na_rep="—"),
+                    _df_tabla,
                     use_container_width=True,
                     hide_index=True,
+                    column_config={"Leads": st.column_config.NumberColumn(format="%d")},
                 )
 
-        # ── Programa por Mercado ────────────────────────────────────────────
-        st.markdown("---")
-        st.markdown("### 📚 Programas por mercado")
-        df_prog_merc = df[df["programa"] != "Sin programa"]
-        if not df_prog_merc.empty:
-            top_n_merc = st.selectbox("Top N programas", [10, 15, 20], key="merc_topn")
-            top_progs_m = (df_prog_merc["programa"].value_counts()
-                           .head(top_n_merc).index.tolist())
-            pm_grp = (df_prog_merc[df_prog_merc["programa"].isin(top_progs_m)]
-                       .groupby(["programa", "mercado"])
-                       .size().reset_index(name="Leads"))
-            fig_pm = px.bar(
-                pm_grp, x="Leads", y="programa", color="mercado", orientation="h",
-                title=f"Leads por programa y mercado (Top {top_n_merc})",
-                barmode="stack",
-                color_discrete_map=MERCADO_COLORS,
-                text="Leads",
-                category_orders={"mercado": MERCADO_ORDER},
-            )
-            fig_pm.update_layout(
-                yaxis={"categoryorder": "total ascending"},
-                height=max(420, top_n_merc * 30),
-                margin={"l": 0, "r": 20, "t": 40, "b": 20},
-                legend={"title": "Mercado"},
-            )
-            fig_pm.update_traces(textposition="inside", textfont_size=11)
-            st.plotly_chart(fig_pm, use_container_width=True)
+                st.divider()
 
-            with st.expander("📋 Tabla pivote: Programa × Mercado"):
-                pivot_pm = (pm_grp.pivot(index="programa", columns="mercado", values="Leads")
-                             .fillna(0).astype(int))
-                pivot_pm["Total"] = pivot_pm.sum(axis=1)
-                # Añadir columnas de modalidad
-                _df_pm_base = df_prog_merc[df_prog_merc["programa"].isin(top_progs_m)]
-                for _mod in ["Presencial", "Online", "Sin modalidad"]:
-                    pivot_pm[_mod] = (
-                        _df_pm_base[_df_pm_base["modalidad"] == _mod]
-                        .groupby("programa").size()
-                        .reindex(pivot_pm.index).fillna(0).astype(int)
+                # ── Heatmap: País × Fuente ────────────────────────────────────────────
+                st.markdown("### 🗺️ Leads: País × Fuente")
+                _top_paises = df_cpn["pais"].value_counts().head(12).index.tolist()
+                _df_heat = (
+                    df_cpn[df_cpn["pais"].isin(_top_paises)]
+                    .groupby(["pais", "fuente"])
+                    .size().reset_index(name="leads")
+                )
+                if not _df_heat.empty:
+                    _pivot = _df_heat.pivot_table(
+                        index="pais", columns="fuente", values="leads",
+                        aggfunc="sum", fill_value=0,
                     )
-                pivot_pm = pivot_pm.sort_values("Total", ascending=False)
-                st.dataframe(
-                    pivot_pm.style.background_gradient(subset=["Total"], cmap="Reds"),
-                    use_container_width=True,
-                )
+                    _fig_h = px.imshow(
+                        _pivot, text_auto=True, aspect="auto",
+                        color_continuous_scale=["#e6f3fb", "#0053B3", "#000a3f"],
+                        labels={"x": "Fuente", "y": "País", "color": "Leads"},
+                    )
+                    barca_layout(_fig_h, max(300, len(_pivot) * 40))
+                    _fig_h.update_layout(coloraxis_showscale=False)
+                    _fig_h.update_xaxes(tickangle=-30)
+                    st.plotly_chart(_fig_h, use_container_width=True)
+
 
     # ── Footer ──────────────────────────────────────────────────────────────────
     st.markdown(
