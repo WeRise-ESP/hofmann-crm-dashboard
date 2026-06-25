@@ -4010,6 +4010,56 @@ def main():
 
                 st.divider()
 
+                # ── Resumen de leads por campaña ──────────────────────────────────────
+                st.markdown("### 🏷️ Resumen por Campaña")
+
+                _fuentes_camp = ["Todas"] + sorted(df_cpn["fuente"].dropna().unique().tolist())
+                _sel_fuente = st.selectbox(
+                    "Filtrar por fuente de tráfico",
+                    _fuentes_camp,
+                    key="resumen_camp_fuente",
+                )
+
+                _df_camp_base = df_cpn if _sel_fuente == "Todas" else df_cpn[df_cpn["fuente"] == _sel_fuente]
+
+                # Campaña = fuente_reciente_d2 si existe, si no fuente_reciente_d1, si no fuente
+                def _camp_name(row):
+                    c = (row.get("fuente_reciente_d2") or "").strip()
+                    if c:
+                        return c
+                    c = (row.get("fuente_reciente_d1") or "").strip()
+                    if c:
+                        return c
+                    return row.get("fuente") or "Sin campaña"
+
+                _df_camp_base = _df_camp_base.copy()
+                _df_camp_base["_campaña"] = _df_camp_base.apply(_camp_name, axis=1)
+
+                _df_resumen = (
+                    _df_camp_base.groupby(["fuente", "_campaña", "fuente_reciente_d1"])
+                    .size().reset_index(name="Leads")
+                    .sort_values("Leads", ascending=False)
+                    .rename(columns={
+                        "fuente":              "Fuente",
+                        "_campaña":            "Campaña",
+                        "fuente_reciente_d1":  "Plataforma / Ad Set",
+                    })
+                )
+
+                st.dataframe(
+                    _df_resumen,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Leads":              st.column_config.NumberColumn(format="%d", width="small"),
+                        "Fuente":             st.column_config.TextColumn(width="medium"),
+                        "Plataforma / Ad Set": st.column_config.TextColumn(width="medium"),
+                        "Campaña":            st.column_config.TextColumn(width="large"),
+                    },
+                )
+
+                st.divider()
+
                 # ── Tabla principal: Fuente × País × Programa ────────────────────────
                 st.markdown("### 📋 Detalle por Fuente, País y Programa")
                 _df_tabla = (
