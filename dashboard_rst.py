@@ -3940,6 +3940,129 @@ def main():
 
                 st.divider()
 
+                # ── Resumen general por fuente ────────────────────────────────────────
+                st.markdown("### 📊 Leads por Fuente")
+                _col_rs1, _col_rs2 = st.columns(2)
+
+                with _col_rs1:
+                    st.caption("Total leads por fuente")
+                    _df_fnt = (
+                        df_cpn.groupby("fuente").size()
+                        .reset_index(name="Leads")
+                        .sort_values("Leads", ascending=True)
+                    )
+                    _fig_fnt = px.bar(
+                        _df_fnt, x="Leads", y="fuente", orientation="h",
+                        text_auto=".0f",
+                        color="Leads",
+                        color_continuous_scale=[BARCA["bone"], BARCA["blue"], BARCA["blue_ink"]],
+                        labels={"fuente": ""},
+                    )
+                    _fig_fnt.update_layout(coloraxis_showscale=False,
+                                           yaxis=dict(categoryorder="total ascending"))
+                    barca_layout(_fig_fnt, max(240, len(_df_fnt) * 36))
+                    st.plotly_chart(_fig_fnt, use_container_width=True)
+
+                with _col_rs2:
+                    st.caption("Válidos e inválidos por fuente")
+                    _df_val = (
+                        df_cpn.groupby(["fuente", "lead_valido"])
+                        .size().reset_index(name="Leads")
+                    )
+                    # orden fuentes por total desc
+                    _fnt_order = (
+                        _df_val.groupby("fuente")["Leads"].sum()
+                        .sort_values(ascending=True).index.tolist()
+                    )
+                    _COLOR_VAL = {
+                        "Válido":    BARCA["blue"],
+                        "No válido": BARCA["garnet"],
+                        "Sin datos": BARCA["ink20"],
+                    }
+                    _fig_val = px.bar(
+                        _df_val, x="Leads", y="fuente", color="lead_valido",
+                        orientation="h", barmode="stack",
+                        color_discrete_map=_COLOR_VAL,
+                        text_auto=".0f",
+                        labels={"fuente": "", "lead_valido": ""},
+                        category_orders={"fuente": _fnt_order},
+                    )
+                    barca_layout(_fig_val, max(240, len(_df_fnt) * 36))
+                    st.plotly_chart(_fig_val, use_container_width=True)
+
+                st.divider()
+
+                # ── Válidos / Inválidos por campaña ──────────────────────────────────
+                st.markdown("### ✅ Válidos e Inválidos por Campaña")
+
+                _fuentes_val = ["Todas"] + sorted(df_cpn["fuente"].dropna().unique().tolist())
+                _sel_fuente_val = st.selectbox(
+                    "Filtrar por fuente de tráfico",
+                    _fuentes_val,
+                    key="val_camp_fuente",
+                )
+
+                _df_val_base = df_cpn if _sel_fuente_val == "Todas" else df_cpn[df_cpn["fuente"] == _sel_fuente_val]
+                _df_val_base = _df_val_base.copy()
+
+                def _camp_name_val(row):
+                    c = (row.get("fuente_reciente_d2") or "").strip()
+                    if c:
+                        return c
+                    c = (row.get("fuente_reciente_d1") or "").strip()
+                    if c:
+                        return c
+                    return row.get("fuente") or "Sin campaña"
+
+                _df_val_base["_campaña"] = _df_val_base.apply(_camp_name_val, axis=1)
+
+                # Tabla pivotada: campaña × válido/inválido
+                _df_val_grp = (
+                    _df_val_base.groupby(["fuente", "_campaña", "lead_valido"])
+                    .size().reset_index(name="n")
+                )
+                _df_val_pivot = (
+                    _df_val_grp.pivot_table(
+                        index=["fuente", "_campaña"],
+                        columns="lead_valido",
+                        values="n",
+                        aggfunc="sum",
+                        fill_value=0,
+                    )
+                    .reset_index()
+                )
+                _df_val_pivot.columns.name = None
+                # Asegurar columnas aunque no haya datos en alguna categoría
+                for _col in ["Válido", "No válido", "Sin datos"]:
+                    if _col not in _df_val_pivot.columns:
+                        _df_val_pivot[_col] = 0
+                _df_val_pivot["Total"] = _df_val_pivot[["Válido", "No válido", "Sin datos"]].sum(axis=1)
+                _df_val_pivot["% Válido"] = (
+                    _df_val_pivot["Válido"] / _df_val_pivot["Total"] * 100
+                ).round(1)
+                _df_val_pivot = _df_val_pivot.sort_values("Total", ascending=False)
+                _df_val_pivot = _df_val_pivot.rename(columns={
+                    "fuente":   "Fuente",
+                    "_campaña": "Campaña",
+                })
+
+                st.dataframe(
+                    _df_val_pivot[["Fuente", "Campaña", "Total", "Válido", "No válido", "Sin datos", "% Válido"]],
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Total":      st.column_config.NumberColumn(format="%d", width="small"),
+                        "Válido":     st.column_config.NumberColumn(format="%d", width="small"),
+                        "No válido":  st.column_config.NumberColumn(format="%d", width="small"),
+                        "Sin datos":  st.column_config.NumberColumn(format="%d", width="small"),
+                        "% Válido":   st.column_config.NumberColumn(format="%.1f%%", width="small"),
+                        "Campaña":    st.column_config.TextColumn(width="large"),
+                        "Fuente":     st.column_config.TextColumn(width="medium"),
+                    },
+                )
+
+                st.divider()
+
                 # ── Leads diarios por fuente ─────────────────────────────────────────
                 st.markdown("### 📅 Leads Diarios por Fuente")
                 _df_day = (
