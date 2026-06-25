@@ -3926,17 +3926,36 @@ def main():
 
                 # Sub-chips por fuente
                 _fuentes_presentes = df_cpn["fuente"].value_counts()
+                _val_por_fuente = (
+                    df_cpn.groupby(["fuente", "lead_valido"]).size()
+                    .unstack(fill_value=0)
+                )
+                for _col in ["Válido", "No válido", "Sin datos"]:
+                    if _col not in _val_por_fuente.columns:
+                        _val_por_fuente[_col] = 0
+
                 _MAX_C = 5
                 _chunks = [_fuentes_presentes.index.tolist()[i:i+_MAX_C]
                            for i in range(0, len(_fuentes_presentes), _MAX_C)]
                 for _chunk in _chunks:
                     _pcols = st.columns(len(_chunk))
                     for _ci, _fuente in enumerate(_chunk):
-                        _n = int(_fuentes_presentes[_fuente])
+                        _n         = int(_fuentes_presentes[_fuente])
+                        _validos   = int(_val_por_fuente.loc[_fuente, "Válido"])    if _fuente in _val_por_fuente.index else 0
+                        _invalidos = int(_val_por_fuente.loc[_fuente, "No válido"]) if _fuente in _val_por_fuente.index else 0
+                        _pct_val   = _validos / _n * 100 if _n > 0 else 0
                         with _pcols[_ci]:
                             with st.container(border=True):
                                 st.markdown(f"**{_fuente}**")
-                                st.metric("Leads", f"{_n:,}")
+                                st.markdown(
+                                    f"<div style='font-size:13px;line-height:2'>"
+                                    f"Leads totales: <b>{_n:,}</b><br>"
+                                    f"Leads válidos: <b>{_validos:,}</b><br>"
+                                    f"Leads inválidos: <b>{_invalidos:,}</b><br>"
+                                    f"% Válidos: <b>{_pct_val:.0f}%</b>"
+                                    f"</div>",
+                                    unsafe_allow_html=True,
+                                )
 
                 st.divider()
 
@@ -4185,8 +4204,22 @@ def main():
 
                 # ── Tabla principal: Fuente × País × Programa ────────────────────────
                 st.markdown("### 📋 Detalle por Fuente, País y Programa")
+                _det_f1, _det_f2 = st.columns(2)
+                with _det_f1:
+                    _det_pais_opts = ["Todos"] + sorted(df_cpn["pais"].dropna().unique().tolist())
+                    _det_sel_pais  = st.selectbox("Filtrar por País", _det_pais_opts, key="det_pais")
+                with _det_f2:
+                    _det_prog_opts = ["Todos"] + sorted(df_cpn["programa"].dropna().unique().tolist())
+                    _det_sel_prog  = st.selectbox("Filtrar por Programa", _det_prog_opts, key="det_prog")
+
+                _df_tabla_src = df_cpn.copy()
+                if _det_sel_pais != "Todos":
+                    _df_tabla_src = _df_tabla_src[_df_tabla_src["pais"] == _det_sel_pais]
+                if _det_sel_prog != "Todos":
+                    _df_tabla_src = _df_tabla_src[_df_tabla_src["programa"] == _det_sel_prog]
+
                 _df_tabla = (
-                    df_cpn.groupby(["fuente", "pais", "programa"])
+                    _df_tabla_src.groupby(["fuente", "pais", "programa"])
                     .size().reset_index(name="Leads")
                     .sort_values("Leads", ascending=False)
                     .rename(columns={"fuente": "Fuente", "pais": "País", "programa": "Programa"})
@@ -4202,9 +4235,23 @@ def main():
 
                 # ── Heatmap: País × Fuente ────────────────────────────────────────────
                 st.markdown("### 🗺️ Leads: País × Fuente")
-                _top_paises = df_cpn["pais"].value_counts().head(12).index.tolist()
+                _heat_pais_all = sorted(
+                    df_cpn[df_cpn["pais"].notna() & (df_cpn["pais"] != "")]
+                    ["pais"].value_counts().head(20).index.tolist()
+                )
+                _heat_sel_pais = st.multiselect(
+                    "Filtrar países (por defecto Top 12)",
+                    options=_heat_pais_all,
+                    default=_heat_pais_all[:12],
+                    key="heat_pais",
+                )
+                _heat_paises_use = _heat_sel_pais if _heat_sel_pais else _heat_pais_all[:12]
+                _df_heat_src = df_cpn[
+                    df_cpn["pais"].isin(_heat_paises_use) &
+                    df_cpn["fuente"].notna() & (df_cpn["fuente"] != "")
+                ]
                 _df_heat = (
-                    df_cpn[df_cpn["pais"].isin(_top_paises)]
+                    _df_heat_src
                     .groupby(["pais", "fuente"])
                     .size().reset_index(name="leads")
                 )
@@ -4235,9 +4282,23 @@ def main():
                     "**Fuente original** = primera sesión que trajo al contacto."
                 )
 
+                _camp_det_opts = ["Todas"] + sorted(
+                    df_cpn["fuente_reciente_d2"]
+                    .dropna()
+                    .pipe(lambda s: s[s != ""])
+                    .unique()
+                    .tolist()
+                )
+                _camp_det_sel = st.selectbox(
+                    "Filtrar por Campaña (fuente_reciente_d2)",
+                    _camp_det_opts,
+                    key="camp_det_sel",
+                )
+                _df_cpn_det = df_cpn if _camp_det_sel == "Todas" else df_cpn[df_cpn["fuente_reciente_d2"] == _camp_det_sel]
+
                 # Agrupar por campaña (fuente_reciente_d2) + país + programa
                 _df_camp_det = (
-                    df_cpn.groupby([
+                    _df_cpn_det.groupby([
                         "fuente_reciente_d2",
                         "fuente_reciente_d1",
                         "fuente_reciente",
