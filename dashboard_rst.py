@@ -306,8 +306,8 @@ CONTACT_PROPS = [
     "pais_de_la_ip_capabilia",
     "hs_lead_status", "lead_valido", "num_contacted_notes",
     "motivos_de_cierre_perdido_rst",
-    "hs_analytics_source", "hs_analytics_source_data_1",
-    "hs_latest_source", "hs_latest_source_data_1",
+    "hs_analytics_source", "hs_analytics_source_data_1", "hs_analytics_source_data_2",
+    "hs_latest_source", "hs_latest_source_data_1", "hs_latest_source_data_2",
     "modalidad_curso", "curso",
     "categoria_lead",
     "hs_object_source",
@@ -448,6 +448,12 @@ def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
                 "motivo_cierre": cp.get("motivos_de_cierre_perdido_rst") or "Sin especificar",
                 "fuente":      fuente,
                 "origen_fuente": origen,
+                "fuente_reciente":    (cp.get("hs_latest_source") or "").strip(),
+                "fuente_reciente_d1": (cp.get("hs_latest_source_data_1") or "").strip(),
+                "fuente_reciente_d2": (cp.get("hs_latest_source_data_2") or "").strip(),
+                "fuente_original":    (cp.get("hs_analytics_source") or "").strip(),
+                "fuente_original_d1": (cp.get("hs_analytics_source_data_1") or "").strip(),
+                "fuente_original_d2": (cp.get("hs_analytics_source_data_2") or "").strip(),
                 "modalidad":   (cp.get("modalidad_curso") or "Sin modalidad").strip().title(),
                 "programa":    CURSO_LABELS.get(
                                    cp.get("curso") or "",
@@ -463,7 +469,10 @@ def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
         after = pg["next"]["after"]
 
     _COLS = ["email", "fecha", "mes", "pais", "lead_status", "lead_valido",
-             "intentos", "motivo_cierre", "fuente", "origen_fuente", "modalidad", "programa", "mercado", "categoria"]
+             "intentos", "motivo_cierre", "fuente", "origen_fuente",
+             "fuente_reciente", "fuente_reciente_d1", "fuente_reciente_d2",
+             "fuente_original", "fuente_original_d1", "fuente_original_d2",
+             "modalidad", "programa", "mercado", "categoria"]
     df = pd.DataFrame(rows, columns=_COLS) if rows else pd.DataFrame(columns=_COLS)
     # Derive calidad from lead_valido + lead_status for program analysis
     def _calidad(row):
@@ -4032,14 +4041,99 @@ def main():
                         aggfunc="sum", fill_value=0,
                     )
                     _fig_h = px.imshow(
-                        _pivot, text_auto=True, aspect="auto",
+                        _pivot, aspect="auto",
                         color_continuous_scale=["#e6f3fb", "#0053B3", "#000a3f"],
                         labels={"x": "Fuente", "y": "País", "color": "Leads"},
+                        text_auto=".0f",
                     )
                     barca_layout(_fig_h, max(300, len(_pivot) * 40))
                     _fig_h.update_layout(coloraxis_showscale=False)
                     _fig_h.update_xaxes(tickangle=-30)
+                    _fig_h.update_traces(textfont_size=11)
                     st.plotly_chart(_fig_h, use_container_width=True)
+
+                st.divider()
+
+                # ── Detalle de campaña por lead ──────────────────────────────────────
+                st.markdown("### 📡 Detalle de Campaña por Lead")
+                st.caption(
+                    "Nombre de campaña y fuente de tráfico exacta asociada a cada lead. "
+                    "**Fuente más reciente** = última sesión antes del formulario. "
+                    "**Fuente original** = primera sesión que trajo al contacto."
+                )
+
+                # Agrupar por campaña (fuente_reciente_d2) + país + programa
+                _df_camp_det = (
+                    df_cpn.groupby([
+                        "fuente_reciente_d2",
+                        "fuente_reciente_d1",
+                        "fuente_reciente",
+                        "fuente_original_d2",
+                        "fuente_original_d1",
+                        "fuente_original",
+                        "pais",
+                        "programa",
+                    ])
+                    .size().reset_index(name="Leads")
+                    .sort_values("Leads", ascending=False)
+                    .rename(columns={
+                        "fuente_reciente_d2": "Campaña (más reciente)",
+                        "fuente_reciente_d1": "An. Det. 1 (más reciente)",
+                        "fuente_reciente":    "Fuente más reciente",
+                        "fuente_original_d2": "Campaña (original)",
+                        "fuente_original_d1": "An. Det. 1 (original)",
+                        "fuente_original":    "Fuente original",
+                        "pais":               "País",
+                        "programa":           "Programa",
+                    })
+                )
+                # Reordenar columnas para que las más útiles vayan primero
+                _col_order = [
+                    "Leads",
+                    "Campaña (más reciente)", "An. Det. 1 (más reciente)", "Fuente más reciente",
+                    "País", "Programa",
+                    "Campaña (original)", "An. Det. 1 (original)", "Fuente original",
+                ]
+                _df_camp_det = _df_camp_det[[c for c in _col_order if c in _df_camp_det.columns]]
+
+                st.dataframe(
+                    _df_camp_det,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Leads": st.column_config.NumberColumn(format="%d", width="small"),
+                        "Campaña (más reciente)": st.column_config.TextColumn(width="large"),
+                        "Campaña (original)":     st.column_config.TextColumn(width="large"),
+                    },
+                )
+
+                # Vista alternativa: tabla plana con un lead por fila (expandible)
+                with st.expander("📋 Ver tabla completa lead a lead"):
+                    _cols_raw = [
+                        "fecha", "pais", "programa", "fuente",
+                        "fuente_reciente", "fuente_reciente_d1", "fuente_reciente_d2",
+                        "fuente_original", "fuente_original_d1", "fuente_original_d2",
+                        "categoria", "lead_status",
+                    ]
+                    _cols_raw = [c for c in _cols_raw if c in df_cpn.columns]
+                    st.dataframe(
+                        df_cpn[_cols_raw].rename(columns={
+                            "fecha":               "Fecha",
+                            "pais":                "País",
+                            "programa":            "Programa",
+                            "fuente":              "Fuente",
+                            "fuente_reciente":     "Fuente más reciente",
+                            "fuente_reciente_d1":  "An. Det. 1 reciente",
+                            "fuente_reciente_d2":  "An. Det. 2 reciente (campaña)",
+                            "fuente_original":     "Fuente original",
+                            "fuente_original_d1":  "An. Det. 1 original",
+                            "fuente_original_d2":  "An. Det. 2 original (campaña)",
+                            "categoria":           "Tipo contacto",
+                            "lead_status":         "Estado",
+                        }).sort_values("Fecha", ascending=False),
+                        use_container_width=True,
+                        hide_index=True,
+                    )
 
 
     # ── Footer ──────────────────────────────────────────────────────────────────
