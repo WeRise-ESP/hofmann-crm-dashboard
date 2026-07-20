@@ -14,8 +14,41 @@ from dotenv import load_dotenv
 import os
 import time
 import hashlib
+import json
 
 load_dotenv()
+
+
+# ── Persistencia de filtros en la URL (sobreviven a reconexiones/reinicios) ────
+def _qp_load(key, kind):
+    """Antes de crear el widget: vuelca el valor guardado en la URL a session_state."""
+    if key in st.session_state:
+        return
+    raw = st.query_params.get(key)
+    if raw is None:
+        return
+    try:
+        if kind == "multi":
+            st.session_state[key] = json.loads(raw)
+        elif kind == "date":
+            st.session_state[key] = date.fromisoformat(raw)
+        else:
+            st.session_state[key] = raw
+    except Exception:
+        pass
+
+
+def _qp_save(key, value, kind):
+    """Después del widget: guarda su valor actual en la URL."""
+    try:
+        if kind == "multi":
+            st.query_params[key] = json.dumps(list(value))
+        elif kind == "date":
+            st.query_params[key] = value.isoformat()
+        else:
+            st.query_params[key] = str(value)
+    except Exception:
+        pass
 
 # ── Autenticación por contraseña ──────────────────────────────────────────────
 # La sesión se recuerda mediante un token en la URL (query param), que sobrevive
@@ -1677,19 +1710,27 @@ def main():
         st.markdown(f"<h2 style='color:{BARCA['gold']};margin-bottom:16px'>⚙️ Filtros</h2>",
                     unsafe_allow_html=True)
 
-        modo = st.radio("Modo de fecha", ["Período predefinido", "Rango personalizado"])
+        _qp_load("f_modo", "str")
+        modo = st.radio("Modo de fecha", ["Período predefinido", "Rango personalizado"],
+                        key="f_modo")
+        _qp_save("f_modo", modo, "str")
 
         if modo == "Período predefinido":
             hoy = date.today()
             mes_inicio = date(hoy.year, hoy.month, 1)
-            periodo = st.selectbox("Período", [
+            _periodo_opts = [
                 "Este mes",
                 "Hoy", "Ayer",
                 "Últimos 7 días", "Últimos 30 días", "Últimos 60 días", "Últimos 90 días",
                 "Abril 2026", "Mayo 2026",
                 "2025 completo",
                 "Todos (desde 2024)",
-            ], index=0)
+            ]
+            _qp_load("f_periodo", "str")
+            if st.session_state.get("f_periodo") not in _periodo_opts:
+                st.session_state.pop("f_periodo", None)
+            periodo = st.selectbox("Período", _periodo_opts, key="f_periodo")
+            _qp_save("f_periodo", periodo, "str")
             mapa = {
                 "Este mes":        (mes_inicio, hoy),
                 "Hoy":             (hoy, hoy),
@@ -1707,32 +1748,45 @@ def main():
             else:
                 fi, ff = mapa.get(periodo, (mes_inicio, hoy))
         else:
-            fi = st.date_input("Desde", value=date(2026, 1, 1))
-            ff = st.date_input("Hasta",  value=date.today())
+            _qp_load("f_fi", "date")
+            _qp_load("f_ff", "date")
+            st.session_state.setdefault("f_fi", date(2026, 1, 1))
+            st.session_state.setdefault("f_ff", date.today())
+            fi = st.date_input("Desde", key="f_fi")
+            ff = st.date_input("Hasta", key="f_ff")
+            _qp_save("f_fi", fi, "date")
+            _qp_save("f_ff", ff, "date")
 
         st.markdown("---")
-        filtro_fuente = st.multiselect("Fuente de tráfico", options=[
+        _fuente_opts = [
             "Social pagado", "Búsqueda pagada", "Búsqueda orgánica",
             "Tráfico directo", "Otras campañas", "Redes sociales",
             "Offline", "Referencias", "Referral IA", "Email marketing", "Sin datos"
-        ])
+        ]
+        _qp_load("f_fuente", "multi")
+        filtro_fuente = st.multiselect("Fuente de tráfico", options=_fuente_opts, key="f_fuente")
+        _qp_save("f_fuente", filtro_fuente, "multi")
 
         st.markdown("---")
+        _qp_load("f_categoria", "multi")
         filtro_categoria = st.multiselect(
             "Tipo de contacto",
             options=_CATEGORIAS_OPTS,
             help="Filtra por el origen/tipo del contacto (captación, evento, compra, etc.)",
+            key="f_categoria",
         )
+        _qp_save("f_categoria", filtro_categoria, "multi")
 
         st.markdown("---")
+        _modcont_opts = ["Presencial", "Online", "Sin modalidad"]
+        _qp_load("f_modcont", "multi")
         filtro_modalidad_contacto = st.multiselect(
-            "Modalidad contacto",
-            options=["Presencial", "Online", "Sin modalidad"],
-        )
+            "Modalidad contacto", options=_modcont_opts, key="f_modcont")
+        _qp_save("f_modcont", filtro_modalidad_contacto, "multi")
+        _qp_load("f_modneg", "multi")
         filtro_modalidad_negocio = st.multiselect(
-            "Modalidad negocio",
-            options=["Presencial", "Online", "Sin modalidad"],
-        )
+            "Modalidad negocio", options=_modcont_opts, key="f_modneg")
+        _qp_save("f_modneg", filtro_modalidad_negocio, "multi")
 
         st.markdown("---")
         if st.button("🔄 Actualizar datos", use_container_width=True):
@@ -1806,7 +1860,11 @@ def main():
         paises_opts = sorted([p for p in paises_all if p not in ("Sin datos", "")])
         if "Sin datos" in paises_all:
             paises_opts.append("Sin datos")
-        filtro_pais = st.multiselect("País", options=paises_opts)
+        _qp_load("f_pais", "multi")
+        if "f_pais" in st.session_state:  # descartar países que ya no están en las opciones
+            st.session_state["f_pais"] = [p for p in st.session_state["f_pais"] if p in paises_opts]
+        filtro_pais = st.multiselect("País", options=paises_opts, key="f_pais")
+        _qp_save("f_pais", filtro_pais, "multi")
 
     # ── Aplicar filtros a los datasets de contactos ───────────────────────────
     def _apply(frame):
