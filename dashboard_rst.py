@@ -13,18 +13,32 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 import os
 import time
+import hashlib
 
 load_dotenv()
 
 # ── Autenticación por contraseña ──────────────────────────────────────────────
-def _check_password():
-    if st.session_state.get("autenticado"):
-        return True
+# La sesión se recuerda mediante un token en la URL (query param), que sobrevive
+# a reconexiones y reinicios del contenedor de Streamlit Cloud. Así no vuelve a
+# pedir contraseña cada pocos minutos (session_state se pierde en cada reconexión).
+def _token_for(pwd: str) -> str:
+    return hashlib.sha256(f"hofmann-crm-dashboard::{pwd}".encode()).hexdigest()[:32]
 
+
+def _check_password():
     try:
         pwd_correcta = st.secrets["APP_PASSWORD"]
     except Exception:
         pwd_correcta = os.getenv("APP_PASSWORD", "")
+    token_ok = _token_for(pwd_correcta) if pwd_correcta else ""
+
+    # Ya autenticado en esta sesión
+    if st.session_state.get("autenticado"):
+        return True
+    # Token válido en la URL → recuperar sesión sin pedir contraseña
+    if token_ok and st.query_params.get("k") == token_ok:
+        st.session_state["autenticado"] = True
+        return True
 
     st.markdown("""
     <div style="max-width:380px;margin:80px auto 0;text-align:center">
@@ -42,6 +56,9 @@ def _check_password():
         if st.button("Entrar", use_container_width=True, type="primary"):
             if pwd and pwd == pwd_correcta:
                 st.session_state["autenticado"] = True
+                # Persistir el acceso en la URL para que dure la sesión
+                if token_ok:
+                    st.query_params["k"] = token_ok
                 st.rerun()
             else:
                 st.error("Contraseña incorrecta")
