@@ -1,6 +1,28 @@
-# HubSpot CRM — Skillia
+# Dashboard CRM — Hofmann
 
-## Setup
+Dashboard en **Streamlit** sobre el CRM de HubSpot de Hofmann (contactos,
+pipeline de negocios, email marketing y analítica).
+
+## Despliegue
+
+| | |
+|---|---|
+| **Repositorio** | `WeRise-ESP/hofmann-crm-dashboard` (privado, rama `main`) |
+| **App en producción** | https://dahsboardhofmann.streamlit.app |
+| **Main file path** | `dashboard_rst.py` |
+
+**Actualizar la app = hacer `git push` a `main`.** Streamlit Cloud redespliega solo.
+
+`.streamlit/secrets.toml` **no está en el repo** (lo protege `.gitignore`); en
+producción vive en **App settings → Secrets**. La lista de quién puede ver el
+dashboard está en **App settings → Sharing** (vive en la app, no en el repo).
+
+> ⚠️ Esta carpeta contiene además **documentos de trabajo del cliente** (planes,
+> forecasts, informes y exportaciones con datos personales) que **no** forman
+> parte del repositorio. El `.gitignore` los excluye explícitamente: no los
+> añadas al control de versiones.
+
+## Setup local
 
 1. Copia tu nuevo token en `.env`:
 ```
