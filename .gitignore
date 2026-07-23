@@ -6,3 +6,24 @@ exports/
 .streamlit/secrets.toml
 .DS_Store
 .claude/
+
+# --- Documentos de trabajo del cliente (NO son parte del dashboard) ---
+# Viven en esta misma carpeta pero no deben subirse al repo compartido:
+# planes, forecasts, informes y exportaciones con datos personales.
+*.docx
+*.xlsx
+*.pptx
+*.csv
+Analisis-2027/
+CamEmailMundial/
+Influencers/
+Informe*/
+Landings-Nuevas/
+LandingsHubspot/
+REFORECAST/
+Scripts-PMAX/
+SISTEMA*UTMS/
+docx_gen/
+.devcontainer/
+# Repo anidado del dashboard de Ads (tiene su propio git)
+Dashboard/
