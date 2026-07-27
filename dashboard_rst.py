@@ -625,15 +625,27 @@ def clasificar_mercado_camp(nombre: str) -> str:
 
 _RE_CAMP_WEBINAR = re.compile(r"WEBINAR|OPEN\s*DAY|OPENDAY|PUERTAS\s*ABIERTAS|"
                               r"SESION\s*INFORMATIVA")
+# Campañas que por diseño no captan leads de formulario: tráfico, notoriedad,
+# vídeo. Nunca tendrán un utm_campaign en el CRM contra el que casar el gasto.
+_RE_CAMP_SIN_LEADS = re.compile(r"DEMAND\s*GEN|DEMANDGEN|TRAFICO|TRAFFIC|AWARENESS|"
+                                r"NOTORIEDAD|BRANDING|ALCANCE|COBERTURA|"
+                                r"VISUALIZACIONES|VIDEO\s*VIEWS")
 
 
 def es_campana_webinar(nombre: str) -> bool:
-    """Campañas de captación a webinar / open day.
-
-    Sus leads quedan fuera del análisis RST, así que su gasto también debe salir:
-    si no, infla el CPL y hunde el ROI del resto.
-    """
+    """Campañas de captación a webinar / open day."""
     return bool(_RE_CAMP_WEBINAR.search(_sin_acentos(nombre).upper()))
+
+
+def es_campana_no_captacion(nombre: str) -> bool:
+    """Campañas cuyo gasto no debe entrar en el análisis de captación RST.
+
+    Dos familias: las de webinar / open day, cuyos leads tampoco entran, y las de
+    tráfico o notoriedad, que no generan leads de formulario. Dejar su gasto
+    dentro infla el CPL y hunde el ROI de las que sí captan.
+    """
+    u = _sin_acentos(nombre).upper()
+    return bool(_RE_CAMP_WEBINAR.search(u) or _RE_CAMP_SIN_LEADS.search(u))
 
 
 def clasificar_modalidad_camp(nombre: str) -> str:
@@ -2784,12 +2796,12 @@ def main():
     _wb_con_matricula = set()
     if not df_pip_full.empty and {"campaña", "gano_periodo"} <= set(df_pip_full.columns):
         _wg = df_pip_full[df_pip_full["gano_periodo"]
-                          & df_pip_full["campaña"].fillna("").apply(es_campana_webinar)]
+                          & df_pip_full["campaña"].fillna("").apply(es_campana_no_captacion)]
         _wb_con_matricula = set(_wg["campaña"].dropna().astype(str).unique())
 
     def webinar_excluible(nombre: str) -> bool:
-        """Campaña de webinar / open day que NO ha generado ninguna matrícula."""
-        if not es_campana_webinar(nombre):
+        """Campaña fuera del análisis que además NO ha generado ninguna matrícula."""
+        if not es_campana_no_captacion(nombre):
             return False
         for _u in _wb_con_matricula:
             if _u == nombre or emparejar_campana(_u, [nombre]):
@@ -3510,9 +3522,10 @@ def main():
                     f"<div style='font-size:12.5px;color:{_RF['muted']};"
                     f"background:{_RF['line']};border-radius:8px;padding:9px 12px;"
                     f"margin:0 0 12px'>ℹ️ Se han excluido "
-                    f"<b style='color:{_RF['ink_soft']}'>{_fmt_eur(gasto_webinars)}</b> de "
-                    f"captación a webinar / open day ({len(camps_webinars)} campañas), porque "
-                    f"sus leads tampoco entran en este análisis. Las que sí han traído alguna "
+                    f"<b style='color:{_RF['ink_soft']}'>{_fmt_eur(gasto_webinars)}</b> en "
+                    f"{len(camps_webinars)} campañas que no son de captación RST —webinar, "
+                    f"open day, tráfico y notoriedad—: sus leads tampoco entran en el análisis "
+                    f"y contar su gasto inflaría el CPL del resto. Las que sí han traído alguna "
                     f"matrícula se mantienen dentro, con su gasto y sus leads.</div>", unsafe_allow_html=True)
 
             _g1, _g2, _g3 = st.columns(3)
