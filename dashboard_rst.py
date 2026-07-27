@@ -1058,6 +1058,100 @@ def fetch_pipeline(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+# ── Pipeline completo enriquecido con datos de contacto ───────────────────────
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_pipeline_full(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
+    """Todos los deals del pipeline (cualquier etapa) con fuente/campaña/país/programa del contacto."""
+    filters = [{"propertyName": "pipeline", "operator": "EQ", "value": PIPELINE_ID}]
+    if fecha_inicio != "todos":
+        fi_ts = int(datetime.fromisoformat(fecha_inicio).replace(tzinfo=timezone.utc).timestamp() * 1000)
+        ff_ts = int(datetime.fromisoformat(fecha_fin).replace(tzinfo=timezone.utc).timestamp() * 1000) + 86_400_000 - 1
+        filters += [
+            {"propertyName": "createdate", "operator": "GTE", "value": str(fi_ts)},
+            {"propertyName": "createdate", "operator": "LTE", "value": str(ff_ts)},
+        ]
+
+    deal_map, after = {}, None
+    while True:
+        payload = {
+            "filterGroups": [{"filters": filters}],
+            "properties": ["dealstage", "amount", "closedate", "createdate",
+                           "motivo_de_cierre_del_negocio", "modalidad"],
+            "limit": 100,
+        }
+        if after:
+            payload["after"] = after
+        data = _hs_search("/crm/v3/objects/deals/search", payload)
+        if not data:
+            break
+        for d in data.get("results", []):
+            p = d["properties"]
+            etapa = PIPELINE_STAGES.get(p.get("dealstage", ""), p.get("dealstage", ""))
+            deal_map[d["id"]] = {
+                "etapa":          etapa,
+                "amount":         float(p.get("amount") or 0),
+                "motivo_cierre":  (p.get("motivo_de_cierre_del_negocio") or "Sin especificar").strip(),
+                "modalidad":      (p.get("modalidad") or "Sin modalidad").strip().title(),
+                "fecha_cierre":   (p.get("closedate") or "")[:10],
+                "fecha_creacion": (p.get("createdate") or "")[:10],
+            }
+        pg = data.get("paging", {})
+        if not pg or "next" not in pg:
+            break
+        after = pg["next"]["after"]
+
+    if not deal_map:
+        return pd.DataFrame()
+
+    deal_ids = list(deal_map)
+    deal_to_contact = {}
+    for i in range(0, len(deal_ids), 100):
+        r = requests.post(f"{BASE}/crm/v4/associations/deals/contacts/batch/read",
+                          headers=HEADERS,
+                          json={"inputs": [{"id": d} for d in deal_ids[i:i+100]]},
+                          timeout=30)
+        if r.status_code == 200:
+            for item in r.json().get("results", []):
+                did = str(item.get("from", {}).get("id", ""))
+                tos = item.get("to", [])
+                if did and tos:
+                    deal_to_contact[did] = str(tos[0].get("toObjectId", ""))
+
+    contact_ids = list(set(deal_to_contact.values()))
+    contact_data = {}
+    for i in range(0, len(contact_ids), 100):
+        r = requests.post(f"{BASE}/crm/v3/objects/contacts/batch/read",
+                          headers=HEADERS,
+                          json={"inputs": [{"id": c} for c in contact_ids[i:i+100]],
+                                "properties": ["email", "hs_latest_source",
+                                               "hs_latest_source_data_1", "hs_latest_source_data_2",
+                                               "hs_analytics_source", "hs_analytics_source_data_1",
+                                               "ip_country", "pais_de_residencia", "country",
+                                               "curso", "modalidad_curso"]},
+                          timeout=30)
+        if r.status_code == 200:
+            for c in r.json().get("results", []):
+                p = c["properties"]
+                fuente, _ = resolve_fuente(p)
+                contact_data[c["id"]] = {
+                    "fuente":   fuente,
+                    "campaña":  (p.get("hs_latest_source_data_1") or "Sin campaña").strip() or "Sin campaña",
+                    "pais":     resolve_pais(p),
+                    "programa": CURSO_LABELS.get(p.get("curso") or "",
+                                    (p.get("curso") or "Sin programa").strip()) or "Sin programa",
+                    "email":    (p.get("email") or "").lower().strip(),
+                }
+
+    rows = []
+    for did, info in deal_map.items():
+        cnt = contact_data.get(deal_to_contact.get(did, ""),
+                               {"fuente": "Sin datos", "campaña": "Sin campaña",
+                                "pais": "Sin datos", "programa": "Sin programa", "email": ""})
+        rows.append({**info, "deal_id": did, **cnt})
+
+    return pd.DataFrame(rows)
+
+
 # ── Email Marketing fetch ─────────────────────────────────────────────────────
 
 @st.cache_data(ttl=600, show_spinner=False)
@@ -1990,17 +2084,19 @@ def main():
 
     # ── Carga en paralelo ──────────────────────────────────────────────────────
     with st.spinner("Cargando datos de HubSpot..."):
-        with ThreadPoolExecutor(max_workers=6) as ex:
+        with ThreadPoolExecutor(max_workers=7) as ex:
             fut_data     = ex.submit(fetch_data,               str(fi), str(ff))
             fut_mat      = ex.submit(fetch_matriculados_total,  str(fi), str(ff))
             fut_deals    = ex.submit(fetch_negocios_cerrados,   str(fi), str(ff))
             fut_pipeline = ex.submit(fetch_pipeline,            str(fi), str(ff))
+            fut_pip_full = ex.submit(fetch_pipeline_full,       str(fi), str(ff))
             fut_emails   = ex.submit(fetch_emails_enviados,     str(fi), str(ff))
             fut_prog     = ex.submit(fetch_emails_programados)
         df           = fut_data.result()
         df_mat_all   = fut_mat.result()
         df_deals     = fut_deals.result()
         df_pipeline  = fut_pipeline.result()
+        df_pip_full  = fut_pip_full.result()
         df_emails    = fut_emails.result()
         df_prog      = fut_prog.result()
 
@@ -2117,7 +2213,268 @@ def main():
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    tab_rst, tab_campana = st.tabs(["📊 RST Dashboard", "📍 Leads por Campaña"])
+    tab_roi, tab_rst, tab_campana = st.tabs(["💰 Análisis ROI & Inversión", "📊 RST Dashboard", "📍 Leads por Campaña"])
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # TAB ROI — Análisis ROI & Inversión
+    # ══════════════════════════════════════════════════════════════════════════
+    with tab_roi:
+        st.markdown(f"""
+        <div style="background:linear-gradient(135deg,{BARCA['blue_ink']} 0%,{BARCA['blue_deep']} 100%);
+                    border-radius:12px;padding:24px 28px;margin-bottom:24px;
+                    border-left:5px solid {BARCA['gold']}">
+            <h1 style="color:{BARCA['white']};margin:0;font-size:22px;font-weight:800">
+                💰 Análisis ROI & Inversión — {ACCOUNT_NAME}
+            </h1>
+            <p style="color:{BARCA['line']};margin:6px 0 0;font-size:13px">
+                Embudo completo · Inversión → Lead → Entrevista → Inscripción → Matrícula
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # ── Nota sobre inversión publicitaria ─────────────────────────────────
+        st.info("💡 **Inversión publicitaria**: introduce el gasto por canal en la columna Inversión (€). "
+                "Para conectar Google Ads y Meta Ads automáticamente, añade las credenciales de Ads "
+                "en los secrets de Streamlit Cloud (mismas que en el dashboard de Ads).")
+
+        # ── Selectores de dimensión y cruce ───────────────────────────────────
+        r1c1, r1c2, r1c3, r1c4, r1c5 = st.columns([1.2, 1, 1, 1, 1])
+        with r1c1:
+            dim_sel = st.radio("Agrupar por", ["Fuente", "Campaña", "País", "Producto"],
+                               horizontal=True, key="roi_dim")
+        dim_col = {"Fuente": "fuente", "Campaña": "campaña",
+                   "País": "pais", "Producto": "programa"}[dim_sel]
+
+        # Filtros de cruce — solo aparecen cuando no son la dimensión principal
+        _df_leads_base = df.copy() if not df.empty else pd.DataFrame()
+        _df_pip_base   = df_pip_full.copy() if not df_pip_full.empty else pd.DataFrame()
+
+        if not _df_leads_base.empty:
+            # Añadir columna 'campaña' a df leads (= fuente_reciente_d1)
+            _df_leads_base["campaña"] = _df_leads_base["fuente_reciente_d1"].replace("", "Sin campaña").fillna("Sin campaña")
+
+        # Cruce: fuente
+        if dim_sel != "Fuente":
+            _opts_fuente = ["Todas"] + sorted((_df_leads_base["fuente"].dropna().unique().tolist()
+                                               if not _df_leads_base.empty else []))
+            with r1c2:
+                _fil_fuente = st.selectbox("Fuente", _opts_fuente, key="roi_fuente")
+            if _fil_fuente != "Todas":
+                _df_leads_base = _df_leads_base[_df_leads_base["fuente"] == _fil_fuente] if not _df_leads_base.empty else _df_leads_base
+                _df_pip_base   = _df_pip_base[_df_pip_base["fuente"] == _fil_fuente]   if not _df_pip_base.empty else _df_pip_base
+
+        # Cruce: campaña
+        if dim_sel != "Campaña":
+            _opts_camp = ["Todas"] + sorted((_df_leads_base["campaña"].dropna().unique().tolist()
+                                              if not _df_leads_base.empty else []))
+            with r1c3:
+                _fil_camp = st.selectbox("Campaña", _opts_camp, key="roi_camp")
+            if _fil_camp != "Todas":
+                _df_leads_base = _df_leads_base[_df_leads_base["campaña"] == _fil_camp] if not _df_leads_base.empty else _df_leads_base
+                _df_pip_base   = _df_pip_base[_df_pip_base["campaña"] == _fil_camp]   if not _df_pip_base.empty else _df_pip_base
+
+        # Cruce: país
+        if dim_sel != "País":
+            _opts_pais = ["Todos"] + sorted((_df_leads_base["pais"].dropna().unique().tolist()
+                                              if not _df_leads_base.empty else []))
+            with r1c4:
+                _fil_pais = st.selectbox("País", _opts_pais, key="roi_pais")
+            if _fil_pais != "Todos":
+                _df_leads_base = _df_leads_base[_df_leads_base["pais"] == _fil_pais] if not _df_leads_base.empty else _df_leads_base
+                _df_pip_base   = _df_pip_base[_df_pip_base["pais"] == _fil_pais]   if not _df_pip_base.empty else _df_pip_base
+
+        # Cruce: producto
+        if dim_sel != "Producto":
+            _opts_prog = ["Todos"] + sorted((_df_leads_base["programa"].dropna().unique().tolist()
+                                              if not _df_leads_base.empty else []))
+            with r1c5:
+                _fil_prog = st.selectbox("Producto", _opts_prog, key="roi_prog")
+            if _fil_prog != "Todos":
+                _df_leads_base = _df_leads_base[_df_leads_base["programa"] == _fil_prog] if not _df_leads_base.empty else _df_leads_base
+                _df_pip_base   = _df_pip_base[_df_pip_base["programa"] == _fil_prog]   if not _df_pip_base.empty else _df_pip_base
+
+        st.divider()
+
+        # ── Construir tabla ROI ───────────────────────────────────────────────
+        if _df_leads_base.empty and _df_pip_base.empty:
+            st.info("No hay datos para los filtros seleccionados.")
+        else:
+            # Paso 1: leads por dimensión
+            if not _df_leads_base.empty:
+                _grp_leads = _df_leads_base.groupby(dim_col).agg(
+                    Leads=("email", "count"),
+                    Cualificados=(dim_col, lambda x: (_df_leads_base.loc[x.index, "lead_valido"] == "Válido").sum()),
+                ).reset_index().rename(columns={dim_col: "_dim"})
+            else:
+                _grp_leads = pd.DataFrame(columns=["_dim", "Leads", "Cualificados"])
+
+            # Paso 2: deals por dimensión × etapa (conteo de deals únicos)
+            _ETAPAS_ROI = {
+                "Entrevista":   ["Entrevista Realizada", "Concertado", "Contacto Inicial"],
+                "Envío Insc.":  ["Envío de Inscripción", "Estudio Financiación",
+                                  "Pendiente Transferencia"],
+                "Cierre Ganado": ["Cierre Ganado", "Cierre Ganado (histórico)"],
+                "Ilocalizado":  ["Ilocalizado"],
+                "No presenta":  ["No se presenta"],
+                "Perdido":      ["Cierre Perdido"],
+            }
+
+            if not _df_pip_base.empty:
+                _pip_dim = _df_pip_base.copy()
+                _pip_dim["_dim"] = _pip_dim[dim_col]
+                _grp_pip_rows = []
+                for _dim_val in _pip_dim["_dim"].unique():
+                    _sub = _pip_dim[_pip_dim["_dim"] == _dim_val]
+                    row = {"_dim": _dim_val}
+                    for col_label, etapas in _ETAPAS_ROI.items():
+                        row[col_label] = _sub[_sub["etapa"].isin(etapas)]["deal_id"].nunique()
+                    row["Facturado"] = _sub[_sub["etapa"].isin(["Cierre Ganado", "Cierre Ganado (histórico)"])]["amount"].sum()
+                    # Motivos de cierre (top 3 para display)
+                    _perdidos_sub = _sub[_sub["etapa"] == "Cierre Perdido"]
+                    if not _perdidos_sub.empty:
+                        _top_mot = _perdidos_sub["motivo_cierre"].value_counts().head(3)
+                        row["_motivos"] = " | ".join([f"{m}({n})" for m, n in _top_mot.items()])
+                    else:
+                        row["_motivos"] = ""
+                    _grp_pip_rows.append(row)
+                _grp_pip = pd.DataFrame(_grp_pip_rows)
+            else:
+                _grp_pip = pd.DataFrame(columns=["_dim"] + list(_ETAPAS_ROI.keys()) + ["Facturado", "_motivos"])
+
+            # Paso 3: join leads + pipeline
+            _tbl = _grp_leads.merge(_grp_pip, on="_dim", how="outer").fillna(0)
+            _tbl["_dim"] = _tbl["_dim"].astype(str)
+            _tbl = _tbl[_tbl["_dim"] != "0"].copy()
+
+            # Paso 4: input manual de inversión por fila
+            st.markdown("#### 📋 Tabla ROI por " + dim_sel)
+            st.caption("Introduce la inversión (€) por fila. Las métricas de conversión y ROI se calculan automáticamente.")
+
+            # Inicializar inversión en session_state
+            _inv_key = f"roi_inv_{dim_sel}"
+            if _inv_key not in st.session_state:
+                st.session_state[_inv_key] = {}
+
+            # Columnas de la tabla mostrada
+            _display_rows = []
+            for _, row in _tbl.iterrows():
+                dim_val    = str(row["_dim"])
+                leads      = int(row.get("Leads", 0))
+                cualif     = int(row.get("Cualificados", 0))
+                entrev     = int(row.get("Entrevista", 0))
+                envio      = int(row.get("Envío Insc.", 0))
+                ganado     = int(row.get("Cierre Ganado", 0))
+                facturado  = float(row.get("Facturado", 0))
+                ilocaliz   = int(row.get("Ilocalizado", 0))
+                no_pres    = int(row.get("No presenta", 0))
+                perdido    = int(row.get("Perdido", 0))
+                motivos    = str(row.get("_motivos", ""))
+
+                inversion  = st.session_state[_inv_key].get(dim_val, 0.0)
+                cpl        = round(inversion / cualif, 2) if cualif > 0 and inversion > 0 else 0
+                roi_pct    = round((facturado - inversion) / inversion * 100, 1) if inversion > 0 else None
+
+                _display_rows.append({
+                    dim_sel:              dim_val,
+                    "Inversión €":        inversion,
+                    "CPL €":             cpl,
+                    "Leads cualif.":      cualif,
+                    "Entrevistas":        entrev,
+                    "% Entrevista":       f"{entrev/cualif*100:.0f}%" if cualif > 0 else "—",
+                    "Envío Inscripción":  envio,
+                    "% Envío":           f"{envio/cualif*100:.0f}%" if cualif > 0 else "—",
+                    "Cierre Ganado":      ganado,
+                    "% Ganado":          f"{ganado/cualif*100:.0f}%" if cualif > 0 else "—",
+                    "Facturado €":        round(facturado, 2),
+                    "ROI %":             f"{roi_pct:.0f}%" if roi_pct is not None else "—",
+                    "Ilocalizados":       ilocaliz,
+                    "No presenta":        no_pres,
+                    "Perdidos":           perdido,
+                    "Motivos cierre":     motivos,
+                })
+
+            _df_display = pd.DataFrame(_display_rows).sort_values("Leads cualif.", ascending=False)
+
+            st.dataframe(
+                _df_display,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Inversión €":      st.column_config.NumberColumn("Inversión €", format="€ %.2f", width="small"),
+                    "CPL €":           st.column_config.NumberColumn("CPL €",       format="€ %.2f", width="small"),
+                    "Leads cualif.":   st.column_config.NumberColumn(width="small"),
+                    "Entrevistas":     st.column_config.NumberColumn(width="small"),
+                    "% Entrevista":    st.column_config.TextColumn(width="small"),
+                    "Envío Inscripción": st.column_config.NumberColumn(width="small"),
+                    "% Envío":         st.column_config.TextColumn(width="small"),
+                    "Cierre Ganado":   st.column_config.NumberColumn(width="small"),
+                    "% Ganado":        st.column_config.TextColumn(width="small"),
+                    "Facturado €":     st.column_config.NumberColumn("Facturado €", format="€ %.0f", width="small"),
+                    "ROI %":           st.column_config.TextColumn(width="small"),
+                    "Ilocalizados":    st.column_config.NumberColumn(width="small"),
+                    "No presenta":     st.column_config.NumberColumn(width="small"),
+                    "Perdidos":        st.column_config.NumberColumn(width="small"),
+                    "Motivos cierre":  st.column_config.TextColumn(width="large"),
+                },
+            )
+
+            # ── Editor de inversión ───────────────────────────────────────────
+            st.markdown("#### ✏️ Introducir inversión publicitaria por " + dim_sel)
+            st.caption("Introduce el gasto de Ads del período para cada canal/campaña. Se usa para calcular CPL y ROI.")
+
+            _dim_opts = sorted(_tbl["_dim"].unique().tolist())
+            _inv_col1, _inv_col2, _inv_col3 = st.columns([2, 1, 1])
+            with _inv_col1:
+                _sel_dim_inv = st.selectbox(f"Selecciona {dim_sel}", _dim_opts, key="roi_inv_sel")
+            with _inv_col2:
+                _inv_val = st.number_input("Inversión (€)", min_value=0.0, step=100.0,
+                                           value=float(st.session_state[_inv_key].get(_sel_dim_inv, 0.0)),
+                                           key="roi_inv_val")
+            with _inv_col3:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if st.button("💾 Guardar", key="roi_inv_save"):
+                    st.session_state[_inv_key][_sel_dim_inv] = _inv_val
+                    st.rerun()
+
+            # ── KPIs resumen ──────────────────────────────────────────────────
+            st.divider()
+            st.markdown("#### 📊 Resumen del período")
+            _tot_leads    = int(_tbl["Leads"].sum()) if "Leads" in _tbl else 0
+            _tot_cualif   = int(_tbl["Cualificados"].sum()) if "Cualificados" in _tbl else 0
+            _tot_ganados  = int(_tbl.get("Cierre Ganado", pd.Series([0])).sum())
+            _tot_factur   = float(_tbl.get("Facturado", pd.Series([0.0])).sum())
+            _tot_inv      = sum(st.session_state[_inv_key].values())
+            _tot_roi      = round((_tot_factur - _tot_inv) / _tot_inv * 100, 1) if _tot_inv > 0 else None
+            _tot_cpl      = round(_tot_inv / _tot_cualif, 2) if _tot_cualif > 0 and _tot_inv > 0 else None
+
+            k1, k2, k3, k4, k5, k6 = st.columns(6)
+            kpi_card(k1, "Leads totales",      f"{_tot_leads:,}",        BARCA["blue"])
+            kpi_card(k2, "Leads cualificados", f"{_tot_cualif:,}",       BARCA["blue_deep"])
+            kpi_card(k3, "Cierres ganados",    f"{_tot_ganados:,}",      BARCA["gold"])
+            kpi_card(k4, "Facturado",          f"€ {_tot_factur:,.0f}",  BARCA["garnet"])
+            kpi_card(k5, "Inversión Ads",      f"€ {_tot_inv:,.0f}",     BARCA["ink60"])
+            kpi_card(k6, "ROI global",
+                     f"{_tot_roi:.0f}%" if _tot_roi is not None else "—",
+                     BARCA["gold"] if (_tot_roi or 0) > 0 else BARCA["garnet_deep"])
+
+            # ── Motivos de cierre detalle ─────────────────────────────────────
+            st.divider()
+            st.markdown("#### ❌ Motivos de cierre perdido")
+            if not _df_pip_base.empty:
+                _mot_df = (_df_pip_base[_df_pip_base["etapa"] == "Cierre Perdido"]
+                           .groupby("motivo_cierre")
+                           .agg(n=("deal_id", "nunique"))
+                           .reset_index()
+                           .sort_values("n", ascending=False))
+                if not _mot_df.empty:
+                    _mot_df["% del total"] = (_mot_df["n"] / _mot_df["n"].sum() * 100).round(1)
+                    _mot_df = _mot_df.rename(columns={"motivo_cierre": "Motivo", "n": "Deals"})
+                    st.dataframe(_mot_df, use_container_width=True, hide_index=True,
+                                 column_config={"% del total": st.column_config.NumberColumn(format="%.1f%%")})
+                else:
+                    st.info("No hay deals perdidos en el período.")
+            else:
+                st.info("No hay datos de pipeline para el período.")
 
     with tab_rst:
         # ── Secciones que dependen de df (leads) ──────────────────────────────────
