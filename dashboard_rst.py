@@ -766,6 +766,17 @@ def _modalidad_explicita(nombre: str):
     return None
 
 
+# UTM rotas cuya campaña ha confirmado el equipo. Se usan solo si esa campaña
+# sigue existiendo en la plataforma, así que dejan de aplicarse solas cuando la
+# campaña deja de emitir. Caso de julio 2026: el macro de TikTok no se sustituía
+# y varios contactos entraron con el texto literal "__campaign_name__"; la URL ya
+# está corregida, pero HubSpot no reescribe el origen de los contactos creados
+# antes del arreglo.
+_ALIAS_UTM = {
+    ("TikTok Ads", "__campaign_name__"): "NAC_Presencial_Cursos_Cocina",
+}
+
+
 def emparejar_campana(nombre_hs: str, candidatos) -> str:
     """Campaña de Ads que corresponde a un utm_campaign, o "" si es ambigua."""
     if not nombre_hs or nombre_hs == "Sin campaña":
@@ -4003,11 +4014,19 @@ def main():
             for _c in sorted({k[_idx] for k in _all_keys}):
                 _ps = _plats_camp.get(_c) or list(_pools)
                 _hechas = []
-                # 1º por la utm_campaign que declara la propia plataforma
-                _exacta = _utm_decl.get(str(_c).strip().lower())
+                # 1º alias confirmado · 2º utm declarada por la plataforma ·
+                # 3º parecido de nombre
+                _cl = str(_c).strip().lower()
+                _exacta = _utm_decl.get(_cl)
                 for _p in _ps:
-                    _m = (_exacta if _exacta in _pools.get(_p, {})
-                          else emparejar_campana(_c, list(_pools.get(_p, {}))))
+                    _pool_p = _pools.get(_p, {})
+                    _ali = _ALIAS_UTM.get((_p, _cl))
+                    if _ali and _ali in _pool_p:
+                        _m = _ali
+                    elif _exacta in _pool_p:
+                        _m = _exacta
+                    else:
+                        _m = emparejar_campana(_c, list(_pool_p))
                     if _m:
                         _map_camp[(_c, _p)] = _m
                         _hechas.append((_p, _m))
