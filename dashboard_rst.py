@@ -18,6 +18,7 @@ import hashlib
 import json
 import re
 import unicodedata
+from difflib import SequenceMatcher
 
 load_dotenv()
 
@@ -624,6 +625,102 @@ def clave_campana(nombre: str) -> str:
         return ""
     return clasificar_mercado_camp(nombre) + "|" + "-".join(sorted(toks))
 
+
+# ── Emparejador de campañas Ads ↔ UTM de HubSpot ──────────────────────────────
+# El nombre en el panel de anuncios y el utm_campaign que llega a HubSpot casi
+# nunca son idénticos:
+#   Google  "PMAX - Diploma de Cocina - ES"        ↔  "pmax_nac_diploma_cocina"
+#   Meta    "LAT_Maestría_Online_Gestión_Vinícola" ↔  "lat_maestria_online_vinos_video"
+# Se comparan por tokens, ignorando plataforma, mercado y sufijos de variante
+# creativa (_video, _sinconv, _v2…), y exigiendo que el mejor candidato gane al
+# segundo por un margen. Así una campaña ambigua se queda sin emparejar en vez
+# de atribuirse mal: es preferible avisar del gasto suelto que repartirlo torcido.
+# Umbral y margen calibrados contra las 38 campañas de Meta y 21 de Google reales.
+_UMBRAL_MATCH = 0.60
+_MARGEN_MATCH = 0.05
+
+# Ruido: plataforma, mercado, relleno y sufijos de variante creativa
+_STOP_MATCH = _STOP_CAMP | {
+    "LEAD", "LEADS", "VIDEO", "IMAGEN", "CONVERS", "CONVERSION", "CONV", "SINCONV", "SINCONVO",
+    "NOCONV", "INTERESES", "INTERES", "PROFESIONAL", "PROFESIONALES",
+    "ESPECIALIZACION", "V2", "V3", "V4", "V5", "V6", "CAMPAIGN", "NAME",
+    "TRAFICO", "DEMANDGEN", "SRCH",
+}
+
+# Variantes que designan el mismo producto
+_SINON_MATCH = {
+    "VINOS": "VINO", "VINO": "VINO", "VINICOLA": "VINO", "VINICOLAS": "VINO",
+    "MAESTRIA": "MASTER", "MAESTRIAS": "MASTER", "MASTER": "MASTER",
+    "MASTERS": "MASTER",
+    "CULINARY": "COCINA", "COCINA": "COCINA", "COCINAS": "COCINA",
+    "SUMMER": "VERANO", "VERANO": "VERANO",
+    "COURSE": "CURSO", "CURSO": "CURSO", "CURSOS": "CURSO",
+    "ENGLISH": "INGLES", "INGLES": "INGLES",
+}
+
+
+def _toks_match(nombre: str) -> list:
+    u = _sin_acentos(nombre).upper()
+    out = []
+    for t in re.split(r"[^A-Z0-9]+", u):
+        if not t:
+            continue
+        t = re.sub(r"V\d+$", "", t)              # experiencev2 → experience
+        if t and t not in _STOP_MATCH and len(t) > 1:
+            out.append(_SINON_MATCH.get(t, t))
+    return out
+
+
+def _tok_equiv(a: str, b: str) -> bool:
+    """Dos tokens designan lo mismo si comparten raíz larga o se parecen mucho."""
+    if a == b:
+        return True
+    n = min(len(a), len(b))
+    if n >= 5 and a[:5] == b[:5]:                # DIRECCION / DIRECCIONES
+        return True
+    if n >= 4 and a[:4] == b[:4] and SequenceMatcher(None, a, b).ratio() >= .6:
+        return True
+    return SequenceMatcher(None, a, b).ratio() >= .85
+
+
+def _score_match(a: str, b: str) -> float:
+    ta, tb = _toks_match(a), _toks_match(b)
+    if not ta or not tb:
+        return 0.0
+    usados, comunes = set(), 0
+    for x in ta:
+        for j, y in enumerate(tb):
+            if j not in usados and _tok_equiv(x, y):
+                usados.add(j)
+                comunes += 1
+                break
+    return comunes / max(len(ta), len(tb))
+
+
+def emparejar_campana(nombre_hs: str, candidatos) -> str:
+    """Campaña de Ads que corresponde a un utm_campaign, o "" si es ambigua."""
+    if not nombre_hs or nombre_hs == "Sin campaña":
+        return ""
+    m  = clasificar_mercado_camp(nombre_hs)
+    md = clasificar_modalidad_camp(nombre_hs)
+    puntuadas = []
+    for c in candidatos:
+        mc = clasificar_mercado_camp(c)
+        if mc != "—" and m != "—" and mc != m:       # mercados incompatibles
+            continue
+        # Un producto Online y uno Presencial nunca son la misma campaña
+        mdc = clasificar_modalidad_camp(c)
+        if "Sin asignar" not in (md, mdc) and mdc != md:
+            continue
+        puntuadas.append((_score_match(nombre_hs, c), c))
+    if not puntuadas:
+        return ""
+    puntuadas.sort(key=lambda t: (-t[0], t[1]))
+    mejor, cand = puntuadas[0]
+    segunda = puntuadas[1][0] if len(puntuadas) > 1 else 0.0
+    if mejor >= _UMBRAL_MATCH and (mejor - segunda) >= _MARGEN_MATCH:
+        return cand
+    return ""
 
 def resolve_mercado(pais: str) -> str:
     p = pais.lower().strip()
@@ -3525,49 +3622,73 @@ def main():
         def _sk_de(key):
             return key[0] if len(key) == 1 else " | ".join(key)
 
+        _n_casadas = _n_ads_camps = 0
+        _diag_map, _gasto_ads, _map_camp = [], {}, {}
         if "campaña" in _gcols:
-            # El nombre en Google Ads ("PMAX - Diploma de Cocina - ES") no coincide
-            # literalmente con el de la UTM ("pmax_nac_diploma_cocina"): se casan por
-            # clave canónica (mercado + tokens de producto).
-            _gasto_clave = {}
-            for _d, _ in _srcs:
-                if _d.empty or "clave_camp" not in _d.columns:
-                    continue
-                for _k, _g in _d.groupby("clave_camp")["gasto"].sum().items():
-                    if _k:
-                        _gasto_clave[_k] = _gasto_clave.get(_k, 0.0) + float(_g)
+            # Gasto por campaña, separado por tipo de plataforma: las campañas de
+            # búsqueda y de social comparten producto (hay un "Diploma de Pastelería"
+            # en Google y otro en Meta), así que mezclarlas produciría empates.
+            def _gasto_de(dfs):
+                out = {}
+                for _d in dfs:
+                    if _d.empty or "campaña" not in _d.columns:
+                        continue
+                    for _c, _g in _d.groupby("campaña")["gasto"].sum().items():
+                        if _c:
+                            out[str(_c)] = out.get(str(_c), 0.0) + float(_g)
+                return out
+
+            _g_search = _gasto_de([df_google])
+            _g_social = _gasto_de([df_meta, df_linkedin, df_tiktok])
+            _gasto_ads = {**_g_search, **_g_social}
+            _n_ads_camps = len(_gasto_ads)
+
+            # Fuente dominante de cada campaña de HubSpot, para elegir el conjunto
+            # de candidatos correcto.
+            _fuente_camp = {}
+            if not _ml.empty and "campaña" in _ml.columns:
+                _fuente_camp = (_ml.groupby("campaña")["fuente"]
+                                   .agg(lambda s: s.value_counts().idxmax()).to_dict())
 
             _idx = _gcols.index("campaña")
-            _gasto_camp, _usadas = {}, set()
-            for _key in _all_keys:
-                _c = _key[_idx]
-                if _c in _gasto_camp:
-                    continue
-                _k = clave_campana(_c)
-                if _k and _k in _gasto_clave:
-                    _gasto_camp[_c] = _gasto_clave[_k]
-                    _usadas.add(_k)
-            _sin_casar = sum(g for k, g in _gasto_clave.items() if k not in _usadas)
+            _map_camp, _diag_map = {}, []
+            for _c in sorted({k[_idx] for k in _all_keys}):
+                _f = _fuente_camp.get(_c, "")
+                if _f == "Búsqueda pagada":
+                    _cands, _pool = list(_g_search), "Google"
+                elif _f == "Social pagado":
+                    _cands, _pool = list(_g_social), "Social"
+                else:
+                    _cands, _pool = list(_gasto_ads), "todas"
+                _m = emparejar_campana(_c, _cands)
+                if _m:
+                    _map_camp[_c] = _m
+                _diag_map.append((_c, _f or "—", _pool, _m or ""))
+            _n_casadas = len(set(_map_camp.values()))
+            _sin_casar = sum(g for c, g in _gasto_ads.items()
+                             if c not in set(_map_camp.values()))
 
-            # Si una campaña aparece en varias filas (p. ej. agrupando también por
-            # país), su gasto se reparte proporcionalmente a los leads de cada fila
-            # para no contarlo dos veces.
-            _leads_camp = {}
+            # Una campaña de Ads suele generar varias UTM (_video, _sinconv, _v2…) y
+            # además cada UTM puede caer en varias filas si se agrupa por dos
+            # dimensiones. El gasto se reparte proporcionalmente a los leads de cada
+            # fila entre todo lo que apunta a esa campaña, para no contarlo dos veces.
+            _leads_ads, _filas_ads = {}, {}
             for _key in _all_keys:
-                _c = _key[_idx]
-                _leads_camp[_c] = _leads_camp.get(_c, 0) + _cual_key[_key]
-            _filas_camp = {}
+                _a = _map_camp.get(_key[_idx])
+                if not _a:
+                    continue
+                _leads_ads[_a] = _leads_ads.get(_a, 0) + _cual_key[_key]
+                _filas_ads[_a] = _filas_ads.get(_a, 0) + 1
             for _key in _all_keys:
-                _c = _key[_idx]
-                _filas_camp[_c] = _filas_camp.get(_c, 0) + 1
-            for _key in _all_keys:
-                _c = _key[_idx]
-                _g = _gasto_camp.get(_c, 0.0)
+                _a = _map_camp.get(_key[_idx])
+                if not _a:
+                    continue
+                _g = _gasto_ads.get(_a, 0.0)
                 if not _g:
                     continue
-                _tl = _leads_camp.get(_c, 0)
+                _tl = _leads_ads.get(_a, 0)
                 _spend[_sk_de(_key)] = (_g * _cual_key[_key] / _tl) if _tl \
-                                       else (_g / max(_filas_camp.get(_c, 1), 1))
+                                       else (_g / max(_filas_ads.get(_a, 1), 1))
         elif _gcols == ["fuente"]:
             for _d, _lbl in _srcs:
                 if not _d.empty and "gasto" in _d.columns:
@@ -3638,12 +3759,21 @@ def main():
         _t_roi  = ((_t_fact - _t_inv) / _t_inv * 100) if _t_inv else None
 
         _aviso = ""
-        if _sin_casar:
+        if "campaña" in _gcols and _n_ads_camps:
+            _ok = (f"<div style='font-size:12.5px;color:#1E7A4F;margin:0 0 10px'>"
+                   f"✅ {_n_casadas} de {_n_ads_camps} campañas de Ads emparejadas "
+                   f"automáticamente con su utm_campaign de HubSpot.</div>")
+            _aviso = _ok
+            if _sin_casar:
+                _aviso += (f"<div style='font-size:12.5px;color:#B32B45;margin:0 0 10px'>"
+                           f"⚠️ {_fmt_eur(_sin_casar)} en campañas que no se han podido "
+                           f"emparejar sin ambigüedad. No se reparten en las filas —es "
+                           f"preferible avisar que atribuirlas mal—: ajústalas con el "
+                           f"editor de abajo o alinea el nombre del anuncio con la UTM."
+                           f"</div>")
+        elif _sin_casar:
             _aviso = (f"<div style='font-size:12.5px;color:#B32B45;margin:0 0 10px'>"
-                      f"⚠️ {_fmt_eur(_sin_casar)} de inversión en campañas de Ads que no "
-                      f"se han podido casar con ninguna campaña de HubSpot (el nombre no "
-                      f"coincide ni por nomenclatura). No están repartidos en las filas: "
-                      f"revísalos con el editor de abajo.</div>")
+                      f"⚠️ {_fmt_eur(_sin_casar)} de inversión sin repartir.</div>")
         _card(
             f"<div style='font-size:12.5px;color:{_RF['muted']};margin:0 0 10px'>"
             f"Las columnas de <b style='color:{_RF['ink_soft']}'>%</b> son conversión "
@@ -3684,6 +3814,38 @@ def main():
                              help="Volver al valor automático de las APIs de Ads"):
                     del st.session_state[_inv_key][_sel]
                     st.rerun()
+
+        # ── Panel auditable del emparejamiento ────────────────────────────────
+        if _diag_map:
+            _cas = [d for d in _diag_map if d[3]]
+            _no  = [d for d in _diag_map if not d[3]]
+            with st.expander(f"🔗 Emparejamiento de campañas · {len(_cas)} de "
+                             f"{len(_diag_map)} con inversión asignada"):
+                st.caption("Cómo se ha casado cada utm_campaign de HubSpot con la campaña "
+                           "real del panel de anuncios. Se exige que el mejor candidato gane "
+                           "al segundo por un margen: si hay empate se deja sin asignar en "
+                           "vez de atribuir el gasto a la campaña equivocada.")
+                if _cas:
+                    st.markdown(_table(
+                        [("Campaña en HubSpot (utm)", "left"), ("Fuente", "left"),
+                         ("Campaña en el panel de Ads", "left"), ("Gasto", "right")],
+                        [[c, f, f"<b>{m}</b>", _fmt_eur(_gasto_ads.get(m, 0.0))]
+                         for c, f, _p, m in _cas]), unsafe_allow_html=True)
+                _huerf = sorted(((g, c) for c, g in _gasto_ads.items()
+                                 if c not in set(_map_camp.values())), reverse=True)
+                if _huerf:
+                    st.markdown("**Campañas de Ads sin pareja en HubSpot**")
+                    st.markdown(_table(
+                        [("Campaña en el panel de Ads", "left"), ("Gasto sin repartir", "right")],
+                        [[c, _fmt_eur(g)] for g, c in _huerf]), unsafe_allow_html=True)
+                if _no:
+                    st.markdown("**UTM de HubSpot sin campaña de Ads equivalente**")
+                    st.caption("Suelen ser tráfico no pagado, campañas renombradas en el "
+                               "panel o nombres ambiguos entre dos campañas.")
+                    st.markdown(_table(
+                        [("Campaña en HubSpot (utm)", "left"), ("Fuente", "left"),
+                         ("Candidatos consultados", "left")],
+                        [[c, f, _p] for c, f, _p, _ in _no]), unsafe_allow_html=True)
 
         # CSV en texto plano (sin HTML)
         import re as _re
