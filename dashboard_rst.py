@@ -3209,32 +3209,6 @@ def main():
                     f"LAT/LATAM → LATAM) · CPL calculado sobre los leads del CRM.</div>",
                     unsafe_allow_html=True)
 
-        # ── Detalle de campaña por canal ──────────────────────────────────────
-        if _n_leads:
-            _cd = _lv.copy()
-            _cd["detalle"] = (_cd["campana"].replace(
-                                  {"": pd.NA, "Sin campaña": pd.NA})
-                              .fillna(_cd["campana_reciente"].replace(
-                                  {"": pd.NA, "Sin campaña": pd.NA}))
-                              .fillna("(sin campaña)"))
-            _cdg = (_cd.groupby(["fuente", "detalle"]).size().reset_index(name="leads")
-                       .sort_values("leads", ascending=False))
-            _cdg["merc"] = _cdg["detalle"].apply(_mercado_from_name)
-            _cdg["pct"]  = _cdg["leads"] / _n_leads * 100
-            _mx = float(_cdg["pct"].max())
-            _rows = [[
-                r["fuente"],
-                f"<span style='color:{_RF['ink_soft']}'>{r['detalle']}</span>",
-                _pill_merc(r["merc"]), f"<b>{r['leads']}</b>", _fmt_pct(r["pct"]),
-                _bar(r["pct"], _MERC_COLOR.get(r["merc"], "#5B8DEF"), _mx),
-            ] for _, r in _cdg.iterrows()]
-            _card(_sec_title(
-                "Detalle de campaña por canal",
-                "Fuente original + drill-down de campaña · ordenado por leads · "
-                "mercado inferido del naming (nac_/latam_)") + _table(
-                [("Canal", "left"), ("Detalle campaña", "left"), ("Mercado", "center"),
-                 ("Leads", "right"), ("%", "right"), ("Volumen", "left")], _rows))
-
         # ── Conversión por país | por curso ───────────────────────────────────
         _pl, _pr = st.columns([1, 1.12])
 
@@ -3406,6 +3380,33 @@ def main():
 
         # ── Tabla maestra ─────────────────────────────────────────────────────
         _render_maestra(_lv, _cohorte, _won, _n_leads)
+
+        # ── Detalle de campaña por canal ──────────────────────────────────────
+        if _n_leads:
+            _cd = _lv.copy()
+            _cd["detalle"] = (_cd["campana"].replace(
+                                  {"": pd.NA, "Sin campaña": pd.NA})
+                              .fillna(_cd["campana_reciente"].replace(
+                                  {"": pd.NA, "Sin campaña": pd.NA}))
+                              .fillna("(sin campaña)"))
+            _cdg = (_cd.groupby(["fuente", "detalle"]).size().reset_index(name="leads")
+                       .sort_values("leads", ascending=False))
+            _cdg["merc"] = _cdg["detalle"].apply(_mercado_from_name)
+            _cdg["pct"]  = _cdg["leads"] / _n_leads * 100
+            _mx = float(_cdg["pct"].max())
+            _rows = [[
+                r["fuente"],
+                f"<span style='color:{_RF['ink_soft']}'>{r['detalle']}</span>",
+                _pill_merc(r["merc"]), f"<b>{r['leads']}</b>", _fmt_pct(r["pct"]),
+                _bar(r["pct"], _MERC_COLOR.get(r["merc"], "#5B8DEF"), _mx),
+            ] for _, r in _cdg.iterrows()]
+            _card(_sec_title(
+                "Detalle de campaña por canal",
+                "Fuente original + drill-down de campaña · ordenado por leads · "
+                "mercado inferido del naming (nac_/latam_)") + _table(
+                [("Canal", "left"), ("Detalle campaña", "left"), ("Mercado", "center"),
+                 ("Leads", "right"), ("%", "right"), ("Volumen", "left")], _rows))
+
 
         # ── Footer de fuentes ─────────────────────────────────────────────────
         _cd_ = lambda t: (f"<code style='background:{_RF['line']};color:{_RF['ink_soft']};"
