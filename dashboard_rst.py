@@ -21,6 +21,7 @@ import re
 import unicodedata
 from difflib import SequenceMatcher
 from urllib.parse import unquote_plus
+import threading
 
 load_dotenv()
 
@@ -487,12 +488,46 @@ HEADERS = {"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json
 BASE = "https://api.hubapi.com"
 
 
+# ── Regulador de caudal hacia HubSpot ─────────────────────────────────────────
+# Las descargas se lanzan en paralelo y HubSpot tiene un límite por segundo.
+# Sin regular, una de cada cinco peticiones volvía con 429 y el reintento dormía
+# ~40 s por carga: salía más lento que ir en serie. El semáforo limita cuántas
+# viajan a la vez y el intervalo mínimo reparte el resto en el tiempo.
+# HubSpot limita /search a 4 peticiones por segundo, bastante menos que el resto
+# de endpoints, así que cada familia lleva su propio ritmo.
+_HS_SEMAFORO = threading.Semaphore(6)
+_HS_CANDADO  = threading.Lock()
+_HS_ULTIMA   = {"search": 0.0, "otros": 0.0}
+_HS_RITMO    = {"search": 0.27, "otros": 0.06}
+
+
+def _hs_pedir(metodo, url, **kw):
+    """Llamada a HubSpot pasando por el regulador."""
+    _tipo = "search" if "/search" in url else "otros"
+    with _HS_SEMAFORO:
+        with _HS_CANDADO:
+            _espera = _HS_RITMO[_tipo] - (time.monotonic() - _HS_ULTIMA[_tipo])
+            if _espera > 0:
+                time.sleep(_espera)
+            _HS_ULTIMA[_tipo] = time.monotonic()
+        kw.setdefault("headers", HEADERS)
+        kw.setdefault("timeout", 30)
+        return getattr(requests, metodo)(url, **kw)
+
+
+def _hs_post(url, **kw):
+    return _hs_pedir("post", url, **kw)
+
+
+def _hs_get(url, **kw):
+    return _hs_pedir("get", url, **kw)
+
+
 def _hs_search(path, payload, max_retries=5):
     """POST a HubSpot search con reintentos automáticos en 429 (rate limit)."""
     for attempt in range(max_retries):
         try:
-            r = requests.post(f"{BASE}{path}", headers=HEADERS,
-                              json=payload, timeout=30)
+            r = _hs_post(f"{BASE}{path}", json=payload)
             if r.status_code == 429:
                 wait = int(r.headers.get("Retry-After", 2 ** attempt))
                 time.sleep(wait)
@@ -1039,7 +1074,7 @@ def _resolve_categoria(cp: dict) -> str:
 
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
-    test = requests.get(f"{BASE}/crm/v3/objects/contacts?limit=1", headers=HEADERS)
+    test = _hs_get(f"{BASE}/crm/v3/objects/contacts?limit=1", headers=HEADERS)
     if test.status_code == 401:
         st.error("❌ Token de HubSpot inválido. Revisa el Secret HUBSPOT_TOKEN.")
         st.stop()
@@ -1062,7 +1097,7 @@ def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
         payload = {
             "filterGroups": [{"filters": filters}],
             "properties": CONTACT_PROPS + ["createdate"],
-            "limit": 100,
+            "limit": 200,
         }
         if after:
             payload["after"] = after
@@ -1176,7 +1211,7 @@ def fetch_matriculados_total(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
         payload = {
             "filterGroups": [{"filters": filters_mat}],
             "properties": CONTACT_PROPS,
-            "limit": 100,
+            "limit": 200,
         }
         if after:
             payload["after"] = after
@@ -1322,7 +1357,7 @@ def fetch_negocios_cerrados(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
                 ]}],
                 "properties": ["dealname", "closedate", "createdate",
                                "motivo_de_cierre_del_negocio"],
-                "limit": 100,
+                "limit": 200,
             }
             if after:
                 payload["after"] = after
@@ -1419,25 +1454,46 @@ def fetch_negocios_cerrados(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
 
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_pipeline(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
-    """Deals del pipeline activos o cerrados en el período indicado."""
-    # Filtro API: creado antes del fin del período
-    filters = [{"propertyName": "pipeline", "operator": "EQ", "value": PIPELINE_ID}]
+    """Deals del pipeline vivos en algún momento del período indicado.
+
+    El filtro se hace en la API, no en pandas. Pedir "creados antes del fin del
+    período" traía los 28.000 deals históricos del pipeline, y como la búsqueda
+    de HubSpot corta en 10.000 registros ordenados por fecha ascendente, lo que
+    llegaba eran los más ANTIGUOS (hasta abril de 2024) y se perdía todo lo
+    reciente. Con los dos grupos de abajo —cerrados a partir del inicio, o aún
+    abiertos— bajan a menos de 2.000 y dejan de truncarse.
+    """
+    _base = [{"propertyName": "pipeline", "operator": "EQ", "value": PIPELINE_ID}]
     if fecha_inicio != "todos":
+        fi_ts = int(datetime.fromisoformat(fecha_inicio)
+                    .replace(tzinfo=timezone.utc).timestamp() * 1000)
         ff_ts = (int(datetime.fromisoformat(fecha_fin)
                      .replace(tzinfo=timezone.utc).timestamp() * 1000)
                  + 86_400_000 - 1)
-        # Solo deals creados antes o durante el período
-        filters.append({"propertyName": "createdate", "operator": "LTE",
-                         "value": str(ff_ts)})
+        _creado = [{"propertyName": "createdate", "operator": "LTE", "value": str(ff_ts)}]
+    else:
+        # "Todos" arranca en 2024, que es cuando empieza el pipeline
+        fi_ts = int(datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
+        _creado = []
+    # Los filterGroups se combinan con OR: cerrados en/después del inicio, o abiertos
+    filter_groups = [
+        {"filters": _base + _creado + [{"propertyName": "closedate",
+                                        "operator": "GTE", "value": str(fi_ts)}]},
+        {"filters": _base + _creado + [{"propertyName": "closedate",
+                                        "operator": "NOT_HAS_PROPERTY"}]},
+    ]
 
     rows = []
     after = None
     while True:
         payload = {
-            "filterGroups": [{"filters": filters}],
+            "filterGroups": filter_groups,
+            # Más recientes primero: si alguna vez se rozara el tope de la API,
+            # se perdería lo antiguo y no lo del período que se está mirando.
+            "sorts": [{"propertyName": "createdate", "direction": "DESCENDING"}],
             "properties": ["dealname", "dealstage", "amount", "closedate",
                            "createdate", "motivo_de_cierre_del_negocio", "modalidad"],
-            "limit": 100,
+            "limit": 200,
         }
         if after:
             payload["after"] = after
@@ -1501,7 +1557,7 @@ def fetch_pipeline_full(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
         res, after = [], None
         while True:
             payload = {"filterGroups": [{"filters": filters}],
-                       "properties": _DEAL_PROPS, "limit": 100}
+                       "properties": _DEAL_PROPS, "limit": 200}
             if after:
                 payload["after"] = after
             data = _hs_search("/crm/v3/objects/deals/search", payload)
@@ -1566,7 +1622,7 @@ def fetch_pipeline_full(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
     deal_ids = list(deal_map)
     deal_to_contact = {}
     for i in range(0, len(deal_ids), 100):
-        r = requests.post(f"{BASE}/crm/v4/associations/deals/contacts/batch/read",
+        r = _hs_post(f"{BASE}/crm/v4/associations/deals/contacts/batch/read",
                           headers=HEADERS,
                           json={"inputs": [{"id": d} for d in deal_ids[i:i + 100]]},
                           timeout=30)
@@ -1581,7 +1637,7 @@ def fetch_pipeline_full(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
     contact_ids = list(set(deal_to_contact.values()))
     contact_data = {}
     for i in range(0, len(contact_ids), 100):
-        r = requests.post(f"{BASE}/crm/v3/objects/contacts/batch/read",
+        r = _hs_post(f"{BASE}/crm/v3/objects/contacts/batch/read",
                           headers=HEADERS,
                           json={"inputs": [{"id": c} for c in contact_ids[i:i + 100]],
                                 "properties": ["email", "createdate", "lead_valido",
@@ -1925,13 +1981,13 @@ def _fetch_list_names(list_ids_tuple: tuple) -> dict:
     def _get(lid):
         try:
             # Try v1 first (regular contact lists)
-            r = requests.get(f"{BASE}/contacts/v1/lists/{lid}",
+            r = _hs_get(f"{BASE}/contacts/v1/lists/{lid}",
                              headers=HEADERS, params={"count": 0}, timeout=10)
             if r.status_code == 200:
                 return lid, r.json().get("name", lid)
             # Fall back to v3 for ILS lists (return 404 in v1)
             if r.status_code == 404:
-                r2 = requests.get(f"{BASE}/crm/v3/lists/{lid}",
+                r2 = _hs_get(f"{BASE}/crm/v3/lists/{lid}",
                                   headers=HEADERS, timeout=10)
                 if r2.status_code == 200:
                     name = r2.json().get("list", {}).get("name", lid)
@@ -1977,7 +2033,7 @@ def fetch_emails_enviados(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
             params["after"] = after
         else:
             params.pop("after", None)
-        r = requests.get(f"{BASE}/marketing/v3/emails", headers=HEADERS,
+        r = _hs_get(f"{BASE}/marketing/v3/emails", headers=HEADERS,
                          params=params, timeout=30)
         if r.status_code != 200:
             break
@@ -2022,7 +2078,7 @@ def fetch_emails_enviados(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
 
     def _stats(cid):
         try:
-            r = requests.get(f"{BASE}/email/public/v1/campaigns/{cid}",
+            r = _hs_get(f"{BASE}/email/public/v1/campaigns/{cid}",
                              headers=HEADERS, timeout=20)
             if r.status_code == 200:
                 return cid, r.json().get("counters", {})
@@ -2087,7 +2143,7 @@ def fetch_emails_programados() -> pd.DataFrame:
             params["after"] = after
         else:
             params.pop("after", None)
-        r = requests.get(f"{BASE}/marketing/v3/emails", headers=HEADERS,
+        r = _hs_get(f"{BASE}/marketing/v3/emails", headers=HEADERS,
                          params=params, timeout=30)
         if r.status_code != 200:
             break
@@ -2169,7 +2225,7 @@ def fetch_click_urls(campaign_id: str) -> list:
     events: list = []
     params: dict = {"campaignId": campaign_id, "eventType": "CLICK", "limit": 300}
     for _ in range(5):
-        r = requests.get(f"{BASE}/email/public/v1/events",
+        r = _hs_get(f"{BASE}/email/public/v1/events",
                          headers=HEADERS, params=params, timeout=20)
         if r.status_code != 200:
             break
@@ -2195,7 +2251,7 @@ def fetch_all_lists() -> pd.DataFrame:
     lists: list = []
     offset = 0
     while True:
-        r = requests.get(f"{BASE}/contacts/v1/lists",
+        r = _hs_get(f"{BASE}/contacts/v1/lists",
                          headers=HEADERS,
                          params={"count": 250, "offset": offset},
                          timeout=30)
@@ -2227,14 +2283,14 @@ def fetch_all_lists() -> pd.DataFrame:
 def fetch_workflows() -> pd.DataFrame:
     import json as _json
 
-    r = requests.get(f"{BASE}/automation/v3/workflows", headers=HEADERS, timeout=20)
+    r = _hs_get(f"{BASE}/automation/v3/workflows", headers=HEADERS, timeout=20)
     if r.status_code != 200:
         return pd.DataFrame()
     wfs_raw = r.json().get("workflows", [])
 
     def _detail(wf):
         wid = wf["id"]
-        r2 = requests.get(f"{BASE}/automation/v3/workflows/{wid}", headers=HEADERS, timeout=15)
+        r2 = _hs_get(f"{BASE}/automation/v3/workflows/{wid}", headers=HEADERS, timeout=15)
         return wid, r2.json() if r2.status_code == 200 else {}
 
     with ThreadPoolExecutor(max_workers=10) as ex:
@@ -2258,13 +2314,13 @@ def fetch_workflows() -> pd.DataFrame:
                     content_to_campaign[eid] = cid
 
     def _ename(eid):
-        r = requests.get(f"{BASE}/marketing/v3/emails/{eid}", headers=HEADERS, timeout=10)
+        r = _hs_get(f"{BASE}/marketing/v3/emails/{eid}", headers=HEADERS, timeout=10)
         if r.status_code == 200:
             return eid, r.json().get("name", eid)
         return eid, eid
 
     def _cstats(cid):
-        r = requests.get(f"{BASE}/email/public/v1/campaigns/{cid}",
+        r = _hs_get(f"{BASE}/email/public/v1/campaigns/{cid}",
                          headers=HEADERS, timeout=10)
         if r.status_code != 200:
             return cid, None
@@ -2374,7 +2430,7 @@ def fetch_workflows() -> pd.DataFrame:
 
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_sequences() -> pd.DataFrame:
-    r = requests.get(f"{BASE}/settings/v3/users", headers=HEADERS, timeout=15)
+    r = _hs_get(f"{BASE}/settings/v3/users", headers=HEADERS, timeout=15)
     if r.status_code != 200:
         return pd.DataFrame()
     users = r.json().get("results", [])
@@ -2382,7 +2438,7 @@ def fetch_sequences() -> pd.DataFrame:
     seq_map: dict = {}
     for u in users:
         uid = u.get("id")
-        r2 = requests.get(f"{BASE}/automation/v4/sequences",
+        r2 = _hs_get(f"{BASE}/automation/v4/sequences",
                           headers=HEADERS,
                           params={"userId": uid, "limit": 200},
                           timeout=10)
@@ -2399,7 +2455,7 @@ def fetch_sequences() -> pd.DataFrame:
                 seq_map[sid]["owners"].append(email_val)
 
     def _seq_detail(sid, uid):
-        r = requests.get(f"{BASE}/automation/v4/sequences/{sid}",
+        r = _hs_get(f"{BASE}/automation/v4/sequences/{sid}",
                          headers=HEADERS, params={"userId": uid}, timeout=10)
         return sid, r.json() if r.status_code == 200 else None
 
@@ -2853,10 +2909,9 @@ def main():
     _ads_start = str(fi) if fi != "todos" else (date.today() - timedelta(days=90)).isoformat()
     _ads_end   = str(ff) if ff != "todos" else date.today().isoformat()
     with st.spinner("Cargando datos..."):
-        with ThreadPoolExecutor(max_workers=11) as ex:
+        with ThreadPoolExecutor(max_workers=10) as ex:
             fut_data     = ex.submit(fetch_data,               str(fi), str(ff))
             fut_mat      = ex.submit(fetch_matriculados_total,  str(fi), str(ff))
-            fut_deals    = ex.submit(fetch_negocios_cerrados,   str(fi), str(ff))
             fut_pipeline = ex.submit(fetch_pipeline,            str(fi), str(ff))
             fut_pip_full = ex.submit(fetch_pipeline_full,       str(fi), str(ff))
             fut_emails   = ex.submit(fetch_emails_enviados,     str(fi), str(ff))
@@ -2867,7 +2922,6 @@ def main():
             fut_tiktok   = ex.submit(get_tiktok_ads_data,       _ads_start, _ads_end)
         df           = fut_data.result()
         df_mat_all   = fut_mat.result()
-        df_deals     = fut_deals.result()
         df_pipeline  = fut_pipeline.result()
         df_pip_full  = fut_pip_full.result()
         df_emails    = fut_emails.result()
@@ -2929,6 +2983,20 @@ def main():
     df_tiktok,   _gw4, _cw4 = _sin_webinars(df_tiktok)
     gasto_webinars = _gw1 + _gw2 + _gw3 + _gw4
     camps_webinars = _cw1 + _cw2 + _cw3 + _cw4
+
+    # Los negocios cerrados del período son los mismos deals que ya ha traído
+    # fetch_pipeline_full (41 ganados + 845 perdidos en julio): pedirlos otra vez
+    # costaba 27 peticiones y 10 s, así que se derivan.
+    if df_pip_full.empty:
+        df_deals = pd.DataFrame(columns=["deal_id", "etapa", "motivo_cierre",
+                                         "fuente", "pais", "fecha_cierre", "mes"])
+    else:
+        _cerr = df_pip_full[df_pip_full["gano_periodo"] | df_pip_full["perdio_periodo"]].copy()
+        _cerr["etapa"] = _cerr["gano_periodo"].map({True: "Cierre ganado",
+                                                    False: "Cierre perdido"})
+        _cerr["mes"] = _cerr["fecha_cierre"].str[:7]
+        df_deals = _cerr[["deal_id", "etapa", "motivo_cierre", "fuente", "pais",
+                          "fecha_cierre", "mes"]].reset_index(drop=True)
 
     if df.empty and df_mat_all.empty:
         st.warning("No hay datos para el período seleccionado.")
