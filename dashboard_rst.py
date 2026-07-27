@@ -3328,6 +3328,10 @@ def main():
 </script>"""
         components.html(html, height=altura, scrolling=False)
 
+    # Las dos tablas que van una al lado de otra comparten alto, así el bloque
+    # queda alineado sin importar cuántas filas tenga cada una.
+    _ALTO_PAR = 540
+
     def _sec_title(title, sub):
         return (f"<div style='font-size:18px;font-weight:700;color:{_RF['ink']};"
                 f"margin:0 0 2px'>{title}</div>"
@@ -3678,10 +3682,18 @@ def main():
                             _fmt_int(r["leads"]), _fmt_int(r["ganados"]),
                             _pill_conv(_cv), _fmt_eur(r["facturado"]),
                         ])
-                    st.markdown(_table(
+                    _tl3, _tg3 = _pt["leads"].sum(), _pt["ganados"].sum()
+                    _tabla_ordenable(
                         [("País", "left"), ("Mercado", "center"), ("Leads", "right"),
                          ("Ganados", "right"), ("% Conv.", "center"), ("Facturado", "right")],
-                        _rows), unsafe_allow_html=True)
+                        _rows, altura=_ALTO_PAR,
+                        total=["Total", "", _fmt_int(_tl3), _fmt_int(_tg3),
+                               _pill_conv(_tg3 / _tl3 * 100 if _tl3 else 0),
+                               _fmt_eur(_pt["facturado"].sum())])
+                    st.markdown(
+                        f"<div style='font-size:12px;color:{_RF['muted']};margin-top:6px'>"
+                        f"Haz clic en las cabeceras para ordenar.</div>",
+                        unsafe_allow_html=True)
 
         with _pr:
             with st.container(border=True):
@@ -3722,7 +3734,7 @@ def main():
                     _tabla_ordenable(
                         [("Curso", "left"), ("Modalidad", "center"), ("Leads", "right"),
                          ("Ganados", "right"), ("% Conv.", "center"), ("Facturado", "right")],
-                        _rows, altura=min(520, 150 + 41 * max(len(_rows), 1)),
+                        _rows, altura=_ALTO_PAR,
                         total=[f"Total {_mt2}", "", _fmt_int(_tl2), _fmt_int(_tg2),
                                _pill_conv(_tg2 / _tl2 * 100 if _tl2 else 0),
                                _fmt_eur(_ct["facturado"].sum())])
