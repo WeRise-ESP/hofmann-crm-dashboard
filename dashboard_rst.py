@@ -11,6 +11,7 @@ import plotly.graph_objects as go
 from datetime import date, datetime, timedelta, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
+from io import StringIO
 import os
 import time
 import hashlib
@@ -146,6 +147,15 @@ GA_AVAILABLE = bool(GA_DEVELOPER_TOKEN and GA_CLIENT_ID and GA_CLIENT_SECRET and
 META_TOKEN      = _s("META_ACCESS_TOKEN")
 META_ACCOUNT_ID = _s("META_AD_ACCOUNT_ID", "2649358358505616")
 META_AVAILABLE  = bool(META_TOKEN and META_ACCOUNT_ID)
+
+# ── Credenciales LinkedIn Ads vía Google Sheets (opcional) ────────────────────
+LINKEDIN_SHEET_URL = _s("LINKEDIN_SHEET_URL")
+LINKEDIN_AVAILABLE = bool(LINKEDIN_SHEET_URL)
+
+# ── Credenciales TikTok Ads (opcional) ────────────────────────────────────────
+TIKTOK_TOKEN         = _s("TIKTOK_ACCESS_TOKEN")
+TIKTOK_ADVERTISER_ID = _s("TIKTOK_ADVERTISER_ID")
+TIKTOK_AVAILABLE     = bool(TIKTOK_TOKEN and TIKTOK_ADVERTISER_ID)
 
 # ── Paleta Hofmann ────────────────────────────────────────────────────────────
 HOFMANN = {
@@ -1258,6 +1268,97 @@ def get_meta_ads_data(start: str, end: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+# ── Conector LinkedIn Ads vía Google Sheets ───────────────────────────────────
+@st.cache_data(ttl=1800, show_spinner=False)
+def get_linkedin_sheets_data(start: str, end: str) -> pd.DataFrame:
+    if not LINKEDIN_AVAILABLE:
+        return pd.DataFrame()
+    try:
+        r = requests.get(LINKEDIN_SHEET_URL, timeout=20)
+        r.raise_for_status()
+        content = r.content.decode("utf-8-sig")
+        df = pd.read_csv(StringIO(content))
+        df.columns = [c.strip().lower() for c in df.columns]
+        col_map = {
+            "fecha": "fecha", "date": "fecha",
+            "campaña": "campaña", "campana": "campaña", "campaign": "campaña",
+            "gasto": "gasto", "spend": "gasto", "inversión": "gasto", "inversion": "gasto", "cost": "gasto",
+            "clics": "clics", "clicks": "clics",
+        }
+        df = df.rename(columns={c: col_map.get(c, c) for c in df.columns})
+        for col in ["fecha", "campaña", "gasto"]:
+            if col not in df.columns:
+                return pd.DataFrame()
+        def to_num(s):
+            return pd.to_numeric(s.astype(str).str.strip().str.replace(",", ".", regex=False), errors="coerce").fillna(0)
+        df["fecha"] = pd.to_datetime(df["fecha"], format="%Y-%m-%d", errors="coerce")
+        mask = df["fecha"].isna()
+        if mask.any():
+            df.loc[mask, "fecha"] = pd.to_datetime(df.loc[mask, "fecha"], dayfirst=True, errors="coerce")
+        df = df.dropna(subset=["fecha"])
+        df["gasto"] = to_num(df["gasto"])
+        if "clics" not in df.columns:
+            df["clics"] = 0
+        df = df[(df["fecha"] >= pd.to_datetime(start)) & (df["fecha"] <= pd.to_datetime(end))].copy()
+        if df.empty:
+            return pd.DataFrame()
+        df["plataforma"] = "LinkedIn Ads"
+        return df[["fecha", "campaña", "gasto", "clics", "plataforma"]]
+    except Exception as e:
+        st.warning(f"LinkedIn Sheets: {e}")
+        return pd.DataFrame()
+
+
+# ── Conector TikTok Ads ───────────────────────────────────────────────────────
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_tiktok_ads_data(start: str, end: str) -> pd.DataFrame:
+    if not TIKTOK_AVAILABLE:
+        return pd.DataFrame()
+    try:
+        r = requests.get(
+            "https://business-api.tiktok.com/open_api/v1.3/report/integrated/get/",
+            headers={"Access-Token": TIKTOK_TOKEN},
+            params={
+                "advertiser_id": TIKTOK_ADVERTISER_ID,
+                "report_type":   "BASIC",
+                "data_level":    "AUCTION_CAMPAIGN",
+                "dimensions":    json.dumps(["campaign_id", "stat_time_day"]),
+                "metrics":       json.dumps(["spend", "clicks", "campaign_name"]),
+                "start_date": start,
+                "end_date":   end,
+                "page_size":  1000,
+            },
+            timeout=30,
+        )
+        r.raise_for_status()
+        data = r.json()
+        if data.get("code") != 0:
+            st.warning(f"TikTok Ads: {data.get('message', 'Error')}")
+            return pd.DataFrame()
+        rows = []
+        for item in data.get("data", {}).get("list", []):
+            dims    = item.get("dimensions", {})
+            metrics = item.get("metrics", {})
+            gasto   = float(metrics.get("spend", 0) or 0)
+            if gasto == 0:
+                continue
+            rows.append({
+                "fecha":      dims.get("stat_time_day", start)[:10],
+                "campaña":    metrics.get("campaign_name", f"TK_{dims.get('campaign_id', '')}"),
+                "gasto":      gasto,
+                "clics":      int(metrics.get("clicks", 0) or 0),
+                "plataforma": "TikTok Ads",
+            })
+        if not rows:
+            return pd.DataFrame()
+        df = pd.DataFrame(rows)
+        df["fecha"] = pd.to_datetime(df["fecha"])
+        return df
+    except Exception as e:
+        st.warning(f"TikTok Ads: {e}")
+        return pd.DataFrame()
+
+
 # ── Email Marketing fetch ─────────────────────────────────────────────────────
 
 @st.cache_data(ttl=600, show_spinner=False)
@@ -2192,7 +2293,7 @@ def main():
     _ads_start = str(fi) if fi != "todos" else (date.today() - timedelta(days=90)).isoformat()
     _ads_end   = str(ff) if ff != "todos" else date.today().isoformat()
     with st.spinner("Cargando datos..."):
-        with ThreadPoolExecutor(max_workers=9) as ex:
+        with ThreadPoolExecutor(max_workers=11) as ex:
             fut_data     = ex.submit(fetch_data,               str(fi), str(ff))
             fut_mat      = ex.submit(fetch_matriculados_total,  str(fi), str(ff))
             fut_deals    = ex.submit(fetch_negocios_cerrados,   str(fi), str(ff))
@@ -2202,6 +2303,8 @@ def main():
             fut_prog     = ex.submit(fetch_emails_programados)
             fut_google   = ex.submit(get_google_ads_data,       _ads_start, _ads_end)
             fut_meta     = ex.submit(get_meta_ads_data,         _ads_start, _ads_end)
+            fut_linkedin = ex.submit(get_linkedin_sheets_data,  _ads_start, _ads_end)
+            fut_tiktok   = ex.submit(get_tiktok_ads_data,       _ads_start, _ads_end)
         df           = fut_data.result()
         df_mat_all   = fut_mat.result()
         df_deals     = fut_deals.result()
@@ -2211,6 +2314,8 @@ def main():
         df_prog      = fut_prog.result()
         df_google    = fut_google.result()
         df_meta      = fut_meta.result()
+        df_linkedin  = fut_linkedin.result()
+        df_tiktok    = fut_tiktok.result()
 
     if df.empty and df_mat_all.empty:
         st.warning("No hay datos para el período seleccionado.")
@@ -2346,21 +2451,22 @@ def main():
 
         # ── Banner de estado de conexión Ads ─────────────────────────────────
         _connected = []
-        if GA_AVAILABLE and not df_google.empty:
-            _connected.append("Google Ads")
-        if META_AVAILABLE and not df_meta.empty:
-            _connected.append("Meta Ads")
+        if GA_AVAILABLE       and not df_google.empty:   _connected.append("🟠 Google Ads")
+        if META_AVAILABLE     and not df_meta.empty:     _connected.append("🔵 Meta Ads")
+        if LINKEDIN_AVAILABLE and not df_linkedin.empty: _connected.append("🔷 LinkedIn Ads")
+        if TIKTOK_AVAILABLE   and not df_tiktok.empty:   _connected.append("🩷 TikTok Ads")
 
+        _any_creds = GA_AVAILABLE or META_AVAILABLE or LINKEDIN_AVAILABLE or TIKTOK_AVAILABLE
         if _connected:
-            st.success(f"✅ **Inversión conectada automáticamente:** {' + '.join(_connected)} · "
-                       f"Período: {_ads_start} → {_ads_end} · "
+            st.success(f"✅ **Inversión conectada:** {' · '.join(_connected)} · "
+                       f"Período {_ads_start} → {_ads_end} · "
                        "Puedes sobreescribir cualquier valor manualmente abajo.")
-        elif GA_AVAILABLE or META_AVAILABLE:
-            st.warning("⚠️ Credenciales de Ads configuradas pero sin datos para el período. "
+        elif _any_creds:
+            st.warning("⚠️ Credenciales de Ads configuradas pero sin datos para el período seleccionado. "
                        "Introduce la inversión manualmente.")
         else:
             st.info("💡 **Inversión publicitaria**: introduce el gasto por canal abajo. "
-                    "Para conectarlo automáticamente, añade las credenciales de Google Ads y Meta Ads "
+                    "Para conectarlo automáticamente, añade las credenciales de Ads "
                     "en Streamlit Cloud → Settings → Secrets.")
 
         # ── Selectores de dimensión y cruce ───────────────────────────────────
@@ -2423,16 +2529,21 @@ def main():
 
         # ── Mapa de inversión automático desde Ads APIs ───────────────────────
         _ads_spend_map: dict = {}
-        _df_g = df_google.copy() if not df_google.empty else pd.DataFrame()
-        _df_m = df_meta.copy()   if not df_meta.empty   else pd.DataFrame()
+        _all_ads_dfs = [
+            (df_google,  "Búsqueda pagada"),   # PAID_SEARCH en HubSpot
+            (df_meta,    "Social pagado"),      # PAID_SOCIAL en HubSpot
+            (df_linkedin,"Social pagado"),      # PAID_SOCIAL en HubSpot (mismo bucket)
+            (df_tiktok,  "Social pagado"),      # PAID_SOCIAL en HubSpot
+        ]
 
         if dim_sel == "Fuente":
-            if not _df_g.empty:
-                _ads_spend_map["Búsqueda pagada"] = float(_df_g["gasto"].sum())
-            if not _df_m.empty:
-                _ads_spend_map["Social pagado"] = float(_df_m["gasto"].sum())
+            for _df_src, _fuente_label in _all_ads_dfs:
+                if not _df_src.empty and "gasto" in _df_src.columns:
+                    _ads_spend_map[_fuente_label] = (
+                        _ads_spend_map.get(_fuente_label, 0.0) + float(_df_src["gasto"].sum())
+                    )
         elif dim_sel == "Campaña":
-            for _df_src in [_df_g, _df_m]:
+            for _df_src, _ in _all_ads_dfs:
                 if not _df_src.empty and "campaña" in _df_src.columns:
                     for _camp, _spend in _df_src.groupby("campaña")["gasto"].sum().items():
                         if _camp:
