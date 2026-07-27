@@ -1070,6 +1070,39 @@ def _resolve_categoria(cp: dict) -> str:
     return "Sin categoría"
 
 
+@st.cache_data(ttl=86_400, show_spinner=False)
+def fetch_usuarios() -> dict:
+    """{id de usuario: nombre}. Sirve para etiquetar las altas manuales."""
+    try:
+        r = _hs_get(f"{BASE}/settings/v3/users", params={"limit": 100}, timeout=20)
+        if r.status_code != 200:
+            return {}
+        return {str(u["id"]): (f"{u.get('firstName','')} {u.get('lastName','')}".strip()
+                               or u.get("email", ""))
+                for u in r.json().get("results", [])}
+    except Exception:
+        return {}
+
+
+def etiqueta_campana(campana: str, data2: str, usuarios: dict) -> str:
+    """Convierte los códigos internos de HubSpot en algo legible.
+
+    CRM_UI no es una campaña: es un contacto dado de alta a mano en HubSpot, y
+    data_2 trae el id de quien lo creó. "Unknown keywords (SSL)" tampoco: es una
+    visita orgánica en la que el buscador no comparte el término por HTTPS.
+    """
+    c = (campana or "").strip()
+    d2 = (data2 or "").strip()
+    if c.upper() == "CRM_UI":
+        uid = d2.split("userId:")[-1] if "userId:" in d2 else ""
+        quien = usuarios.get(uid, "")
+        return f"Alta manual · {quien}" if quien else "Alta manual en el CRM"
+    if c.lower().startswith("unknown keywords"):
+        buscador = d2.strip().title() if d2 else "buscador"
+        return f"Orgánica sin término · {buscador}"
+    return c
+
+
 # ── Fetching de contactos (con caché) ─────────────────────────────────────────
 
 @st.cache_data(ttl=600, show_spinner=False)
@@ -1091,6 +1124,7 @@ def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
             {"propertyName": "createdate", "operator": "LTE", "value": str(ff_ts)},
         ]
 
+    _usuarios = fetch_usuarios()
     rows = []
     after = None
     while True:
@@ -1128,8 +1162,12 @@ def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
                 "fuente_original_d1": (cp.get("hs_analytics_source_data_1") or "").strip(),
                 "fuente_original_d2": (cp.get("hs_analytics_source_data_2") or "").strip(),
                 # Campaña real, resolviendo la inversión data_1/data_2 según la fuente
-                "campana":          resolve_campana_cp(cp),
-                "campana_reciente": resolve_campana_cp(cp, reciente=True),
+                "campana":          etiqueta_campana(
+                                        resolve_campana_cp(cp),
+                                        cp.get("hs_analytics_source_data_2"), _usuarios),
+                "campana_reciente": etiqueta_campana(
+                                        resolve_campana_cp(cp, reciente=True),
+                                        cp.get("hs_latest_source_data_2"), _usuarios),
                 "tipo_medio":       resolve_tipo_medio(
                                         cp.get("hs_latest_source"),
                                         cp.get("hs_latest_source_data_1"),
@@ -1406,6 +1444,7 @@ def fetch_negocios_cerrados(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
             pass
 
     # 3. Batch read fuente de tráfico y país de los contactos asociados
+    _usuarios = fetch_usuarios()
     contact_ids = list(set(deal_to_contact.values()))
     contact_data = {}   # contact_id → {fuente, pais}
     for i in range(0, len(contact_ids), 100):
@@ -1634,6 +1673,7 @@ def fetch_pipeline_full(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
                     deal_to_contact[did] = str(tos[0].get("toObjectId", ""))
 
     # ── Propiedades del contacto ──────────────────────────────────────────────
+    _usuarios = fetch_usuarios()
     contact_ids = list(set(deal_to_contact.values()))
     contact_data = {}
     for i in range(0, len(contact_ids), 100):
@@ -1660,9 +1700,11 @@ def fetch_pipeline_full(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
             for c in r.json().get("results", []):
                 p = c["properties"]
                 fuente, _ = resolve_fuente(p)
-                _camp = resolve_campana_cp(p)
+                _camp = etiqueta_campana(resolve_campana_cp(p),
+                                         p.get("hs_analytics_source_data_2"), _usuarios)
                 if _camp == "Sin campaña":
-                    _camp = resolve_campana_cp(p, reciente=True)
+                    _camp = etiqueta_campana(resolve_campana_cp(p, reciente=True),
+                                             p.get("hs_latest_source_data_2"), _usuarios)
                 contact_data[c["id"]] = {
                     "fuente":   fuente,
                     "campaña":  _camp,
@@ -3203,7 +3245,7 @@ def main():
                 f"border-collapse:collapse'><thead><tr>{th}</tr></thead>"
                 f"<tbody>{body}</tbody></table></div>")
 
-    def _tabla_ordenable(cols, rows, altura=640):
+    def _tabla_ordenable(cols, rows, altura=640, total=None):
         """Igual que _table pero en un componente, para poder ordenar al clicar.
 
         Streamlit no ejecuta JavaScript dentro de st.markdown, así que la tabla
@@ -3216,6 +3258,13 @@ def main():
             "<tr>" + "".join(
                 f"<td style='text-align:{cols[i][1]}'>{v}</td>"
                 for i, v in enumerate(r)) + "</tr>" for r in rows)
+        # El total va en <tfoot>: el script solo ordena <tbody>, así que se queda
+        # abajo en vez de bailar con las filas.
+        pie = ""
+        if total:
+            pie = ("<tfoot><tr>" + "".join(
+                f"<td style='text-align:{cols[i][1]}'>{v}</td>"
+                for i, v in enumerate(total)) + "</tr></tfoot>")
         html = rf"""
 <style>
  *{{box-sizing:border-box}}
@@ -3236,8 +3285,10 @@ def main():
  td{{padding:10px 12px;font-size:13px;color:{_RF['ink']};
      border-bottom:1px solid {_RF['line']};white-space:nowrap}}
  tbody tr:hover td{{background:{_RF['line']}}}
+ tfoot td{{position:sticky;bottom:0;background:#fff;font-weight:700;
+           border-top:2px solid {_RF['border']};border-bottom:none}}
 </style>
-<div class="wrap"><table><thead><tr>{th}</tr></thead><tbody>{body}</tbody></table></div>
+<div class="wrap"><table><thead><tr>{th}</tr></thead><tbody>{body}</tbody>{pie}</table></div>
 <script>
 (function(){{
   var tb=document.querySelector('tbody'), ths=document.querySelectorAll('th');
@@ -3655,16 +3706,17 @@ def main():
                             _fmt_int(r["ganados"]), _pill_conv(_cv), _fmt_eur(r["facturado"]),
                         ])
                     _tl2, _tg2 = _ct["leads"].sum(), _ct["ganados"].sum()
-                    st.markdown(_table(
+                    _tabla_ordenable(
                         [("Curso", "left"), ("Modalidad", "center"), ("Leads", "right"),
                          ("Ganados", "right"), ("% Conv.", "center"), ("Facturado", "right")],
-                        _rows,
-                        [f"Total {_mt2}", "", _fmt_int(_tl2), _fmt_int(_tg2),
-                         _pill_conv(_tg2 / _tl2 * 100 if _tl2 else 0),
-                         _fmt_eur(_ct["facturado"].sum())]), unsafe_allow_html=True)
+                        _rows, altura=min(520, 150 + 41 * max(len(_rows), 1)),
+                        total=[f"Total {_mt2}", "", _fmt_int(_tl2), _fmt_int(_tg2),
+                               _pill_conv(_tg2 / _tl2 * 100 if _tl2 else 0),
+                               _fmt_eur(_ct["facturado"].sum())])
                     st.markdown(
                         f"<div style='font-size:12px;color:{_RF['muted']};margin-top:10px'>"
-                        f"Vista: <b style='color:{_RF['ink_soft']}'>{_mt2}</b> según el país "
+                        f"Haz clic en las cabeceras para ordenar · Vista: "
+                        f"<b style='color:{_RF['ink_soft']}'>{_mt2}</b> según el país "
                         f"del contacto. Los ganados incluyen leads captados en meses "
                         f"anteriores, por lo que un curso puede mostrar matrículas sin leads "
                         f"nuevos en el período.</div>", unsafe_allow_html=True)
@@ -3947,7 +3999,8 @@ def main():
         _s1, _s2 = st.columns([1.25, 2])
         with _s1:
             _dims_sel = st.multiselect(
-                "Agrupar por (1 o 2 dimensiones)", list(_DIMS), default=["Fuente"],
+                "Agrupar por (1 o 2 dimensiones)", list(_DIMS),
+                default=["Fuente", "Campaña"],
                 max_selections=2, key="roi_dims",
                 help="Elige una o dos dimensiones: serán las primeras columnas de la tabla.")
         if not _dims_sel:
@@ -4158,7 +4211,14 @@ def main():
             _d = {"key": _sk, "cual": _cual, "inv": _inv, "gan": _gan, "fact": _fact}
             _data.append(_d)
 
-            _row = list(_key) + [
+            # Campañas que traen leads pero no gastan en el período: suelen ser
+            # pausadas, o cohortes antiguas que siguen cerrando.
+            _etiq = list(_key)
+            if "campaña" in _gcols and not _inv and (_cual or _gan):
+                _i = _gcols.index("campaña")
+                _etiq[_i] = (f"{_etiq[_i]} <span style='color:{_RF['muted']};"
+                             f"font-size:11.5px'>(*pausada o sin inversión)</span>")
+            _row = _etiq + [
                 _fmt_eur(_inv), _fmt_eur(_cpl) if _cpl else "—", f"<b>{_fmt_int(_cual)}</b>",
                 _fmt_int(_entr), _pill_conv(_p(_entr)),
                 _fmt_int(_env), _pill_conv(_p(_env)), _fmt_eur(_pend),
