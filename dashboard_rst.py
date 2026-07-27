@@ -2200,6 +2200,16 @@ def main():
 
     # ── Sidebar — bloque 1: fecha y fuente (antes de cargar datos) ───────────────
     with st.sidebar:
+        st.markdown(f"<h2 style='color:{BARCA['gold']};margin-bottom:8px'>📁 Páginas</h2>",
+                    unsafe_allow_html=True)
+        _PAGINAS = ["💰 Contactos, Conversión & ROI", "📊 RST Dashboard", "📍 Leads por Campaña"]
+        _qp_load("f_pagina", "str")
+        if st.session_state.get("f_pagina") not in _PAGINAS:
+            st.session_state.pop("f_pagina", None)
+        _pagina = st.radio("Página", _PAGINAS, key="f_pagina", label_visibility="collapsed")
+        _qp_save("f_pagina", _pagina, "str")
+
+        st.markdown("---")
         st.markdown(f"<h2 style='color:{BARCA['gold']};margin-bottom:16px'>⚙️ Filtros</h2>",
                     unsafe_allow_html=True)
 
@@ -2412,351 +2422,655 @@ def main():
     )
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # ── KPIs ──────────────────────────────────────────────────────────────────
-    c1, c2, c3, c4, c5 = st.columns(5)
-    kpi_card(c1, "Leads nuevos",    total,         BARCA["blue"])
-    kpi_card(c2, "Cierre Ganado",   n_mat,         BARCA["gold"])
-    kpi_card(c3, "Negocio Abierto", n_cerrado,     BARCA["garnet"])
-    kpi_card(c4, "Conectados",      n_contactado,  BARCA["blue_deep"])
-    kpi_card(c5, "No Válidos",
-             f"{n_mala} ({n_mala/total*100:.0f}%)" if total else "0",
-             BARCA["garnet_deep"])
-
-    st.markdown(
-        f"<div style='font-size:12px;color:{BARCA['ink40']};margin-top:6px'>"
-        f"ℹ️ Estado actual de los contactos creados en el período seleccionado</div>",
-        unsafe_allow_html=True
-    )
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    tab_roi, tab_rst, tab_campana = st.tabs(["💰 Análisis ROI & Inversión", "📊 RST Dashboard", "📍 Leads por Campaña"])
-
     # ══════════════════════════════════════════════════════════════════════════
-    # TAB ROI — Análisis ROI & Inversión
+    # PÁGINA — Contactos, Conversión & ROI
     # ══════════════════════════════════════════════════════════════════════════
-    with tab_roi:
+    _GANADO_ET = ["Cierre Ganado", "Cierre Ganado (histórico)"]
+
+    def _fmt_eur(v):
+        if v is None or (isinstance(v, float) and pd.isna(v)) or v == 0:
+            return "—"
+        return f"{v:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
+
+    def _fmt_pct(v):
+        if v is None:
+            return "—"
+        return f"{v:.1f}%".replace(".", ",")
+
+    # resolve_mercado devuelve España/Latam/Otro/Sin datos → etiquetas de negocio
+    _MERC_LBL = {"España": "Nacional", "Latam": "LATAM",
+                 "Otro": "ROW", "Sin datos": "Sin país"}
+
+    def _merc_lbl(m) -> str:
+        return _MERC_LBL.get(str(m), "ROW")
+
+    def _mercado_from_name(name: str) -> str:
+        n = (name or "").lower()
+        if "latam" in n:
+            return "LATAM"
+        if "_nac" in n or "nac_" in n or "- es" in n or "_es" in n:
+            return "Nacional"
+        return "—"
+
+    def page_roi():
+        # ── Cabecera ──────────────────────────────────────────────────────────
         st.markdown(f"""
-        <div style="background:linear-gradient(135deg,{BARCA['blue_ink']} 0%,{BARCA['blue_deep']} 100%);
-                    border-radius:12px;padding:24px 28px;margin-bottom:24px;
-                    border-left:5px solid {BARCA['gold']}">
-            <h1 style="color:{BARCA['white']};margin:0;font-size:22px;font-weight:800">
-                💰 Análisis ROI & Inversión — {ACCOUNT_NAME}
-            </h1>
-            <p style="color:{BARCA['line']};margin:6px 0 0;font-size:13px">
-                Embudo completo · Inversión → Lead → Entrevista → Inscripción → Matrícula
-            </p>
+        <div style="font-size:12px;color:{BARCA['ink40']};margin-bottom:4px">
+            Dashboard › <b style="color:{BARCA['ink80']}">Negocio · Contactos &amp; Conversión</b>
         </div>
+        <h1 style="margin:0 0 4px;font-size:30px;font-weight:800;color:{BARCA['ink100']};
+                   letter-spacing:-.5px">
+            📊 Contactos, Conversión &amp; ROI
+            <span style="background:{BARCA['bone']};color:{BARCA['blue_deep']};font-size:13px;
+                         font-weight:700;padding:4px 12px;border-radius:20px;
+                         vertical-align:middle;margin-left:8px">{periodo_txt}</span>
+        </h1>
+        <p style="color:{BARCA['ink60']};font-size:14px;margin:0 0 20px;max-width:1100px">
+            Leads válidos con curso informado + cruce con negocios (Cierre Ganado / Cierre Perdido)
+            · conversión por mercado, país y curso · ROI/ROAS por modalidad
+            — Fuente: HubSpot + Google&nbsp;Ads + Meta + LinkedIn + TikTok
+        </p>
         """, unsafe_allow_html=True)
 
-        # ── Banner de estado de conexión Ads ─────────────────────────────────
-        _connected = []
-        if GA_AVAILABLE       and not df_google.empty:   _connected.append("🟠 Google Ads")
-        if META_AVAILABLE     and not df_meta.empty:     _connected.append("🔵 Meta Ads")
-        if LINKEDIN_AVAILABLE and not df_linkedin.empty: _connected.append("🔷 LinkedIn Ads")
-        if TIKTOK_AVAILABLE   and not df_tiktok.empty:   _connected.append("🩷 TikTok Ads")
+        # ── Selector de modalidad ─────────────────────────────────────────────
+        _mc1, _mc2 = st.columns([1, 3])
+        with _mc1:
+            _modalidad_sel = st.radio("Modalidad", ["Todo", "🌐 Online", "🏫 Presencial"],
+                                      horizontal=True, key="roi_modalidad")
+        _mod_filter = {"Todo": None, "🌐 Online": "Online", "🏫 Presencial": "Presencial"}[_modalidad_sel]
 
-        _any_creds = GA_AVAILABLE or META_AVAILABLE or LINKEDIN_AVAILABLE or TIKTOK_AVAILABLE
-        if _connected:
-            st.success(f"✅ **Inversión conectada:** {' · '.join(_connected)} · "
-                       f"Período {_ads_start} → {_ads_end} · "
-                       "Puedes sobreescribir cualquier valor manualmente abajo.")
-        elif _any_creds:
-            st.warning("⚠️ Credenciales de Ads configuradas pero sin datos para el período seleccionado. "
-                       "Introduce la inversión manualmente.")
+        # ── Preparar datasets ─────────────────────────────────────────────────
+        _leads = df.copy()
+        _pipe  = df_pip_full.copy()
+
+        # Aplicar los filtros globales del sidebar también al pipeline
+        if not _pipe.empty:
+            if filtro_fuente:
+                _pipe = _pipe[_pipe["fuente"].isin(filtro_fuente)]
+            if filtro_pais:
+                _pipe = _pipe[_pipe["pais"].isin(filtro_pais)]
+
+        # Filtro de modalidad
+        if _mod_filter:
+            if not _leads.empty and "modalidad" in _leads.columns:
+                _leads = _leads[_leads["modalidad"].str.contains(_mod_filter, case=False, na=False)]
+            if not _pipe.empty and "modalidad" in _pipe.columns:
+                _pipe = _pipe[_pipe["modalidad"].str.contains(_mod_filter, case=False, na=False)]
+
+        # Leads válidos (excluye "No válido")
+        _lv = _leads[_leads["lead_valido"] != "No válido"] if not _leads.empty else _leads
+
+        if _lv.empty and _pipe.empty:
+            st.info("No hay datos para el período y filtros seleccionados.")
+            return
+
+        _won = _pipe[_pipe["etapa"].isin(_GANADO_ET)] if not _pipe.empty else pd.DataFrame()
+
+        _n_leads    = len(_lv)
+        _n_ganados  = _won["deal_id"].nunique() if not _won.empty else 0
+        _facturado  = float(_won["amount"].sum()) if not _won.empty else 0.0
+        _conv_glob  = (_n_ganados / _n_leads * 100) if _n_leads else 0
+        _fuente_top = _lv["fuente"].value_counts().idxmax() if _n_leads else "—"
+
+        if _n_leads:
+            _lv = _lv.copy()
+            _lv["mercado_lbl"] = _lv["mercado"].map(_merc_lbl)
+        _merc_counts = _lv["mercado_lbl"].value_counts() if _n_leads else pd.Series(dtype=int)
+        _pct_nac  = _merc_counts.get("Nacional", 0) / _n_leads * 100 if _n_leads else 0
+        _pct_lat  = _merc_counts.get("LATAM", 0)    / _n_leads * 100 if _n_leads else 0
+        _pct_row  = 100 - _pct_nac - _pct_lat if _n_leads else 0
+
+        # ── 4 tarjetas KPI ────────────────────────────────────────────────────
+        def _big_card(col, label, value, sub, grad):
+            col.markdown(f"""
+            <div style="background:{grad};border-radius:14px;padding:18px 20px;
+                        min-height:120px;box-shadow:0 2px 8px rgba(0,0,0,.08)">
+                <div style="color:rgba(255,255,255,.82);font-size:11px;font-weight:700;
+                            letter-spacing:.7px;text-transform:uppercase">{label}</div>
+                <div style="color:#fff;font-size:38px;font-weight:800;line-height:1.15;
+                            margin:2px 0 4px">{value}</div>
+                <div style="color:rgba(255,255,255,.85);font-size:12px">{sub}</div>
+            </div>""", unsafe_allow_html=True)
+
+        _k1, _k2, _k3, _k4 = st.columns(4)
+        _big_card(_k1, "Contactos del período", f"{_n_leads:,}".replace(",", "."),
+                  f"Válidos · Fuente top: {_fuente_top}",
+                  "linear-gradient(135deg,#4C6FE7 0%,#5B8DEF 100%)")
+        _big_card(_k2, "Ganados", f"{_n_ganados:,}".replace(",", "."), _fmt_eur(_facturado),
+                  "linear-gradient(135deg,#3EA97B 0%,#4CAF7D 100%)")
+        _big_card(_k3, "Conversión lead → ganado", _fmt_pct(_conv_glob),
+                  "Ganados / leads del período",
+                  "linear-gradient(135deg,#E8A33D 0%,#EFB259 100%)")
+        _big_card(_k4, "% Leads nacional", f"{_pct_nac:.0f}%",
+                  f"{_pct_lat:.0f}% LATAM · {_pct_row:.0f}% ROW",
+                  f"linear-gradient(135deg,{BARCA['blue_ink']} 0%,{BARCA['blue_deep']} 100%)")
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # ── Helper: ganados/facturado por dimensión ───────────────────────────
+        def _won_by(key):
+            if _won.empty or key not in _won.columns:
+                return pd.DataFrame(columns=[key, "ganados", "facturado"])
+            return (_won.groupby(key)
+                        .agg(ganados=("deal_id", "nunique"), facturado=("amount", "sum"))
+                        .reset_index())
+
+        # ── Fila: donut por fuente + conversión por mercado ───────────────────
+        _c_izq, _c_der = st.columns([1, 1.15])
+
+        with _c_izq:
+            st.markdown(f"""<div style="font-size:19px;font-weight:700;color:{BARCA['ink100']};
+                        margin-bottom:2px">Contactos por fuente</div>
+                        <div style="font-size:13px;color:{BARCA['ink60']};margin-bottom:10px">
+                        Canal de captación (fuente original del tráfico) · leads válidos</div>""",
+                        unsafe_allow_html=True)
+            if _n_leads:
+                _fc = _lv["fuente"].value_counts().reset_index()
+                _fc.columns = ["fuente", "n"]
+                _fig = go.Figure(go.Pie(
+                    labels=_fc["fuente"], values=_fc["n"], hole=.62,
+                    marker=dict(colors=COLOR_FUENTES * 3,
+                                line=dict(color="#fff", width=2)),
+                    textinfo="none", sort=True,
+                    hovertemplate="<b>%{label}</b><br>%{value} leads (%{percent})<extra></extra>",
+                ))
+                _fig.update_layout(
+                    showlegend=False, height=250,
+                    margin=dict(t=0, b=0, l=0, r=0),
+                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                    annotations=[dict(
+                        text=f"<b style='font-size:30px'>{_n_leads}</b><br>"
+                             f"<span style='font-size:10px;letter-spacing:1px;color:{BARCA['ink40']}'>CONTACTOS</span>",
+                        x=.5, y=.5, showarrow=False, font=dict(color=BARCA["ink100"])),
+                    ],
+                )
+                _dc1, _dc2 = st.columns([1, 1.1])
+                with _dc1:
+                    st.plotly_chart(_fig, use_container_width=True,
+                                    config={"displayModeBar": False})
+                with _dc2:
+                    _rows_html = ""
+                    for _i, _r in _fc.iterrows():
+                        _col = COLOR_FUENTES[_i % len(COLOR_FUENTES)]
+                        _pc  = _r["n"] / _n_leads * 100
+                        _rows_html += (
+                            f"<div style='display:flex;align-items:center;gap:8px;"
+                            f"padding:3px 0;font-size:13px'>"
+                            f"<span style='width:9px;height:9px;border-radius:50%;"
+                            f"background:{_col};flex-shrink:0'></span>"
+                            f"<span style='flex:1;color:{BARCA['ink80']}'>{_r['fuente']}</span>"
+                            f"<b style='color:{BARCA['ink100']}'>{_r['n']}</b>"
+                            f"<span style='color:{BARCA['ink40']};width:38px;text-align:right'>"
+                            f"{_pc:.0f}%</span></div>"
+                        )
+                    st.markdown(_rows_html, unsafe_allow_html=True)
+
+        with _c_der:
+            st.markdown(f"""<div style="font-size:19px;font-weight:700;color:{BARCA['ink100']};
+                        margin-bottom:2px">Conversión por mercado</div>
+                        <div style="font-size:13px;color:{BARCA['ink60']};margin-bottom:10px">
+                        Leads del período vs matrículas · los ganados incluyen leads anteriores</div>""",
+                        unsafe_allow_html=True)
+            _lm = (_lv.groupby("mercado_lbl").size().reset_index(name="leads")
+                        .rename(columns={"mercado_lbl": "mercado"})
+                   if _n_leads else pd.DataFrame(columns=["mercado", "leads"]))
+            # mercado del pipeline a partir del país
+            if not _won.empty:
+                _wtmp = _won.copy()
+                _wtmp["mercado"] = _wtmp["pais"].apply(
+                    lambda p: _merc_lbl(resolve_mercado(p)))
+                _wm = (_wtmp.groupby("mercado")
+                            .agg(ganados=("deal_id", "nunique"), facturado=("amount", "sum"))
+                            .reset_index())
+            else:
+                _wm = pd.DataFrame(columns=["mercado", "ganados", "facturado"])
+            _mt = _lm.merge(_wm, on="mercado", how="outer").fillna(0)
+            _mt["orden"] = _mt["mercado"].map(
+                {"Nacional": 0, "LATAM": 1, "ROW": 2, "Sin país": 3}).fillna(4)
+            _mt = _mt.sort_values("orden")
+            _mt["% conversión"] = _mt.apply(
+                lambda r: (r["ganados"] / r["leads"] * 100) if r["leads"] else 0, axis=1)
+            _mt_disp = pd.DataFrame({
+                "Mercado":       _mt["mercado"],
+                "Leads":         _mt["leads"].astype(int),
+                "Ganados":       _mt["ganados"].astype(int),
+                "% Conversión":  _mt["% conversión"].map(_fmt_pct),
+                "Facturado":     _mt["facturado"].map(_fmt_eur),
+            })
+            _mt_disp.loc[len(_mt_disp)] = [
+                "Total", int(_mt["leads"].sum()), int(_mt["ganados"].sum()),
+                _fmt_pct(_mt["ganados"].sum() / _mt["leads"].sum() * 100 if _mt["leads"].sum() else 0),
+                _fmt_eur(_mt["facturado"].sum()),
+            ]
+            st.dataframe(_mt_disp, use_container_width=True, hide_index=True)
+            st.caption("**Mercado** derivado del país del contacto: España → Nacional · "
+                       "Latinoamérica → LATAM · resto → ROW.")
+
+        st.divider()
+
+        # ── Detalle de campaña por canal ──────────────────────────────────────
+        st.markdown(f"""<div style="font-size:19px;font-weight:700;color:{BARCA['ink100']};
+                    margin-bottom:2px">Detalle de campaña por canal</div>
+                    <div style="font-size:13px;color:{BARCA['ink60']};margin-bottom:10px">
+                    Fuente original + drill-down de campaña · ordenado por leads ·
+                    mercado inferido del naming (nac_/latam_)</div>""", unsafe_allow_html=True)
+        if _n_leads:
+            _cd = _lv.copy()
+            _cd["detalle"] = (_cd["fuente_original_d1"].replace("", pd.NA)
+                              .fillna(_cd["fuente_reciente_d1"])
+                              .replace("", "(sin detalle)").fillna("(sin detalle)"))
+            _cdg = (_cd.groupby(["fuente", "detalle"]).size()
+                       .reset_index(name="leads").sort_values("leads", ascending=False))
+            _cdg["Mercado"] = _cdg["detalle"].apply(_mercado_from_name)
+            _cdg["%"] = _cdg["leads"] / _n_leads * 100
+            st.dataframe(
+                _cdg.rename(columns={"fuente": "Canal", "detalle": "Detalle campaña",
+                                     "leads": "Leads"})[
+                    ["Canal", "Detalle campaña", "Mercado", "Leads", "%"]],
+                use_container_width=True, hide_index=True,
+                column_config={
+                    "%": st.column_config.ProgressColumn(
+                        "Volumen", format="%.1f%%", min_value=0,
+                        max_value=float(_cdg["%"].max()) if not _cdg.empty else 100),
+                },
+            )
+
+        st.divider()
+
+        # ── Conversión por país ───────────────────────────────────────────────
+        st.markdown(f"""<div style="font-size:19px;font-weight:700;color:{BARCA['ink100']};
+                    margin-bottom:2px">Conversión por país</div>
+                    <div style="font-size:13px;color:{BARCA['ink60']};margin-bottom:10px">
+                    Leads del período vs matrículas por país del contacto</div>""",
+                    unsafe_allow_html=True)
+        _lp = (_lv.groupby("pais").size().reset_index(name="leads")
+               if _n_leads else pd.DataFrame(columns=["pais", "leads"]))
+        _wp = _won_by("pais")
+        _pt = _lp.merge(_wp, on="pais", how="outer").fillna(0)
+        if not _pt.empty:
+            _pt["Mercado"] = _pt["pais"].apply(lambda p: _merc_lbl(resolve_mercado(p)))
+            _pt["% conv."] = _pt.apply(
+                lambda r: (r["ganados"] / r["leads"] * 100) if r["leads"] else 0, axis=1)
+            _pt = _pt.sort_values(["facturado", "leads"], ascending=False)
+            st.dataframe(
+                pd.DataFrame({
+                    "País":       _pt["pais"],
+                    "Mercado":    _pt["Mercado"],
+                    "Leads":      _pt["leads"].astype(int),
+                    "Ganados":    _pt["ganados"].astype(int),
+                    "% Conv.":    _pt["% conv."].map(_fmt_pct),
+                    "Facturado":  _pt["facturado"].map(_fmt_eur),
+                }), use_container_width=True, hide_index=True)
+
+        st.divider()
+
+        # ── Conversión por curso ──────────────────────────────────────────────
+        st.markdown(f"""<div style="font-size:19px;font-weight:700;color:{BARCA['ink100']};
+                    margin-bottom:2px">Conversión por curso</div>
+                    <div style="font-size:13px;color:{BARCA['ink60']};margin-bottom:10px">
+                    Leads del período vs matrículas por curso · con facturación</div>""",
+                    unsafe_allow_html=True)
+        _merc_tab = st.radio("Mercado", ["Todo", "Nacional", "LATAM", "ROW", "Sin país"],
+                             horizontal=True, key="roi_curso_merc", label_visibility="collapsed")
+        _lv_c = _lv if _merc_tab == "Todo" else _lv[_lv["mercado_lbl"] == _merc_tab]
+        _won_c = _won
+        if _merc_tab != "Todo" and not _won.empty:
+            _won_c = _won[_won["pais"].apply(
+                lambda p: _merc_lbl(resolve_mercado(p))) == _merc_tab]
+
+        _lc = (_lv_c.groupby(["programa", "modalidad"]).size().reset_index(name="leads")
+               if not _lv_c.empty else pd.DataFrame(columns=["programa", "modalidad", "leads"]))
+        if not _won_c.empty:
+            _wc = (_won_c.groupby("programa")
+                         .agg(ganados=("deal_id", "nunique"), facturado=("amount", "sum"))
+                         .reset_index())
         else:
-            st.info("💡 **Inversión publicitaria**: introduce el gasto por canal abajo. "
-                    "Para conectarlo automáticamente, añade las credenciales de Ads "
-                    "en Streamlit Cloud → Settings → Secrets.")
+            _wc = pd.DataFrame(columns=["programa", "ganados", "facturado"])
+        _ct = _lc.merge(_wc, on="programa", how="outer").fillna({"leads": 0, "ganados": 0,
+                                                                  "facturado": 0,
+                                                                  "modalidad": "(Sin modalidad)"})
+        if not _ct.empty:
+            _ct["% conv."] = _ct.apply(
+                lambda r: (r["ganados"] / r["leads"] * 100) if r["leads"] else 0, axis=1)
+            _ct = _ct.sort_values(["facturado", "leads"], ascending=False)
+            _ct_disp = pd.DataFrame({
+                "Curso":      _ct["programa"],
+                "Modalidad":  _ct["modalidad"],
+                "Leads":      _ct["leads"].astype(int),
+                "Ganados":    _ct["ganados"].astype(int),
+                "% Conv.":    _ct["% conv."].map(_fmt_pct),
+                "Facturado":  _ct["facturado"].map(_fmt_eur),
+            })
+            _ct_disp.loc[len(_ct_disp)] = [
+                f"Total {_merc_tab}", "", int(_ct["leads"].sum()), int(_ct["ganados"].sum()),
+                _fmt_pct(_ct["ganados"].sum() / _ct["leads"].sum() * 100 if _ct["leads"].sum() else 0),
+                _fmt_eur(_ct["facturado"].sum()),
+            ]
+            st.dataframe(_ct_disp, use_container_width=True, hide_index=True)
+            st.caption(f"Vista: **{_merc_tab}** según el país del contacto. Los ganados incluyen "
+                       "leads captados en meses anteriores, por lo que un curso puede mostrar "
+                       "matrículas sin leads nuevos en el período.")
 
-        # ── Selectores de dimensión y cruce ───────────────────────────────────
-        r1c1, r1c2, r1c3, r1c4, r1c5 = st.columns([1.2, 1, 1, 1, 1])
-        with r1c1:
+        st.divider()
+
+        # ── ROI y ROAS por modalidad ──────────────────────────────────────────
+        st.markdown(f"""<div style="font-size:19px;font-weight:700;color:{BARCA['ink100']};
+                    margin-bottom:2px">💶 ROI y ROAS por modalidad de formación</div>
+                    <div style="font-size:13px;color:{BARCA['ink60']};margin-bottom:10px">
+                    Gasto publicitario tomado automáticamente de Google Ads, Meta, LinkedIn y
+                    TikTok · puedes corregirlo abajo</div>""", unsafe_allow_html=True)
+
+        # Reparto automático del gasto por modalidad según el naming de campaña
+        _ads_all = pd.concat([d for d in [df_google, df_meta, df_linkedin, df_tiktok]
+                              if not d.empty], ignore_index=True) if any(
+            not d.empty for d in [df_google, df_meta, df_linkedin, df_tiktok]) else pd.DataFrame()
+
+        _gasto_auto = {"Online": 0.0, "Presencial": 0.0, "Sin asignar": 0.0}
+        if not _ads_all.empty:
+            for _, _r in _ads_all.iterrows():
+                _nm = str(_r.get("campaña", "")).lower()
+                _g  = float(_r.get("gasto", 0) or 0)
+                if "online" in _nm or "master_online" in _nm or "maestria_online" in _nm:
+                    _gasto_auto["Online"] += _g
+                elif "presencial" in _nm:
+                    _gasto_auto["Presencial"] += _g
+                else:
+                    _gasto_auto["Sin asignar"] += _g
+
+        _gc1, _gc2, _gc3 = st.columns(3)
+        with _gc1:
+            _gasto_on = st.number_input("Gasto Ads · Online (€)", min_value=0.0, step=100.0,
+                                        value=round(_gasto_auto["Online"], 2), key="roi_gasto_on")
+        with _gc2:
+            _gasto_pr = st.number_input("Gasto Ads · Presencial (€)", min_value=0.0, step=100.0,
+                                        value=round(_gasto_auto["Presencial"], 2), key="roi_gasto_pr")
+        with _gc3:
+            st.metric("Sin asignar a modalidad", _fmt_eur(_gasto_auto["Sin asignar"]),
+                      help="Campañas cuyo nombre no indica Online ni Presencial. "
+                           "Repártelas manualmente en los campos de la izquierda.")
+
+        _mod_rows = []
+        for _mod, _gasto, _icon in [("Online", _gasto_on, "🌐"), ("Presencial", _gasto_pr, "🏫")]:
+            _l = int(_lv["modalidad"].str.contains(_mod, case=False, na=False).sum()) if _n_leads else 0
+            if not _won.empty and "modalidad" in _won.columns:
+                _wsub = _won[_won["modalidad"].str.contains(_mod, case=False, na=False)]
+                _m, _f = _wsub["deal_id"].nunique(), float(_wsub["amount"].sum())
+            else:
+                _m, _f = 0, 0.0
+            _mod_rows.append({
+                "Modalidad":        f"{_mod} {_icon}",
+                "Leads":            _l,
+                "Matrículas":       _m,
+                "Facturado":        _fmt_eur(_f),
+                "Gasto Ads":        _fmt_eur(_gasto),
+                "Coste/Matrícula":  _fmt_eur(_gasto / _m) if _m and _gasto else "—",
+                "CPL":              _fmt_eur(_gasto / _l) if _l and _gasto else "—",
+                "ROAS":             f"{_f / _gasto:.2f}x".replace(".", ",") if _gasto else "—",
+                "ROI":              _fmt_pct((_f - _gasto) / _gasto * 100) if _gasto else "—",
+            })
+        _tot_g = _gasto_on + _gasto_pr
+        _mod_rows.append({
+            "Modalidad": "Total",
+            "Leads":      sum(r["Leads"] for r in _mod_rows),
+            "Matrículas": sum(r["Matrículas"] for r in _mod_rows),
+            "Facturado":  _fmt_eur(_facturado),
+            "Gasto Ads":  _fmt_eur(_tot_g),
+            "Coste/Matrícula": _fmt_eur(_tot_g / _n_ganados) if _n_ganados and _tot_g else "—",
+            "CPL":        _fmt_eur(_tot_g / _n_leads) if _n_leads and _tot_g else "—",
+            "ROAS":       f"{_facturado / _tot_g:.2f}x".replace(".", ",") if _tot_g else "—",
+            "ROI":        _fmt_pct((_facturado - _tot_g) / _tot_g * 100) if _tot_g else "—",
+        })
+        st.dataframe(pd.DataFrame(_mod_rows), use_container_width=True, hide_index=True)
+        st.caption("ROAS = facturado / gasto · ROI = (facturado − gasto) / gasto. "
+                   "Las matrículas del período incluyen leads captados anteriormente, "
+                   "por lo que el ROAS es una aproximación de caja, no de cohorte.")
+
+        st.divider()
+
+        # ══════════════════════════════════════════════════════════════════════
+        # MEGA-TABLA — embudo completo con selector cruzado
+        # ══════════════════════════════════════════════════════════════════════
+        st.markdown(f"""
+        <div style="background:linear-gradient(135deg,{BARCA['blue_ink']} 0%,{BARCA['blue_deep']} 100%);
+                    border-radius:12px;padding:20px 24px;margin-bottom:18px;
+                    border-left:5px solid {BARCA['gold']}">
+            <h2 style="color:#fff;margin:0;font-size:20px;font-weight:800">
+                🔎 Tabla maestra — embudo completo
+            </h2>
+            <p style="color:{BARCA['line']};margin:5px 0 0;font-size:13px">
+                Inversión → CPL → Leads cualificados → Entrevista → Envío inscripción →
+                Cierre ganado → ROI · y el lado malo: ilocalizados, no presenta y motivos de cierre
+            </p>
+        </div>""", unsafe_allow_html=True)
+
+        _f1, _f2, _f3, _f4, _f5 = st.columns([1.4, 1, 1, 1, 1])
+        with _f1:
             dim_sel = st.radio("Agrupar por", ["Fuente", "Campaña", "País", "Producto"],
                                horizontal=True, key="roi_dim")
         dim_col = {"Fuente": "fuente", "Campaña": "campaña",
                    "País": "pais", "Producto": "programa"}[dim_sel]
 
-        # Filtros de cruce — solo aparecen cuando no son la dimensión principal
-        _df_leads_base = df.copy() if not df.empty else pd.DataFrame()
-        _df_pip_base   = df_pip_full.copy() if not df_pip_full.empty else pd.DataFrame()
+        _ml = _lv.copy()
+        _mp = _pipe.copy()
+        if not _ml.empty:
+            _ml["campaña"] = (_ml["fuente_reciente_d1"].replace("", pd.NA)
+                              .fillna("Sin campaña"))
 
-        if not _df_leads_base.empty:
-            # Añadir columna 'campaña' a df leads (= fuente_reciente_d1)
-            _df_leads_base["campaña"] = _df_leads_base["fuente_reciente_d1"].replace("", "Sin campaña").fillna("Sin campaña")
+        # Filtros cruzados — se ocultan cuando son la dimensión principal
+        def _cross(colbox, label, col, opts_all):
+            nonlocal _ml, _mp
+            _opts = ["Todas"] + sorted([o for o in opts_all if o])
+            with colbox:
+                _v = st.selectbox(label, _opts, key=f"roi_x_{col}")
+            if _v != "Todas":
+                if not _ml.empty and col in _ml.columns:
+                    _ml = _ml[_ml[col] == _v]
+                if not _mp.empty and col in _mp.columns:
+                    _mp = _mp[_mp[col] == _v]
 
-        # Cruce: fuente
         if dim_sel != "Fuente":
-            _opts_fuente = ["Todas"] + sorted((_df_leads_base["fuente"].dropna().unique().tolist()
-                                               if not _df_leads_base.empty else []))
-            with r1c2:
-                _fil_fuente = st.selectbox("Fuente", _opts_fuente, key="roi_fuente")
-            if _fil_fuente != "Todas":
-                _df_leads_base = _df_leads_base[_df_leads_base["fuente"] == _fil_fuente] if not _df_leads_base.empty else _df_leads_base
-                _df_pip_base   = _df_pip_base[_df_pip_base["fuente"] == _fil_fuente]   if not _df_pip_base.empty else _df_pip_base
-
-        # Cruce: campaña
+            _cross(_f2, "Fuente", "fuente",
+                   _ml["fuente"].dropna().unique().tolist() if not _ml.empty else [])
         if dim_sel != "Campaña":
-            _opts_camp = ["Todas"] + sorted((_df_leads_base["campaña"].dropna().unique().tolist()
-                                              if not _df_leads_base.empty else []))
-            with r1c3:
-                _fil_camp = st.selectbox("Campaña", _opts_camp, key="roi_camp")
-            if _fil_camp != "Todas":
-                _df_leads_base = _df_leads_base[_df_leads_base["campaña"] == _fil_camp] if not _df_leads_base.empty else _df_leads_base
-                _df_pip_base   = _df_pip_base[_df_pip_base["campaña"] == _fil_camp]   if not _df_pip_base.empty else _df_pip_base
-
-        # Cruce: país
+            _cross(_f3, "Campaña", "campaña",
+                   _ml["campaña"].dropna().unique().tolist() if not _ml.empty else [])
         if dim_sel != "País":
-            _opts_pais = ["Todos"] + sorted((_df_leads_base["pais"].dropna().unique().tolist()
-                                              if not _df_leads_base.empty else []))
-            with r1c4:
-                _fil_pais = st.selectbox("País", _opts_pais, key="roi_pais")
-            if _fil_pais != "Todos":
-                _df_leads_base = _df_leads_base[_df_leads_base["pais"] == _fil_pais] if not _df_leads_base.empty else _df_leads_base
-                _df_pip_base   = _df_pip_base[_df_pip_base["pais"] == _fil_pais]   if not _df_pip_base.empty else _df_pip_base
-
-        # Cruce: producto
+            _cross(_f4, "País", "pais",
+                   _ml["pais"].dropna().unique().tolist() if not _ml.empty else [])
         if dim_sel != "Producto":
-            _opts_prog = ["Todos"] + sorted((_df_leads_base["programa"].dropna().unique().tolist()
-                                              if not _df_leads_base.empty else []))
-            with r1c5:
-                _fil_prog = st.selectbox("Producto", _opts_prog, key="roi_prog")
-            if _fil_prog != "Todos":
-                _df_leads_base = _df_leads_base[_df_leads_base["programa"] == _fil_prog] if not _df_leads_base.empty else _df_leads_base
-                _df_pip_base   = _df_pip_base[_df_pip_base["programa"] == _fil_prog]   if not _df_pip_base.empty else _df_pip_base
+            _cross(_f5, "Producto", "programa",
+                   _ml["programa"].dropna().unique().tolist() if not _ml.empty else [])
 
-        st.divider()
-
-        # ── Mapa de inversión automático desde Ads APIs ───────────────────────
-        _ads_spend_map: dict = {}
-        _all_ads_dfs = [
-            (df_google,  "Búsqueda pagada"),   # PAID_SEARCH en HubSpot
-            (df_meta,    "Social pagado"),      # PAID_SOCIAL en HubSpot
-            (df_linkedin,"Social pagado"),      # PAID_SOCIAL en HubSpot (mismo bucket)
-            (df_tiktok,  "Social pagado"),      # PAID_SOCIAL en HubSpot
-        ]
-
+        # ── Inversión automática por dimensión ────────────────────────────────
+        _spend_map: dict = {}
+        _ads_srcs = [(df_google, "Búsqueda pagada"), (df_meta, "Social pagado"),
+                     (df_linkedin, "Social pagado"), (df_tiktok, "Social pagado")]
         if dim_sel == "Fuente":
-            for _df_src, _fuente_label in _all_ads_dfs:
-                if not _df_src.empty and "gasto" in _df_src.columns:
-                    _ads_spend_map[_fuente_label] = (
-                        _ads_spend_map.get(_fuente_label, 0.0) + float(_df_src["gasto"].sum())
-                    )
+            for _d, _lbl in _ads_srcs:
+                if not _d.empty and "gasto" in _d.columns:
+                    _spend_map[_lbl] = _spend_map.get(_lbl, 0.0) + float(_d["gasto"].sum())
         elif dim_sel == "Campaña":
-            for _df_src, _ in _all_ads_dfs:
-                if not _df_src.empty and "campaña" in _df_src.columns:
-                    for _camp, _spend in _df_src.groupby("campaña")["gasto"].sum().items():
-                        if _camp:
-                            _ads_spend_map[_camp] = _ads_spend_map.get(_camp, 0.0) + float(_spend)
-        # Para País y Producto no hay desglose en Ads → queda vacío → usuario ingresa manual
+            for _d, _ in _ads_srcs:
+                if not _d.empty and "campaña" in _d.columns:
+                    for _c, _g in _d.groupby("campaña")["gasto"].sum().items():
+                        if _c:
+                            _spend_map[str(_c)] = _spend_map.get(str(_c), 0.0) + float(_g)
 
-        # ── Construir tabla ROI ───────────────────────────────────────────────
-        if _df_leads_base.empty and _df_pip_base.empty:
+        _inv_key = f"roi_inv_{dim_sel}"
+        if _inv_key not in st.session_state:
+            st.session_state[_inv_key] = {}
+
+        # ── Etapas del embudo ─────────────────────────────────────────────────
+        _ET = {
+            "entrevista": ["Entrevista Realizada"],
+            "envio":      ["Envío de Inscripción", "Estudio Financiación",
+                           "Pendiente Transferencia"],
+            "ganado":     _GANADO_ET,
+            "iloc":       ["Ilocalizado"],
+            "nopres":     ["No se presenta"],
+            "perdido":    ["Cierre Perdido"],
+        }
+
+        # Motivos de cierre presentes (una columna por motivo)
+        _motivos = []
+        if not _mp.empty:
+            _motivos = sorted(_mp[_mp["etapa"] == "Cierre Perdido"]["motivo_cierre"]
+                              .dropna().unique().tolist())
+
+        # ── Construir filas ───────────────────────────────────────────────────
+        _dims = set()
+        if not _ml.empty and dim_col in _ml.columns:
+            _dims.update(_ml[dim_col].dropna().astype(str).unique())
+        if not _mp.empty and dim_col in _mp.columns:
+            _dims.update(_mp[dim_col].dropna().astype(str).unique())
+        _dims = sorted(d for d in _dims if d and d != "nan")
+
+        if not _dims:
             st.info("No hay datos para los filtros seleccionados.")
-        else:
-            # Paso 1: leads por dimensión
-            if not _df_leads_base.empty:
-                _grp_leads = _df_leads_base.groupby(dim_col).agg(
-                    Leads=("email", "count"),
-                    Cualificados=(dim_col, lambda x: (_df_leads_base.loc[x.index, "lead_valido"] == "Válido").sum()),
-                ).reset_index().rename(columns={dim_col: "_dim"})
-            else:
-                _grp_leads = pd.DataFrame(columns=["_dim", "Leads", "Cualificados"])
+            return
 
-            # Paso 2: deals por dimensión × etapa (conteo de deals únicos)
-            _ETAPAS_ROI = {
-                "Entrevista":   ["Entrevista Realizada", "Concertado", "Contacto Inicial"],
-                "Envío Insc.":  ["Envío de Inscripción", "Estudio Financiación",
-                                  "Pendiente Transferencia"],
-                "Cierre Ganado": ["Cierre Ganado", "Cierre Ganado (histórico)"],
-                "Ilocalizado":  ["Ilocalizado"],
-                "No presenta":  ["No se presenta"],
-                "Perdido":      ["Cierre Perdido"],
+        _rows = []
+        for _d in _dims:
+            _sl = _ml[_ml[dim_col].astype(str) == _d] if not _ml.empty and dim_col in _ml.columns else pd.DataFrame()
+            _sp = _mp[_mp[dim_col].astype(str) == _d] if not _mp.empty and dim_col in _mp.columns else pd.DataFrame()
+
+            _cual = len(_sl)
+            def _cnt(k):
+                return _sp[_sp["etapa"].isin(_ET[k])]["deal_id"].nunique() if not _sp.empty else 0
+            def _amt(k):
+                return float(_sp[_sp["etapa"].isin(_ET[k])]["amount"].sum()) if not _sp.empty else 0.0
+
+            _entr, _env   = _cnt("entrevista"), _cnt("envio")
+            _gan,  _il    = _cnt("ganado"),     _cnt("iloc")
+            _np,   _perd  = _cnt("nopres"),     _cnt("perdido")
+            _fact         = _amt("ganado")
+            _fact_pend    = _amt("envio")
+            _fact_perd    = _amt("perdido")
+
+            _inv = st.session_state[_inv_key].get(_d, _spend_map.get(_d, 0.0))
+            _cpl = (_inv / _cual) if _cual and _inv else None
+            _roi = ((_fact - _inv) / _inv * 100) if _inv else None
+            _pc  = lambda n: (n / _cual * 100) if _cual else 0
+
+            _row = {
+                dim_sel:                _d,
+                "Inversión €":          round(_inv, 2),
+                "CPL €":                round(_cpl, 2) if _cpl else None,
+                "Leads cualif.":        _cual,
+                "Entrevistas":          _entr,
+                "% Entrev.":            round(_pc(_entr), 1),
+                "Envío insc.":          _env,
+                "% Envío":              round(_pc(_env), 1),
+                "Fact. pendiente €":    round(_fact_pend, 2),
+                "Cierre ganado":        _gan,
+                "% Ganado":             round(_pc(_gan), 1),
+                "Facturado €":          round(_fact, 2),
+                "ROI %":                round(_roi, 1) if _roi is not None else None,
+                "Ilocalizados":         _il,
+                "% Iloc.":              round(_pc(_il), 1),
+                "No se presenta":       _np,
+                "% No pres.":           round(_pc(_np), 1),
             }
+            for _m in _motivos:
+                _n = _sp[(_sp["etapa"] == "Cierre Perdido") &
+                         (_sp["motivo_cierre"] == _m)]["deal_id"].nunique() if not _sp.empty else 0
+                _row[f"❌ {_m}"] = round(_pc(_n), 1)
+            _row["Cierre perdido"]     = _perd
+            _row["Fact. perdida €"]    = round(_fact_perd, 2)
+            _rows.append(_row)
 
-            if not _df_pip_base.empty:
-                _pip_dim = _df_pip_base.copy()
-                _pip_dim["_dim"] = _pip_dim[dim_col]
-                _grp_pip_rows = []
-                for _dim_val in _pip_dim["_dim"].unique():
-                    _sub = _pip_dim[_pip_dim["_dim"] == _dim_val]
-                    row = {"_dim": _dim_val}
-                    for col_label, etapas in _ETAPAS_ROI.items():
-                        row[col_label] = _sub[_sub["etapa"].isin(etapas)]["deal_id"].nunique()
-                    row["Facturado"] = _sub[_sub["etapa"].isin(["Cierre Ganado", "Cierre Ganado (histórico)"])]["amount"].sum()
-                    # Motivos de cierre (top 3 para display)
-                    _perdidos_sub = _sub[_sub["etapa"] == "Cierre Perdido"]
-                    if not _perdidos_sub.empty:
-                        _top_mot = _perdidos_sub["motivo_cierre"].value_counts().head(3)
-                        row["_motivos"] = " | ".join([f"{m}({n})" for m, n in _top_mot.items()])
-                    else:
-                        row["_motivos"] = ""
-                    _grp_pip_rows.append(row)
-                _grp_pip = pd.DataFrame(_grp_pip_rows)
-            else:
-                _grp_pip = pd.DataFrame(columns=["_dim"] + list(_ETAPAS_ROI.keys()) + ["Facturado", "_motivos"])
+        _mega = pd.DataFrame(_rows).sort_values("Leads cualif.", ascending=False)
 
-            # Paso 3: join leads + pipeline
-            _tbl = _grp_leads.merge(_grp_pip, on="_dim", how="outer").fillna(0)
-            _tbl["_dim"] = _tbl["_dim"].astype(str)
-            _tbl = _tbl[_tbl["_dim"] != "0"].copy()
+        _cfg = {
+            "Inversión €":       st.column_config.NumberColumn(format="€ %.2f", width="small"),
+            "CPL €":             st.column_config.NumberColumn(format="€ %.2f", width="small"),
+            "Fact. pendiente €": st.column_config.NumberColumn(format="€ %.0f", width="small"),
+            "Facturado €":       st.column_config.NumberColumn(format="€ %.0f", width="small"),
+            "Fact. perdida €":   st.column_config.NumberColumn(format="€ %.0f", width="small"),
+            "ROI %":             st.column_config.NumberColumn(format="%.1f%%", width="small"),
+            "% Entrev.":         st.column_config.NumberColumn(format="%.1f%%", width="small"),
+            "% Envío":           st.column_config.NumberColumn(format="%.1f%%", width="small"),
+            "% Ganado":          st.column_config.NumberColumn(format="%.1f%%", width="small"),
+            "% Iloc.":           st.column_config.NumberColumn(format="%.1f%%", width="small"),
+            "% No pres.":        st.column_config.NumberColumn(format="%.1f%%", width="small"),
+        }
+        for _m in _motivos:
+            _cfg[f"❌ {_m}"] = st.column_config.NumberColumn(format="%.1f%%", width="small")
 
-            # Paso 4: tabla ROI con inversión automática (Ads) o manual
-            _ads_auto_available = bool(_ads_spend_map)
-            _src_label = "API" if _ads_auto_available else "manual"
-            st.markdown("#### 📋 Tabla ROI por " + dim_sel)
-            st.caption(f"Inversión €: {'datos automáticos desde Ads API' if _ads_auto_available else 'ingreso manual'}. "
-                       "Puedes sobreescribir cualquier valor en el editor de abajo.")
+        st.dataframe(_mega, use_container_width=True, hide_index=True, column_config=_cfg)
+        st.caption("Los porcentajes de entrevista, envío, ganado, ilocalizado, no-presenta y "
+                   "motivos de cierre están calculados **sobre leads cualificados** de esa fila.")
 
-            # Inicializar inversión en session_state
-            _inv_key = f"roi_inv_{dim_sel}"
-            if _inv_key not in st.session_state:
-                st.session_state[_inv_key] = {}
+        # ── Totales de la tabla maestra ───────────────────────────────────────
+        _t_inv  = float(_mega["Inversión €"].sum())
+        _t_cual = int(_mega["Leads cualif."].sum())
+        _t_gan  = int(_mega["Cierre ganado"].sum())
+        _t_fac  = float(_mega["Facturado €"].sum())
+        _t_roi  = ((_t_fac - _t_inv) / _t_inv * 100) if _t_inv else None
 
-            # Columnas de la tabla mostrada
-            _display_rows = []
-            for _, row in _tbl.iterrows():
-                dim_val    = str(row["_dim"])
-                leads      = int(row.get("Leads", 0))
-                cualif     = int(row.get("Cualificados", 0))
-                entrev     = int(row.get("Entrevista", 0))
-                envio      = int(row.get("Envío Insc.", 0))
-                ganado     = int(row.get("Cierre Ganado", 0))
-                facturado  = float(row.get("Facturado", 0))
-                ilocaliz   = int(row.get("Ilocalizado", 0))
-                no_pres    = int(row.get("No presenta", 0))
-                perdido    = int(row.get("Perdido", 0))
-                motivos    = str(row.get("_motivos", ""))
+        _q1, _q2, _q3, _q4, _q5, _q6 = st.columns(6)
+        kpi_card(_q1, "Inversión total",    _fmt_eur(_t_inv),               BARCA["ink60"])
+        kpi_card(_q2, "Leads cualificados", f"{_t_cual:,}".replace(",", "."), BARCA["blue"])
+        kpi_card(_q3, "CPL medio",
+                 _fmt_eur(_t_inv / _t_cual) if _t_cual and _t_inv else "—", BARCA["blue_deep"])
+        kpi_card(_q4, "Cierres ganados",    f"{_t_gan:,}".replace(",", "."), BARCA["gold"])
+        kpi_card(_q5, "Facturado",          _fmt_eur(_t_fac),               BARCA["garnet"])
+        kpi_card(_q6, "ROI global",
+                 _fmt_pct(_t_roi) if _t_roi is not None else "—",
+                 BARCA["gold"] if (_t_roi or 0) > 0 else BARCA["garnet_deep"])
 
-                # Manual override tiene prioridad; si no hay override, usar ads o 0
-                _ads_default = _ads_spend_map.get(dim_val, 0.0)
-                inversion  = st.session_state[_inv_key].get(dim_val, _ads_default)
-                cpl        = round(inversion / cualif, 2) if cualif > 0 and inversion > 0 else 0
-                roi_pct    = round((facturado - inversion) / inversion * 100, 1) if inversion > 0 else None
-
-                _display_rows.append({
-                    dim_sel:              dim_val,
-                    "Inversión €":        inversion,
-                    "CPL €":             cpl,
-                    "Leads cualif.":      cualif,
-                    "Entrevistas":        entrev,
-                    "% Entrevista":       f"{entrev/cualif*100:.0f}%" if cualif > 0 else "—",
-                    "Envío Inscripción":  envio,
-                    "% Envío":           f"{envio/cualif*100:.0f}%" if cualif > 0 else "—",
-                    "Cierre Ganado":      ganado,
-                    "% Ganado":          f"{ganado/cualif*100:.0f}%" if cualif > 0 else "—",
-                    "Facturado €":        round(facturado, 2),
-                    "ROI %":             f"{roi_pct:.0f}%" if roi_pct is not None else "—",
-                    "Ilocalizados":       ilocaliz,
-                    "No presenta":        no_pres,
-                    "Perdidos":           perdido,
-                    "Motivos cierre":     motivos,
-                })
-
-            _df_display = pd.DataFrame(_display_rows).sort_values("Leads cualif.", ascending=False)
-
-            st.dataframe(
-                _df_display,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "Inversión €":      st.column_config.NumberColumn("Inversión €", format="€ %.2f", width="small"),
-                    "CPL €":           st.column_config.NumberColumn("CPL €",       format="€ %.2f", width="small"),
-                    "Leads cualif.":   st.column_config.NumberColumn(width="small"),
-                    "Entrevistas":     st.column_config.NumberColumn(width="small"),
-                    "% Entrevista":    st.column_config.TextColumn(width="small"),
-                    "Envío Inscripción": st.column_config.NumberColumn(width="small"),
-                    "% Envío":         st.column_config.TextColumn(width="small"),
-                    "Cierre Ganado":   st.column_config.NumberColumn(width="small"),
-                    "% Ganado":        st.column_config.TextColumn(width="small"),
-                    "Facturado €":     st.column_config.NumberColumn("Facturado €", format="€ %.0f", width="small"),
-                    "ROI %":           st.column_config.TextColumn(width="small"),
-                    "Ilocalizados":    st.column_config.NumberColumn(width="small"),
-                    "No presenta":     st.column_config.NumberColumn(width="small"),
-                    "Perdidos":        st.column_config.NumberColumn(width="small"),
-                    "Motivos cierre":  st.column_config.TextColumn(width="large"),
-                },
-            )
-
-            # ── Editor de inversión manual (override) ─────────────────────────
-            _edit_title = ("✏️ Sobreescribir inversión por " + dim_sel
-                           if _ads_auto_available else
-                           "✏️ Introducir inversión publicitaria por " + dim_sel)
-            st.markdown("#### " + _edit_title)
-            _edit_caption = ("Los valores de la tabla se toman automáticamente de la API de Ads. "
-                             "Usa este editor para corregir un valor concreto."
-                             if _ads_auto_available else
-                             "Introduce el gasto de Ads del período para cada canal/campaña.")
-            st.caption(_edit_caption)
-
-            _dim_opts = sorted(_tbl["_dim"].unique().tolist())
-            _inv_col1, _inv_col2, _inv_col3, _inv_col4 = st.columns([2, 1, 1, 0.7])
-            with _inv_col1:
-                _sel_dim_inv = st.selectbox(f"Selecciona {dim_sel}", _dim_opts, key="roi_inv_sel")
-            with _inv_col2:
-                _cur_ads_val = _ads_spend_map.get(_sel_dim_inv, 0.0)
-                _cur_manual  = st.session_state[_inv_key].get(_sel_dim_inv, _cur_ads_val)
-                _inv_val = st.number_input("Inversión (€)", min_value=0.0, step=100.0,
-                                           value=float(_cur_manual),
-                                           key="roi_inv_val")
-            with _inv_col3:
+        # ── Corrección manual de la inversión ─────────────────────────────────
+        with st.expander("✏️ Corregir inversión manualmente"):
+            st.caption("La inversión se toma automáticamente de las APIs de Ads. "
+                       "Usa este editor si necesitas ajustar un valor concreto.")
+            _e1, _e2, _e3, _e4 = st.columns([2, 1, 1, 1])
+            with _e1:
+                _sel = st.selectbox(f"Selecciona {dim_sel}", _dims, key="roi_inv_sel")
+            with _e2:
+                _val = st.number_input("Inversión (€)", min_value=0.0, step=100.0,
+                                       value=float(st.session_state[_inv_key].get(
+                                           _sel, _spend_map.get(_sel, 0.0))),
+                                       key="roi_inv_val")
+            with _e3:
                 st.markdown("<br>", unsafe_allow_html=True)
-                if st.button("💾 Guardar", key="roi_inv_save"):
-                    st.session_state[_inv_key][_sel_dim_inv] = _inv_val
+                if st.button("💾 Guardar", key="roi_inv_save", use_container_width=True):
+                    st.session_state[_inv_key][_sel] = _val
                     st.rerun()
-            with _inv_col4:
-                if _sel_dim_inv in st.session_state[_inv_key]:
-                    st.markdown("<br>", unsafe_allow_html=True)
-                    if st.button("↩️ Reset", key="roi_inv_reset",
+            with _e4:
+                st.markdown("<br>", unsafe_allow_html=True)
+                if _sel in st.session_state[_inv_key]:
+                    if st.button("↩️ Auto", key="roi_inv_reset", use_container_width=True,
                                  help="Volver al valor automático de Ads"):
-                        del st.session_state[_inv_key][_sel_dim_inv]
+                        del st.session_state[_inv_key][_sel]
                         st.rerun()
 
-            # ── KPIs resumen ──────────────────────────────────────────────────
-            st.divider()
-            st.markdown("#### 📊 Resumen del período")
-            _tot_leads    = int(_tbl["Leads"].sum()) if "Leads" in _tbl else 0
-            _tot_cualif   = int(_tbl["Cualificados"].sum()) if "Cualificados" in _tbl else 0
-            _tot_ganados  = int(_tbl.get("Cierre Ganado", pd.Series([0])).sum())
-            _tot_factur   = float(_tbl.get("Facturado", pd.Series([0.0])).sum())
-            # Total inversión: suma de lo efectivo por fila (manual override o ads auto)
-            _tot_inv = sum(
-                st.session_state[_inv_key].get(str(dv), _ads_spend_map.get(str(dv), 0.0))
-                for dv in _tbl["_dim"].astype(str)
-            )
-            _tot_roi      = round((_tot_factur - _tot_inv) / _tot_inv * 100, 1) if _tot_inv > 0 else None
-            _tot_cpl      = round(_tot_inv / _tot_cualif, 2) if _tot_cualif > 0 and _tot_inv > 0 else None
+        # ── Descarga ──────────────────────────────────────────────────────────
+        st.download_button(
+            "⬇️ Descargar tabla maestra (CSV)",
+            _mega.to_csv(index=False).encode("utf-8-sig"),
+            file_name=f"tabla_maestra_{dim_sel.lower()}_{fi}_{ff}.csv",
+            mime="text/csv",
+        )
 
-            k1, k2, k3, k4, k5, k6 = st.columns(6)
-            kpi_card(k1, "Leads totales",      f"{_tot_leads:,}",        BARCA["blue"])
-            kpi_card(k2, "Leads cualificados", f"{_tot_cualif:,}",       BARCA["blue_deep"])
-            kpi_card(k3, "Cierres ganados",    f"{_tot_ganados:,}",      BARCA["gold"])
-            kpi_card(k4, "Facturado",          f"€ {_tot_factur:,.0f}",  BARCA["garnet"])
-            kpi_card(k5, "Inversión Ads",      f"€ {_tot_inv:,.0f}",     BARCA["ink60"])
-            kpi_card(k6, "ROI global",
-                     f"{_tot_roi:.0f}%" if _tot_roi is not None else "—",
-                     BARCA["gold"] if (_tot_roi or 0) > 0 else BARCA["garnet_deep"])
+    def page_rst():
+        # ── KPIs ──────────────────────────────────────────────────────────────────
+        c1, c2, c3, c4, c5 = st.columns(5)
+        kpi_card(c1, "Leads nuevos",    total,         BARCA["blue"])
+        kpi_card(c2, "Cierre Ganado",   n_mat,         BARCA["gold"])
+        kpi_card(c3, "Negocio Abierto", n_cerrado,     BARCA["garnet"])
+        kpi_card(c4, "Conectados",      n_contactado,  BARCA["blue_deep"])
+        kpi_card(c5, "No Válidos",
+                 f"{n_mala} ({n_mala/total*100:.0f}%)" if total else "0",
+                 BARCA["garnet_deep"])
 
-            # ── Motivos de cierre detalle ─────────────────────────────────────
-            st.divider()
-            st.markdown("#### ❌ Motivos de cierre perdido")
-            if not _df_pip_base.empty:
-                _mot_df = (_df_pip_base[_df_pip_base["etapa"] == "Cierre Perdido"]
-                           .groupby("motivo_cierre")
-                           .agg(n=("deal_id", "nunique"))
-                           .reset_index()
-                           .sort_values("n", ascending=False))
-                if not _mot_df.empty:
-                    _mot_df["% del total"] = (_mot_df["n"] / _mot_df["n"].sum() * 100).round(1)
-                    _mot_df = _mot_df.rename(columns={"motivo_cierre": "Motivo", "n": "Deals"})
-                    st.dataframe(_mot_df, use_container_width=True, hide_index=True,
-                                 column_config={"% del total": st.column_config.NumberColumn(format="%.1f%%")})
-                else:
-                    st.info("No hay deals perdidos en el período.")
-            else:
-                st.info("No hay datos de pipeline para el período.")
+        st.markdown(
+            f"<div style='font-size:12px;color:{BARCA['ink40']};margin-top:6px'>"
+            f"ℹ️ Estado actual de los contactos creados en el período seleccionado</div>",
+            unsafe_allow_html=True
+        )
 
-    with tab_rst:
+        st.markdown("<br>", unsafe_allow_html=True)
+
         # ── Secciones que dependen de df (leads) ──────────────────────────────────
         if df.empty:
             st.info("No hay leads para el período y filtros seleccionados.")
@@ -4775,7 +5089,7 @@ def main():
 
 
 
-    with tab_campana:
+    def page_campana():
         st.subheader("📍 Leads por Campaña, País y Programa")
         st.caption("Análisis de leads por fuente de tráfico, país y programa — datos en tiempo real de HubSpot CRM")
 
@@ -5397,6 +5711,13 @@ def main():
                         hide_index=True,
                     )
 
+
+    # ── Router de páginas ───────────────────────────────────────────────────
+    {
+        "💰 Contactos, Conversión & ROI": page_roi,
+        "📊 RST Dashboard":               page_rst,
+        "📍 Leads por Campaña":           page_campana,
+    }[_pagina]()
 
     # ── Footer ──────────────────────────────────────────────────────────────────
     st.markdown(
