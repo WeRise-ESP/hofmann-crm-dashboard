@@ -1440,7 +1440,7 @@ def get_meta_ads_data(start: str, end: str) -> pd.DataFrame:
         url = f"https://graph.facebook.com/v21.0/act_{META_ACCOUNT_ID}/insights"
         params = {
             "access_token": META_TOKEN,
-            "fields":       "campaign_name,spend,clicks,impressions",
+            "fields":       "campaign_name,spend,clicks,impressions,actions",
             "level":        "campaign",
             "time_range":   json.dumps({"since": start, "until": end}),
             "limit":        500,
@@ -1451,10 +1451,21 @@ def get_meta_ads_data(start: str, end: str) -> pd.DataFrame:
             r.raise_for_status()
             data = r.json()
             for item in data.get("data", []):
+                # Hofmann mide los leads con el Pixel → complete_registration
+                _leads = 0.0
+                for _pref in ("offsite_conversion.fb_pixel_complete_registration",
+                              "complete_registration", "lead"):
+                    for a in item.get("actions", []):
+                        if a.get("action_type") == _pref:
+                            _leads = float(a.get("value", 0) or 0)
+                            break
+                    if _leads:
+                        break
                 rows.append({
                     "campaña":      item.get("campaign_name", ""),
                     "gasto":        float(item.get("spend", 0)),
                     "clics":        int(item.get("clicks", 0)),
+                    "conversiones": _leads,
                     "plataforma":   "Meta Ads",
                 })
             nxt = data.get("paging", {}).get("next")
@@ -1485,6 +1496,8 @@ def get_linkedin_sheets_data(start: str, end: str) -> pd.DataFrame:
             "campaña": "campaña", "campana": "campaña", "campaign": "campaña",
             "gasto": "gasto", "spend": "gasto", "inversión": "gasto", "inversion": "gasto", "cost": "gasto",
             "clics": "clics", "clicks": "clics",
+            "conversiones": "conversiones", "conversions": "conversiones",
+            "leads": "conversiones",
         }
         df = df.rename(columns={c: col_map.get(c, c) for c in df.columns})
         for col in ["fecha", "campaña", "gasto"]:
@@ -1500,11 +1513,14 @@ def get_linkedin_sheets_data(start: str, end: str) -> pd.DataFrame:
         df["gasto"] = to_num(df["gasto"])
         if "clics" not in df.columns:
             df["clics"] = 0
+        df["conversiones"] = (to_num(df["conversiones"])
+                              if "conversiones" in df.columns else 0)
         df = df[(df["fecha"] >= pd.to_datetime(start)) & (df["fecha"] <= pd.to_datetime(end))].copy()
         if df.empty:
             return pd.DataFrame()
         df["plataforma"] = "LinkedIn Ads"
-        return df[["fecha", "campaña", "gasto", "clics", "plataforma"]]
+        return df[["fecha", "campaña", "gasto", "clics", "conversiones",
+                   "plataforma"]]
     except Exception as e:
         st.warning(f"LinkedIn Sheets: {e}")
         return pd.DataFrame()
@@ -1524,7 +1540,8 @@ def get_tiktok_ads_data(start: str, end: str) -> pd.DataFrame:
                 "report_type":   "BASIC",
                 "data_level":    "AUCTION_CAMPAIGN",
                 "dimensions":    json.dumps(["campaign_id", "stat_time_day"]),
-                "metrics":       json.dumps(["spend", "clicks", "campaign_name"]),
+                "metrics":       json.dumps(["spend", "clicks", "conversion",
+                                             "campaign_name"]),
                 "start_date": start,
                 "end_date":   end,
                 "page_size":  1000,
@@ -1548,6 +1565,7 @@ def get_tiktok_ads_data(start: str, end: str) -> pd.DataFrame:
                 "campaña":    metrics.get("campaign_name", f"TK_{dims.get('campaign_id', '')}"),
                 "gasto":      gasto,
                 "clics":      int(metrics.get("clicks", 0) or 0),
+                "conversiones": float(metrics.get("conversion", 0) or 0),
                 "plataforma": "TikTok Ads",
             })
         if not rows:
@@ -2985,27 +3003,38 @@ def main():
                     {"Nacional": 0, "LATAM": 1, "ROW": 2, "Sin país": 3}).fillna(4)
                 _mt = _mt.sort_values("o")
 
-                # Inversión de Ads por mercado, según la nomenclatura de campaña
+                # Inversión y leads de Ads por mercado, según la nomenclatura
                 _inv_merc, _inv_nc = {}, 0.0
+                _lad_merc, _lad_nc = {}, 0.0
+                _LBL = {"Latam": "LATAM", "Nacional": "Nacional"}
                 for _d in [df_google, df_meta, df_linkedin, df_tiktok]:
                     if _d.empty or "mercado_camp" not in _d.columns:
                         continue
-                    for _m, _g in _d.groupby("mercado_camp")["gasto"].sum().items():
-                        if _m == "Latam":
-                            _inv_merc["LATAM"] = _inv_merc.get("LATAM", 0.0) + float(_g)
-                        elif _m == "Nacional":
-                            _inv_merc["Nacional"] = _inv_merc.get("Nacional", 0.0) + float(_g)
+                    _agg = _d.groupby("mercado_camp").agg(
+                        g=("gasto", "sum"),
+                        c=("conversiones", "sum") if "conversiones" in _d.columns
+                          else ("gasto", "size"))
+                    if "conversiones" not in _d.columns:
+                        _agg["c"] = 0
+                    for _m, _r in _agg.iterrows():
+                        _k = _LBL.get(str(_m))
+                        if _k:
+                            _inv_merc[_k] = _inv_merc.get(_k, 0.0) + float(_r["g"])
+                            _lad_merc[_k] = _lad_merc.get(_k, 0.0) + float(_r["c"])
                         else:
-                            _inv_nc += float(_g)
+                            _inv_nc += float(_r["g"])
+                            _lad_nc += float(_r["c"])
 
                 _rows = []
                 for _, r in _mt.iterrows():
                     _cv  = (r["ganados"] / r["leads"] * 100) if r["leads"] else 0
                     _iv  = _inv_merc.get(r["mercado"], 0.0)
+                    _la  = _lad_merc.get(r["mercado"], 0.0)
                     _cpl = (_iv / r["leads"]) if (r["leads"] and _iv) else None
                     _rows.append([
                         f"<b>{r['mercado']}</b>", _fmt_eur(_iv),
                         _fmt_eur(_cpl) if _cpl else "—",
+                        _fmt_int(_la),
                         _fmt_int(r["leads"]),
                         f"<b>{_fmt_int(r['ganados'])}</b>", _pill_conv(_cv),
                         _fmt_eur(r["facturado"]),
@@ -3014,11 +3043,12 @@ def main():
                 _ti = sum(_inv_merc.values()) + _inv_nc
                 st.markdown(_table(
                     [("Mercado", "left"), ("Inversión", "right"), ("CPL", "right"),
-                     ("Leads período", "right"), ("Ganados", "right"),
+                     ("Leads Ads", "right"), ("Leads CRM", "right"), ("Ganados", "right"),
                      ("% Conversión", "center"), ("Facturado", "right")],
                     _rows,
                     ["Total", _fmt_eur(_ti),
                      _fmt_eur(_ti / _tl) if (_tl and _ti) else "—",
+                     _fmt_int(sum(_lad_merc.values()) + _lad_nc),
                      _fmt_int(_tl), _fmt_int(_tg),
                      _pill_conv(_tg / _tl * 100 if _tl else 0),
                      _fmt_eur(_mt["facturado"].sum())]),
@@ -3033,8 +3063,9 @@ def main():
                     f"<div style='font-size:12px;color:{_RF['muted']};margin-top:10px'>"
                     f"<b style='color:{_RF['ink_soft']}'>Mercado</b> de los leads según el "
                     f"país del contacto (España → Nacional · Latinoamérica → LATAM · "
-                    f"resto → ROW) y de la inversión según la nomenclatura de la campaña "
-                    f"(ES/CAT/NAC → Nacional · LATAM/LAT → LATAM).</div>",
+                    f"resto → ROW) · <b style='color:{_RF['ink_soft']}'>Inversión y Leads "
+                    f"Ads</b> según la nomenclatura de la campaña (NAC/CAT/ES → Nacional · "
+                    f"LAT/LATAM → LATAM) · CPL calculado sobre los leads del CRM.</div>",
                     unsafe_allow_html=True)
 
         # ── Detalle de campaña por canal ──────────────────────────────────────
@@ -3149,10 +3180,16 @@ def main():
 
             _ads_list = [d for d in [df_google, df_meta, df_linkedin, df_tiktok] if not d.empty]
             _ads_all = pd.concat(_ads_list, ignore_index=True) if _ads_list else pd.DataFrame()
-            _ga = {"Online": 0.0, "Presencial": 0.0, "Sin asignar": 0.0}
+            _ga  = {"Online": 0.0, "Presencial": 0.0, "Sin asignar": 0.0}
+            _lad = {"Online": 0.0, "Presencial": 0.0, "Sin asignar": 0.0}
             if not _ads_all.empty and "modalidad_camp" in _ads_all.columns:
-                for _m, _g in _ads_all.groupby("modalidad_camp")["gasto"].sum().items():
-                    _ga[str(_m)] = _ga.get(str(_m), 0.0) + float(_g)
+                if "conversiones" not in _ads_all.columns:
+                    _ads_all = _ads_all.assign(conversiones=0.0)
+                _agg = _ads_all.groupby("modalidad_camp").agg(
+                    g=("gasto", "sum"), c=("conversiones", "sum"))
+                for _m, _r in _agg.iterrows():
+                    _ga[str(_m)]  = _ga.get(str(_m), 0.0) + float(_r["g"])
+                    _lad[str(_m)] = _lad.get(str(_m), 0.0) + float(_r["c"])
 
             _g1, _g2, _g3 = st.columns(3)
             with _g1:
@@ -3188,7 +3225,8 @@ def main():
                 _tm3 += _m
                 _roi = ((_f - _g) / _g * 100) if _g else None
                 _rows.append([
-                    f"<b>{_mod}</b> {_ic}", _fmt_int(_l), f"<b>{_fmt_int(_m)}</b>",
+                    f"<b>{_mod}</b> {_ic}", _fmt_int(_lad.get(_mod, 0)),
+                    _fmt_int(_l), f"<b>{_fmt_int(_m)}</b>",
                     _fmt_eur(_f),
                     _fmt_eur(_g) if _g else
                         f"<span style='color:{_RF['muted']};font-style:italic'>introduce gasto</span>",
@@ -3201,11 +3239,13 @@ def main():
             _tg3 = _gon + _gpr
             _troi = ((_facturado - _tg3) / _tg3 * 100) if _tg3 else None
             st.markdown(_table(
-                [("Modalidad", "left"), ("Leads período", "right"), ("Matrículas", "right"),
+                [("Modalidad", "left"), ("Leads Ads", "right"), ("Leads CRM", "right"),
+                 ("Matrículas", "right"),
                  ("Facturado", "right"), ("Gasto Ads", "right"), ("Coste/matrícula", "right"),
                  ("CPL", "right"), ("ROAS", "right"), ("ROI", "center")],
                 _rows,
-                ["Total", _fmt_int(_tl3), _fmt_int(_tm3), _fmt_eur(_facturado),
+                ["Total", _fmt_int(sum(_lad.values())),
+                 _fmt_int(_tl3), _fmt_int(_tm3), _fmt_eur(_facturado),
                  _fmt_eur(_tg3), _fmt_eur(_tg3 / _tm3) if (_tm3 and _tg3) else "—",
                  _fmt_eur(_tg3 / _tl3) if (_tl3 and _tg3) else "—",
                  f"{_facturado / _tg3:.2f}x".replace(".", ",") if _tg3 else "—",
@@ -3213,9 +3253,13 @@ def main():
                      if _troi is not None else "—"]), unsafe_allow_html=True)
             st.markdown(
                 f"<div style='font-size:12px;color:{_RF['muted']};margin-top:10px'>"
-                f"ROAS = facturado / gasto · ROI = (facturado − gasto) / gasto. Las matrículas "
-                f"del período incluyen leads captados anteriormente, por lo que el ROAS es una "
-                f"aproximación de caja, no de cohorte.</div>", unsafe_allow_html=True)
+                f"ROAS = facturado / gasto · ROI = (facturado − gasto) / gasto · "
+                f"CPL sobre los leads del CRM. "
+                f"<b style='color:{_RF['ink_soft']}'>Leads Ads</b> son las conversiones que "
+                f"reporta cada plataforma y <b style='color:{_RF['ink_soft']}'>Leads CRM</b> "
+                f"los que llegaron a HubSpot como válidos: la diferencia mide el desfase de "
+                f"medición. Las matrículas del período incluyen leads captados anteriormente, "
+                f"por lo que el ROAS es una aproximación de caja, no de cohorte.</div>", unsafe_allow_html=True)
 
         # ── Tabla maestra ─────────────────────────────────────────────────────
         _render_maestra(_lv, _cohorte, _won, _n_leads)
