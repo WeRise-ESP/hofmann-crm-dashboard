@@ -3248,12 +3248,16 @@ def main():
                 f"border-collapse:collapse'><thead><tr>{th}</tr></thead>"
                 f"<tbody>{body}</tbody></table></div>")
 
-    def _tabla_ordenable(cols, rows, altura=640, total=None):
+    def _tabla_ordenable(cols, rows, altura=640, total=None, nombre=None):
         """Igual que _table pero en un componente, para poder ordenar al clicar.
 
         Streamlit no ejecuta JavaScript dentro de st.markdown, así que la tabla
         se sirve en un iframe con su propio CSS y su ordenación.
         """
+        if nombre:
+            if _barra_tabla(nombre, cols, rows, total):
+                # Ampliada: se enseña entera, con un tope razonable
+                altura = min(2400, 150 + 41 * max(len(rows), 1))
         th = "".join(
             f"<th data-i='{i}' style='text-align:{a};'>{c}"
             f"<span class='ar'></span></th>" for i, (c, a) in enumerate(cols))
@@ -3332,6 +3336,39 @@ def main():
     # queda alineado sin importar cuántas filas tenga cada una.
     _ALTO_PAR = 540
 
+    # Cada tabla que se pinta se guarda aquí en versión limpia, para poder
+    # descargarlas todas juntas en un único Excel al final de la página.
+    _EXPORT: list = []
+
+    def _sin_html(v) -> str:
+        return re.sub(r"<[^>]+>", "", str(v)).replace("\xa0", " ").strip()
+
+    def _df_plano(cols, rows, total=None) -> pd.DataFrame:
+        """La tabla tal como se ve, pero en texto: lista para CSV o Excel."""
+        _f = [[_sin_html(c) for c in r] for r in rows]
+        if total:
+            _f.append([_sin_html(c) for c in total])
+        return pd.DataFrame(_f, columns=[c for c, _ in cols])
+
+    def _barra_tabla(nombre, cols, rows, total=None, ampliable=True):
+        """Descarga en CSV y, si procede, interruptor para ampliar la tabla."""
+        _df = _df_plano(cols, rows, total)
+        _EXPORT.append((nombre, _df))
+        _amp = False
+        _c = st.columns([1.15, 1.15, 5]) if ampliable else st.columns([1.15, 6.15])
+        _i = 0
+        if ampliable:
+            with _c[0]:
+                _amp = st.toggle("⛶ Ampliar", key=f"amp_{nombre}",
+                                 help="Muestra la tabla completa, sin scroll interno")
+            _i = 1
+        with _c[_i]:
+            st.download_button(
+                "⬇️ CSV", _df.to_csv(index=False).encode("utf-8-sig"),
+                file_name=f"{nombre.lower().replace(' ', '_')}_{fi}_{ff}.csv",
+                mime="text/csv", key=f"dl_{nombre}", use_container_width=True)
+        return _amp
+
     def _sec_title(title, sub):
         return (f"<div style='font-size:18px;font-weight:700;color:{_RF['ink']};"
                 f"margin:0 0 2px'>{title}</div>"
@@ -3371,6 +3408,7 @@ def main():
         return _merc_lbl(resolve_mercado(p))
 
     def page_roi():
+        _EXPORT.clear()
         # ── Cabecera ──────────────────────────────────────────────────────────
         st.markdown(f"""
         <div style="font-size:12px;color:{_RF['muted']};margin:0 0 6px">
@@ -3632,18 +3670,19 @@ def main():
                     ])
                 _tl, _tg = _mt["leads"].sum(), _mt["ganados"].sum()
                 _ti = sum(_inv_merc.values()) + _inv_nc
-                st.markdown(_table(
-                    [("Mercado", "left"), ("Inversión", "right"), ("CPL", "right"),
-                     ("Leads Ads", "right"), ("Leads CRM", "right"), ("Ganados", "right"),
-                     ("% Conversión", "center"), ("Facturado", "right")],
-                    _rows,
-                    ["Total", _fmt_eur(_ti),
+                _cols_m = [("Mercado", "left"), ("Inversión", "right"), ("CPL", "right"),
+                           ("Leads Ads", "right"), ("Leads CRM", "right"),
+                           ("Ganados", "right"), ("% Conversión", "center"),
+                           ("Facturado", "right")]
+                _tot_m = ["Total", _fmt_eur(_ti),
                      _fmt_eur(_ti / _tl) if (_tl and _ti) else "—",
                      _fmt_int(sum(_lad_merc.values()) + _lad_nc),
                      _fmt_int(_tl), _fmt_int(_tg),
                      _pill_conv(_tg / _tl * 100 if _tl else 0),
-                     _fmt_eur(_mt["facturado"].sum())]),
-                    unsafe_allow_html=True)
+                     _fmt_eur(_mt["facturado"].sum())]
+                st.markdown(_table(_cols_m, _rows, _tot_m), unsafe_allow_html=True)
+                _barra_tabla("Conversión por mercado", _cols_m, _rows, _tot_m,
+                             ampliable=False)
                 if _inv_nc:
                     st.markdown(
                         f"<div style='font-size:12px;color:{_RF['muted']};margin-top:8px'>"
@@ -3686,7 +3725,7 @@ def main():
                     _tabla_ordenable(
                         [("País", "left"), ("Mercado", "center"), ("Leads", "right"),
                          ("Ganados", "right"), ("% Conv.", "center"), ("Facturado", "right")],
-                        _rows, altura=_ALTO_PAR,
+                        _rows, altura=_ALTO_PAR, nombre="Conversión por país",
                         total=["Total", "", _fmt_int(_tl3), _fmt_int(_tg3),
                                _pill_conv(_tg3 / _tl3 * 100 if _tl3 else 0),
                                _fmt_eur(_pt["facturado"].sum())])
@@ -3734,7 +3773,7 @@ def main():
                     _tabla_ordenable(
                         [("Curso", "left"), ("Modalidad", "center"), ("Leads", "right"),
                          ("Ganados", "right"), ("% Conv.", "center"), ("Facturado", "right")],
-                        _rows, altura=_ALTO_PAR,
+                        _rows, altura=_ALTO_PAR, nombre="Conversión por curso",
                         total=[f"Total {_mt2}", "", _fmt_int(_tl2), _fmt_int(_tg2),
                                _pill_conv(_tg2 / _tl2 * 100 if _tl2 else 0),
                                _fmt_eur(_ct["facturado"].sum())])
@@ -3825,19 +3864,21 @@ def main():
                 ])
             _tg3 = _gon + _gpr
             _troi = ((_facturado - _tg3) / _tg3 * 100) if _tg3 else None
-            st.markdown(_table(
-                [("Modalidad", "left"), ("Leads Ads", "right"), ("Leads CRM", "right"),
-                 ("Matrículas", "right"),
-                 ("Facturado", "right"), ("Gasto Ads", "right"), ("Coste/matrícula", "right"),
-                 ("CPL", "right"), ("ROAS", "right"), ("ROI", "center")],
-                _rows,
-                ["Total", _fmt_int(sum(_lad.values())),
+            _cols_r = [("Modalidad", "left"), ("Leads Ads", "right"),
+                       ("Leads CRM", "right"), ("Matrículas", "right"),
+                       ("Facturado", "right"), ("Gasto Ads", "right"),
+                       ("Coste/matrícula", "right"), ("CPL", "right"),
+                       ("ROAS", "right"), ("ROI", "center")]
+            _tot_r = ["Total", _fmt_int(sum(_lad.values())),
                  _fmt_int(_tl3), _fmt_int(_tm3), _fmt_eur(_facturado),
                  _fmt_eur(_tg3), _fmt_eur(_tg3 / _tm3) if (_tm3 and _tg3) else "—",
                  _fmt_eur(_tg3 / _tl3) if (_tl3 and _tg3) else "—",
                  f"{_facturado / _tg3:.2f}x".replace(".", ",") if _tg3 else "—",
                  _pill(_fmt_pct(_troi), "green" if _troi and _troi > 0 else "red")
-                     if _troi is not None else "—"]), unsafe_allow_html=True)
+                     if _troi is not None else "—"]
+            st.markdown(_table(_cols_r, _rows, _tot_r), unsafe_allow_html=True)
+            _barra_tabla("ROI y ROAS por modalidad", _cols_r, _rows, _tot_r,
+                         ampliable=False)
             st.markdown(
                 f"<div style='font-size:12px;color:{_RF['muted']};margin-top:10px'>"
                 f"ROAS = facturado / gasto · ROI = (facturado − gasto) / gasto · "
@@ -3870,13 +3911,40 @@ def main():
                 _pill_merc(r["merc"]), f"<b>{r['leads']}</b>", _fmt_pct(r["pct"]),
                 _bar(r["pct"], _MERC_COLOR.get(r["merc"], "#5B8DEF"), _mx),
             ] for _, r in _cdg.iterrows()]
-            _card(_sec_title(
-                "Detalle de campaña por canal",
-                "Fuente original + drill-down de campaña · ordenado por leads · "
-                "mercado inferido del naming (nac_/latam_)") + _table(
-                [("Canal", "left"), ("Detalle campaña", "left"), ("Mercado", "center"),
-                 ("Leads", "right"), ("%", "right"), ("Volumen", "left")], _rows))
+            with st.container(border=True):
+                st.markdown(_sec_title(
+                    "Detalle de campaña por canal",
+                    "Fuente original + drill-down de campaña · ordenado por leads · "
+                    "mercado inferido del naming (nac_/latam_)"), unsafe_allow_html=True)
+                _tabla_ordenable(
+                    [("Canal", "left"), ("Detalle campaña", "left"), ("Mercado", "center"),
+                     ("Leads", "right"), ("%", "right"), ("Volumen", "left")],
+                    _rows, altura=560, nombre="Detalle de campaña por canal")
 
+
+        # ── Descarga completa en Excel ────────────────────────────────────────
+        if _EXPORT:
+            try:
+                from io import BytesIO
+                _buf = BytesIO()
+                with pd.ExcelWriter(_buf, engine="openpyxl") as _xl:
+                    for _nom, _dfx in _EXPORT:
+                        # Excel limita el nombre de hoja a 31 caracteres
+                        _dfx.to_excel(_xl, sheet_name=_nom[:31], index=False)
+                _e1, _e2 = st.columns([1.6, 5])
+                with _e1:
+                    st.download_button(
+                        f"📊 Descargar todo en Excel ({len(_EXPORT)} hojas)",
+                        _buf.getvalue(),
+                        file_name=f"hofmann_roi_{fi}_{ff}.xlsx",
+                        mime=("application/vnd.openxmlformats-officedocument."
+                              "spreadsheetml.sheet"),
+                        use_container_width=True, key="dl_excel_roi")
+                with _e2:
+                    st.caption("Un libro con una hoja por tabla, tal como se ven "
+                               "en pantalla y con el período aplicado.")
+            except Exception as _e:
+                st.caption(f"No se ha podido preparar el Excel: {_e}")
 
         # ── Footer de fuentes ─────────────────────────────────────────────────
         _cd_ = lambda t: (f"<code style='background:{_RF['line']};color:{_RF['ink_soft']};"
@@ -4305,7 +4373,7 @@ def main():
             f"<b style='color:{_RF['ink_soft']}'>haz clic en cualquier cabecera para "
             f"ordenar</b> · desliza en horizontal para ver el embudo completo.</div>"
             + _aviso, unsafe_allow_html=True)
-        _tabla_ordenable(_cols, _rows,
+        _tabla_ordenable(_cols, _rows, nombre="Tabla maestra",
                          altura=min(660, 120 + 41 * max(len(_rows), 1)))
 
         _q = st.columns(6)
@@ -4380,15 +4448,8 @@ def main():
                          ("Plataformas consultadas", "left")],
                         [[c, _ps] for c, _ps, _ in _no]), unsafe_allow_html=True)
 
-        # CSV en texto plano (sin HTML)
-        import re as _re
-        _plain = [[_re.sub(r"<[^>]+>", "", str(c)) for c in r] for r in _rows]
-        _csv = pd.DataFrame(_plain, columns=[c for c, _ in _cols])
-        st.download_button(
-            "⬇️ Descargar tabla maestra (CSV)",
-            _csv.to_csv(index=False).encode("utf-8-sig"),
-            file_name=f"tabla_maestra_{'_'.join(_dims_sel).lower()}_{fi}_{ff}.csv",
-            mime="text/csv")
+        # La descarga de esta tabla la sirve ya su propia barra (⬇️ CSV),
+        # junto con el Excel completo del final de la página.
 
     def page_rst():
         # ── KPIs ──────────────────────────────────────────────────────────────────
