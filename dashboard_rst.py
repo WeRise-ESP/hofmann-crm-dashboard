@@ -2873,8 +2873,8 @@ def main():
                 "Este mes",
                 "Hoy", "Ayer",
                 "Últimos 7 días", "Últimos 30 días", "Últimos 60 días", "Últimos 90 días",
-                "Abril 2026", "Mayo 2026",
-                "2025 completo",
+                "Mes anterior",
+                "2026 completo", "2025 completo",
                 "Todos (desde 2024)",
             ]
             _qp_load("f_periodo", "str")
@@ -2882,16 +2882,19 @@ def main():
                 st.session_state.pop("f_periodo", None)
             periodo = st.selectbox("Período", _periodo_opts, key="f_periodo")
             _qp_save("f_periodo", periodo, "str")
+            # Mes anterior: del día 1 al último, calculado sobre la fecha de hoy
+            _fin_ant = mes_inicio - timedelta(days=1)
+            _ini_ant = date(_fin_ant.year, _fin_ant.month, 1)
             mapa = {
                 "Este mes":        (mes_inicio, hoy),
+                "Mes anterior":    (_ini_ant, _fin_ant),
+                "2026 completo":   (date(2026, 1, 1), date(2026, 12, 31)),
                 "Hoy":             (hoy, hoy),
                 "Ayer":            (hoy - timedelta(1), hoy - timedelta(1)),
                 "Últimos 7 días":  (hoy - timedelta(7), hoy),
                 "Últimos 30 días": (hoy - timedelta(30), hoy),
                 "Últimos 60 días": (hoy - timedelta(60), hoy),
                 "Últimos 90 días": (hoy - timedelta(90), hoy),
-                "Abril 2026":      (date(2026, 4, 1), date(2026, 4, 30)),
-                "Mayo 2026":       (date(2026, 5, 1), date(2026, 5, 31)),
                 "2025 completo":   (date(2025, 1, 1), date(2025, 12, 31)),
             }
             if periodo == "Todos (desde 2024)":
@@ -3419,13 +3422,22 @@ def main():
         #   · lead_valido == "Válido"  (no basta con "≠ No válido")
         #   · curso informado
         #   · fuera Webinar y Open Day (no son leads comerciales del embudo RST)
+        # Quien ha traído una matrícula no se excluye nunca, aunque venga de un
+        # webinar o de un open day: es la excepción acordada para no perder de
+        # vista negocios cerrados.
+        _emails_ganadores = set()
+        if not _pipe.empty and "gano_periodo" in _pipe.columns:
+            _emails_ganadores = set(
+                _pipe.loc[_pipe["gano_periodo"], "email"].dropna().astype(str)) - {""}
+
         _lv = _leads
         if not _lv.empty:
             _lv = _lv[_lv["lead_valido"] == "Válido"]
             _lv = _lv[_lv["programa"].fillna("").str.strip().ne("")
                       & _lv["programa"].ne("Sin programa")]
-            _lv = _lv[~_lv["categoria"].fillna("").str.lower()
-                       .str.contains("webinar|open day|openday", regex=True)]
+            _es_wb = _lv["categoria"].fillna("").str.lower().str.contains(
+                "webinar|open day|openday", regex=True)
+            _lv = _lv[~_es_wb | _lv["email"].astype(str).isin(_emails_ganadores)]
             # Algunos leads de campañas de webinar llegan con otra categoría
             # (Chatbot, Formulario): se filtran también por el nombre de campaña.
             _lv = _lv[~_lv["campana"].fillna("").apply(webinar_excluible)
@@ -3442,8 +3454,9 @@ def main():
             _pipe = _pipe.copy()
             _pipe["mercado_lbl"] = _pipe["pais"].apply(_merc_of_pais)
             # Mismo criterio de exclusión en los negocios
-            _pipe = _pipe[~_pipe["cont_categoria"].fillna("").str.lower()
-                           .str.contains("webinar|open day|openday", regex=True)]
+            _wb_cat = _pipe["cont_categoria"].fillna("").str.lower().str.contains(
+                "webinar|open day|openday", regex=True)
+            _pipe = _pipe[~_wb_cat | _pipe["gano_periodo"]]
             if "campaña" in _pipe.columns:
                 _pipe = _pipe[~_pipe["campaña"].fillna("").apply(webinar_excluible)]
 
