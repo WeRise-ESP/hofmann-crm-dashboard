@@ -124,6 +124,29 @@ if not TOKEN:
     st.error("❌ HUBSPOT_TOKEN no encontrado. Configúralo en Streamlit Cloud → Settings → Secrets.")
     st.stop()
 
+
+# ── Helper: leer secrets con fallback a .env ──────────────────────────────────
+def _s(key, default=""):
+    try:
+        return st.secrets[key]
+    except Exception:
+        return os.getenv(key, default)
+
+
+# ── Credenciales Google Ads (opcionales) ──────────────────────────────────────
+GA_DEVELOPER_TOKEN = _s("GOOGLE_ADS_DEVELOPER_TOKEN")
+GA_CLIENT_ID       = _s("GOOGLE_ADS_CLIENT_ID")
+GA_CLIENT_SECRET   = _s("GOOGLE_ADS_CLIENT_SECRET")
+GA_REFRESH_TOKEN   = _s("GOOGLE_ADS_REFRESH_TOKEN")
+GA_LOGIN_CID       = _s("GOOGLE_ADS_LOGIN_CUSTOMER_ID", "4885772142")
+GA_CUSTOMER_ID     = _s("GOOGLE_ADS_CUSTOMER_ID", "9010916591")
+GA_AVAILABLE = bool(GA_DEVELOPER_TOKEN and GA_CLIENT_ID and GA_CLIENT_SECRET and GA_REFRESH_TOKEN)
+
+# ── Credenciales Meta Ads (opcionales) ────────────────────────────────────────
+META_TOKEN      = _s("META_ACCESS_TOKEN")
+META_ACCOUNT_ID = _s("META_AD_ACCOUNT_ID", "2649358358505616")
+META_AVAILABLE  = bool(META_TOKEN and META_ACCOUNT_ID)
+
 # ── Paleta Hofmann ────────────────────────────────────────────────────────────
 HOFMANN = {
     "blue":         "#0053B3",   # azul medio (gráficos)
@@ -1152,6 +1175,89 @@ def fetch_pipeline_full(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+# ── Conector Google Ads ───────────────────────────────────────────────────────
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_google_ads_data(start: str, end: str) -> pd.DataFrame:
+    if not GA_AVAILABLE:
+        return pd.DataFrame()
+    try:
+        from google.ads.googleads.client import GoogleAdsClient
+        cfg = {
+            "developer_token":   GA_DEVELOPER_TOKEN,
+            "client_id":         GA_CLIENT_ID,
+            "client_secret":     GA_CLIENT_SECRET,
+            "refresh_token":     GA_REFRESH_TOKEN,
+            "login_customer_id": GA_LOGIN_CID.replace("-", ""),
+            "use_proto_plus":    True,
+        }
+        client     = GoogleAdsClient.load_from_dict(cfg)
+        ga_service = client.get_service("GoogleAdsService")
+        query = f"""
+            SELECT campaign.name, metrics.cost_micros, metrics.conversions,
+                   metrics.clicks, metrics.impressions
+            FROM campaign
+            WHERE segments.date BETWEEN '{start}' AND '{end}'
+              AND campaign.status != 'REMOVED'
+              AND metrics.cost_micros > 0
+        """
+        rows = []
+        for batch in ga_service.search_stream(
+            customer_id=GA_CUSTOMER_ID.replace("-", ""), query=query
+        ):
+            for row in batch.results:
+                rows.append({
+                    "campaña":      row.campaign.name,
+                    "gasto":        row.metrics.cost_micros / 1_000_000,
+                    "conversiones": row.metrics.conversions,
+                    "clics":        row.metrics.clicks,
+                    "plataforma":   "Google Ads",
+                })
+        if not rows:
+            return pd.DataFrame()
+        return pd.DataFrame(rows)
+    except Exception as e:
+        st.warning(f"Google Ads: {e}")
+        return pd.DataFrame()
+
+
+# ── Conector Meta Ads ─────────────────────────────────────────────────────────
+@st.cache_data(ttl=3600, show_spinner=False)
+def get_meta_ads_data(start: str, end: str) -> pd.DataFrame:
+    if not META_AVAILABLE:
+        return pd.DataFrame()
+    try:
+        url = f"https://graph.facebook.com/v21.0/act_{META_ACCOUNT_ID}/insights"
+        params = {
+            "access_token": META_TOKEN,
+            "fields":       "campaign_name,spend,clicks,impressions",
+            "level":        "campaign",
+            "time_range":   json.dumps({"since": start, "until": end}),
+            "limit":        500,
+        }
+        rows = []
+        while True:
+            r = requests.get(url, params=params, timeout=30)
+            r.raise_for_status()
+            data = r.json()
+            for item in data.get("data", []):
+                rows.append({
+                    "campaña":      item.get("campaign_name", ""),
+                    "gasto":        float(item.get("spend", 0)),
+                    "clics":        int(item.get("clicks", 0)),
+                    "plataforma":   "Meta Ads",
+                })
+            nxt = data.get("paging", {}).get("next")
+            if not nxt:
+                break
+            url, params = nxt, {}
+        if not rows:
+            return pd.DataFrame()
+        return pd.DataFrame(rows)
+    except Exception as e:
+        st.warning(f"Meta Ads: {e}")
+        return pd.DataFrame()
+
+
 # ── Email Marketing fetch ─────────────────────────────────────────────────────
 
 @st.cache_data(ttl=600, show_spinner=False)
@@ -2083,8 +2189,10 @@ def main():
                     f"Fuente: HubSpot CRM</small>", unsafe_allow_html=True)
 
     # ── Carga en paralelo ──────────────────────────────────────────────────────
-    with st.spinner("Cargando datos de HubSpot..."):
-        with ThreadPoolExecutor(max_workers=7) as ex:
+    _ads_start = str(fi) if fi != "todos" else (date.today() - timedelta(days=90)).isoformat()
+    _ads_end   = str(ff) if ff != "todos" else date.today().isoformat()
+    with st.spinner("Cargando datos..."):
+        with ThreadPoolExecutor(max_workers=9) as ex:
             fut_data     = ex.submit(fetch_data,               str(fi), str(ff))
             fut_mat      = ex.submit(fetch_matriculados_total,  str(fi), str(ff))
             fut_deals    = ex.submit(fetch_negocios_cerrados,   str(fi), str(ff))
@@ -2092,6 +2200,8 @@ def main():
             fut_pip_full = ex.submit(fetch_pipeline_full,       str(fi), str(ff))
             fut_emails   = ex.submit(fetch_emails_enviados,     str(fi), str(ff))
             fut_prog     = ex.submit(fetch_emails_programados)
+            fut_google   = ex.submit(get_google_ads_data,       _ads_start, _ads_end)
+            fut_meta     = ex.submit(get_meta_ads_data,         _ads_start, _ads_end)
         df           = fut_data.result()
         df_mat_all   = fut_mat.result()
         df_deals     = fut_deals.result()
@@ -2099,6 +2209,8 @@ def main():
         df_pip_full  = fut_pip_full.result()
         df_emails    = fut_emails.result()
         df_prog      = fut_prog.result()
+        df_google    = fut_google.result()
+        df_meta      = fut_meta.result()
 
     if df.empty and df_mat_all.empty:
         st.warning("No hay datos para el período seleccionado.")
@@ -2232,10 +2344,24 @@ def main():
         </div>
         """, unsafe_allow_html=True)
 
-        # ── Nota sobre inversión publicitaria ─────────────────────────────────
-        st.info("💡 **Inversión publicitaria**: introduce el gasto por canal en la columna Inversión (€). "
-                "Para conectar Google Ads y Meta Ads automáticamente, añade las credenciales de Ads "
-                "en los secrets de Streamlit Cloud (mismas que en el dashboard de Ads).")
+        # ── Banner de estado de conexión Ads ─────────────────────────────────
+        _connected = []
+        if GA_AVAILABLE and not df_google.empty:
+            _connected.append("Google Ads")
+        if META_AVAILABLE and not df_meta.empty:
+            _connected.append("Meta Ads")
+
+        if _connected:
+            st.success(f"✅ **Inversión conectada automáticamente:** {' + '.join(_connected)} · "
+                       f"Período: {_ads_start} → {_ads_end} · "
+                       "Puedes sobreescribir cualquier valor manualmente abajo.")
+        elif GA_AVAILABLE or META_AVAILABLE:
+            st.warning("⚠️ Credenciales de Ads configuradas pero sin datos para el período. "
+                       "Introduce la inversión manualmente.")
+        else:
+            st.info("💡 **Inversión publicitaria**: introduce el gasto por canal abajo. "
+                    "Para conectarlo automáticamente, añade las credenciales de Google Ads y Meta Ads "
+                    "en Streamlit Cloud → Settings → Secrets.")
 
         # ── Selectores de dimensión y cruce ───────────────────────────────────
         r1c1, r1c2, r1c3, r1c4, r1c5 = st.columns([1.2, 1, 1, 1, 1])
@@ -2295,6 +2421,24 @@ def main():
 
         st.divider()
 
+        # ── Mapa de inversión automático desde Ads APIs ───────────────────────
+        _ads_spend_map: dict = {}
+        _df_g = df_google.copy() if not df_google.empty else pd.DataFrame()
+        _df_m = df_meta.copy()   if not df_meta.empty   else pd.DataFrame()
+
+        if dim_sel == "Fuente":
+            if not _df_g.empty:
+                _ads_spend_map["Búsqueda pagada"] = float(_df_g["gasto"].sum())
+            if not _df_m.empty:
+                _ads_spend_map["Social pagado"] = float(_df_m["gasto"].sum())
+        elif dim_sel == "Campaña":
+            for _df_src in [_df_g, _df_m]:
+                if not _df_src.empty and "campaña" in _df_src.columns:
+                    for _camp, _spend in _df_src.groupby("campaña")["gasto"].sum().items():
+                        if _camp:
+                            _ads_spend_map[_camp] = _ads_spend_map.get(_camp, 0.0) + float(_spend)
+        # Para País y Producto no hay desglose en Ads → queda vacío → usuario ingresa manual
+
         # ── Construir tabla ROI ───────────────────────────────────────────────
         if _df_leads_base.empty and _df_pip_base.empty:
             st.info("No hay datos para los filtros seleccionados.")
@@ -2346,9 +2490,12 @@ def main():
             _tbl["_dim"] = _tbl["_dim"].astype(str)
             _tbl = _tbl[_tbl["_dim"] != "0"].copy()
 
-            # Paso 4: input manual de inversión por fila
+            # Paso 4: tabla ROI con inversión automática (Ads) o manual
+            _ads_auto_available = bool(_ads_spend_map)
+            _src_label = "API" if _ads_auto_available else "manual"
             st.markdown("#### 📋 Tabla ROI por " + dim_sel)
-            st.caption("Introduce la inversión (€) por fila. Las métricas de conversión y ROI se calculan automáticamente.")
+            st.caption(f"Inversión €: {'datos automáticos desde Ads API' if _ads_auto_available else 'ingreso manual'}. "
+                       "Puedes sobreescribir cualquier valor en el editor de abajo.")
 
             # Inicializar inversión en session_state
             _inv_key = f"roi_inv_{dim_sel}"
@@ -2370,7 +2517,9 @@ def main():
                 perdido    = int(row.get("Perdido", 0))
                 motivos    = str(row.get("_motivos", ""))
 
-                inversion  = st.session_state[_inv_key].get(dim_val, 0.0)
+                # Manual override tiene prioridad; si no hay override, usar ads o 0
+                _ads_default = _ads_spend_map.get(dim_val, 0.0)
+                inversion  = st.session_state[_inv_key].get(dim_val, _ads_default)
                 cpl        = round(inversion / cualif, 2) if cualif > 0 and inversion > 0 else 0
                 roi_pct    = round((facturado - inversion) / inversion * 100, 1) if inversion > 0 else None
 
@@ -2418,23 +2567,39 @@ def main():
                 },
             )
 
-            # ── Editor de inversión ───────────────────────────────────────────
-            st.markdown("#### ✏️ Introducir inversión publicitaria por " + dim_sel)
-            st.caption("Introduce el gasto de Ads del período para cada canal/campaña. Se usa para calcular CPL y ROI.")
+            # ── Editor de inversión manual (override) ─────────────────────────
+            _edit_title = ("✏️ Sobreescribir inversión por " + dim_sel
+                           if _ads_auto_available else
+                           "✏️ Introducir inversión publicitaria por " + dim_sel)
+            st.markdown("#### " + _edit_title)
+            _edit_caption = ("Los valores de la tabla se toman automáticamente de la API de Ads. "
+                             "Usa este editor para corregir un valor concreto."
+                             if _ads_auto_available else
+                             "Introduce el gasto de Ads del período para cada canal/campaña.")
+            st.caption(_edit_caption)
 
             _dim_opts = sorted(_tbl["_dim"].unique().tolist())
-            _inv_col1, _inv_col2, _inv_col3 = st.columns([2, 1, 1])
+            _inv_col1, _inv_col2, _inv_col3, _inv_col4 = st.columns([2, 1, 1, 0.7])
             with _inv_col1:
                 _sel_dim_inv = st.selectbox(f"Selecciona {dim_sel}", _dim_opts, key="roi_inv_sel")
             with _inv_col2:
+                _cur_ads_val = _ads_spend_map.get(_sel_dim_inv, 0.0)
+                _cur_manual  = st.session_state[_inv_key].get(_sel_dim_inv, _cur_ads_val)
                 _inv_val = st.number_input("Inversión (€)", min_value=0.0, step=100.0,
-                                           value=float(st.session_state[_inv_key].get(_sel_dim_inv, 0.0)),
+                                           value=float(_cur_manual),
                                            key="roi_inv_val")
             with _inv_col3:
                 st.markdown("<br>", unsafe_allow_html=True)
                 if st.button("💾 Guardar", key="roi_inv_save"):
                     st.session_state[_inv_key][_sel_dim_inv] = _inv_val
                     st.rerun()
+            with _inv_col4:
+                if _sel_dim_inv in st.session_state[_inv_key]:
+                    st.markdown("<br>", unsafe_allow_html=True)
+                    if st.button("↩️ Reset", key="roi_inv_reset",
+                                 help="Volver al valor automático de Ads"):
+                        del st.session_state[_inv_key][_sel_dim_inv]
+                        st.rerun()
 
             # ── KPIs resumen ──────────────────────────────────────────────────
             st.divider()
@@ -2443,7 +2608,11 @@ def main():
             _tot_cualif   = int(_tbl["Cualificados"].sum()) if "Cualificados" in _tbl else 0
             _tot_ganados  = int(_tbl.get("Cierre Ganado", pd.Series([0])).sum())
             _tot_factur   = float(_tbl.get("Facturado", pd.Series([0.0])).sum())
-            _tot_inv      = sum(st.session_state[_inv_key].values())
+            # Total inversión: suma de lo efectivo por fila (manual override o ads auto)
+            _tot_inv = sum(
+                st.session_state[_inv_key].get(str(dv), _ads_spend_map.get(str(dv), 0.0))
+                for dv in _tbl["_dim"].astype(str)
+            )
             _tot_roi      = round((_tot_factur - _tot_inv) / _tot_inv * 100, 1) if _tot_inv > 0 else None
             _tot_cpl      = round(_tot_inv / _tot_cualif, 2) if _tot_cualif > 0 and _tot_inv > 0 else None
 
