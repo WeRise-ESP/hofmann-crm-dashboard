@@ -757,6 +757,41 @@ def resolve_pais_form(sub, cp):
     return resolve_pais(cp)
 
 
+def resolve_campana(source: str, d1: str, d2: str) -> str:
+    """Nombre real de la campaña. HubSpot invierte los campos según la fuente:
+
+      PAID_SEARCH (Google)          data_1 = campaña   · data_2 = tipo (pmax/keyword)
+      PAID_SOCIAL (Meta/LI/TikTok)  data_1 = red social · data_2 = campaña (utm_campaign)
+
+    Por eso no vale leer siempre data_1: en Meta devolvería "Facebook" para todo.
+    """
+    s  = (source or "").upper().strip()
+    d1 = (d1 or "").strip()
+    d2 = (d2 or "").strip()
+    if s == "PAID_SOCIAL":
+        return d2 or d1 or "Sin campaña"
+    return d1 or d2 or "Sin campaña"
+
+
+def resolve_tipo_medio(source: str, d1: str, d2: str) -> str:
+    """El campo complementario a la campaña: red social en Meta, medio en Google."""
+    s  = (source or "").upper().strip()
+    d1 = (d1 or "").strip()
+    d2 = (d2 or "").strip()
+    return (d1 if s == "PAID_SOCIAL" else d2) or "—"
+
+
+def resolve_campana_cp(cp: dict, reciente: bool = False) -> str:
+    """resolve_campana a partir del dict de propiedades del contacto."""
+    if reciente:
+        return resolve_campana(cp.get("hs_latest_source"),
+                               cp.get("hs_latest_source_data_1"),
+                               cp.get("hs_latest_source_data_2"))
+    return resolve_campana(cp.get("hs_analytics_source"),
+                           cp.get("hs_analytics_source_data_1"),
+                           cp.get("hs_analytics_source_data_2"))
+
+
 def resolve_fuente(cp):
     raw_o = (cp.get("hs_analytics_source") or "").strip()
     raw_r = (cp.get("hs_latest_source") or "").strip()
@@ -858,6 +893,13 @@ def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
                 "fuente_original":    (cp.get("hs_analytics_source") or "").strip(),
                 "fuente_original_d1": (cp.get("hs_analytics_source_data_1") or "").strip(),
                 "fuente_original_d2": (cp.get("hs_analytics_source_data_2") or "").strip(),
+                # Campaña real, resolviendo la inversión data_1/data_2 según la fuente
+                "campana":          resolve_campana_cp(cp),
+                "campana_reciente": resolve_campana_cp(cp, reciente=True),
+                "tipo_medio":       resolve_tipo_medio(
+                                        cp.get("hs_latest_source"),
+                                        cp.get("hs_latest_source_data_1"),
+                                        cp.get("hs_latest_source_data_2")),
                 "modalidad":   (cp.get("modalidad_curso") or "Sin modalidad").strip().title(),
                 "programa":    CURSO_LABELS.get(
                                    cp.get("curso") or "",
@@ -876,6 +918,7 @@ def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
              "intentos", "motivo_cierre", "fuente", "origen_fuente",
              "fuente_reciente", "fuente_reciente_d1", "fuente_reciente_d2",
              "fuente_original", "fuente_original_d1", "fuente_original_d2",
+             "campana", "campana_reciente", "tipo_medio",
              "modalidad", "programa", "mercado", "categoria"]
     df = pd.DataFrame(rows, columns=_COLS) if rows else pd.DataFrame(columns=_COLS)
     # Derive calidad from lead_valido + lead_status for program analysis
@@ -1339,6 +1382,7 @@ def fetch_pipeline_full(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
                                                "hs_latest_source_data_2",
                                                "hs_analytics_source",
                                                "hs_analytics_source_data_1",
+                                               "hs_analytics_source_data_2",
                                                "ip_country", "pais_de_residencia",
                                                "country", "billing_country",
                                                "pais_de_la_ip_capabilia",
@@ -1348,9 +1392,9 @@ def fetch_pipeline_full(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
             for c in r.json().get("results", []):
                 p = c["properties"]
                 fuente, _ = resolve_fuente(p)
-                _camp = ((p.get("hs_latest_source_data_1") or "").strip()
-                         or (p.get("hs_analytics_source_data_1") or "").strip()
-                         or "Sin campaña")
+                _camp = resolve_campana_cp(p)
+                if _camp == "Sin campaña":
+                    _camp = resolve_campana_cp(p, reciente=True)
                 contact_data[c["id"]] = {
                     "fuente":   fuente,
                     "campaña":  _camp,
@@ -3071,9 +3115,11 @@ def main():
         # ── Detalle de campaña por canal ──────────────────────────────────────
         if _n_leads:
             _cd = _lv.copy()
-            _cd["detalle"] = (_cd["fuente_original_d1"].replace("", pd.NA)
-                              .fillna(_cd["fuente_reciente_d1"]).replace("", pd.NA)
-                              .fillna("(sin detalle)"))
+            _cd["detalle"] = (_cd["campana"].replace(
+                                  {"": pd.NA, "Sin campaña": pd.NA})
+                              .fillna(_cd["campana_reciente"].replace(
+                                  {"": pd.NA, "Sin campaña": pd.NA}))
+                              .fillna("(sin campaña)"))
             _cdg = (_cd.groupby(["fuente", "detalle"]).size().reset_index(name="leads")
                        .sort_values("leads", ascending=False))
             _cdg["merc"] = _cdg["detalle"].apply(_mercado_from_name)
@@ -3402,8 +3448,9 @@ def main():
         _mp = _pipe.copy()
         _mw = _won_periodo.copy()
         if not _ml.empty:
-            _ml["campaña"] = (_ml["fuente_reciente_d1"].replace("", pd.NA)
-                              .fillna(_ml["fuente_original_d1"].replace("", pd.NA))
+            _ml["campaña"] = (_ml["campana"].replace(
+                                  {"": pd.NA, "Sin campaña": pd.NA})
+                              .fillna(_ml["campana_reciente"].replace("", pd.NA))
                               .fillna("Sin campaña"))
 
         _s1, _s2 = st.columns([1.25, 2])
@@ -5840,12 +5887,12 @@ def main():
                 _df_val_base = _df_val_base.copy()
 
                 def _camp_name_val(row):
-                    c = (row.get("fuente_reciente_d1") or "").strip()
-                    if c:
-                        return c
-                    c = (row.get("fuente_reciente_d2") or "").strip()
-                    if c:
-                        return c
+                    # data_1/data_2 están invertidos según la fuente (ver
+                    # resolve_campana): en Meta data_1 es la red social.
+                    for k in ("campana_reciente", "campana"):
+                        c = (row.get(k) or "").strip()
+                        if c and c != "Sin campaña":
+                            return c
                     return row.get("fuente") or "Sin campaña"
 
                 _df_val_base["_campaña"] = _df_val_base.apply(_camp_name_val, axis=1)
@@ -5979,27 +6026,26 @@ def main():
 
                 _df_camp_base = df_cpn if _sel_fuente == "Todas" else df_cpn[df_cpn["fuente"] == _sel_fuente]
 
-                # Campaña = fuente_reciente_d1 (nombre real), Tipo/Ad Set = fuente_reciente_d2 (medio)
+                # Campaña real: en Google está en data_1 y en Meta en data_2
+                # (ver resolve_campana), por eso se usa la columna ya resuelta.
                 def _camp_name(row):
-                    c = (row.get("fuente_reciente_d1") or "").strip()
-                    if c:
-                        return c
-                    c = (row.get("fuente_reciente_d2") or "").strip()
-                    if c:
-                        return c
+                    for k in ("campana_reciente", "campana"):
+                        c = (row.get(k) or "").strip()
+                        if c and c != "Sin campaña":
+                            return c
                     return row.get("fuente") or "Sin campaña"
 
                 _df_camp_base = _df_camp_base.copy()
                 _df_camp_base["_campaña"] = _df_camp_base.apply(_camp_name, axis=1)
 
                 _df_resumen = (
-                    _df_camp_base.groupby(["fuente", "_campaña", "fuente_reciente_d2"])
+                    _df_camp_base.groupby(["fuente", "_campaña", "tipo_medio"])
                     .size().reset_index(name="Leads")
                     .sort_values("Leads", ascending=False)
                     .rename(columns={
                         "fuente":              "Fuente",
                         "_campaña":            "Campaña",
-                        "fuente_reciente_d2":  "Tipo / Medio",
+                        "tipo_medio":          "Tipo / Medio",
                     })
                 )
 
@@ -6098,26 +6144,27 @@ def main():
                 )
 
                 _camp_det_opts = ["Todas"] + sorted(
-                    df_cpn["fuente_reciente_d2"]
+                    df_cpn["campana_reciente"]
                     .dropna()
-                    .pipe(lambda s: s[s != ""])
+                    .pipe(lambda s: s[(s != "") & (s != "Sin campaña")])
                     .unique()
                     .tolist()
                 )
                 _camp_det_sel = st.selectbox(
-                    "Filtrar por Campaña (fuente_reciente_d2)",
+                    "Filtrar por Campaña",
                     _camp_det_opts,
                     key="camp_det_sel",
                 )
-                _df_cpn_det = df_cpn if _camp_det_sel == "Todas" else df_cpn[df_cpn["fuente_reciente_d2"] == _camp_det_sel]
+                _df_cpn_det = (df_cpn if _camp_det_sel == "Todas"
+                               else df_cpn[df_cpn["campana_reciente"] == _camp_det_sel])
 
-                # Agrupar por campaña (fuente_reciente_d2) + país + programa
+                # Agrupar por campaña resuelta + país + programa
                 _df_camp_det = (
                     _df_cpn_det.groupby([
-                        "fuente_reciente_d2",
+                        "campana_reciente",
                         "fuente_reciente_d1",
                         "fuente_reciente",
-                        "fuente_original_d2",
+                        "campana",
                         "fuente_original_d1",
                         "fuente_original",
                         "pais",
@@ -6126,10 +6173,10 @@ def main():
                     .size().reset_index(name="Leads")
                     .sort_values("Leads", ascending=False)
                     .rename(columns={
-                        "fuente_reciente_d2": "Campaña (más reciente)",
+                        "campana_reciente":   "Campaña (más reciente)",
                         "fuente_reciente_d1": "An. Det. 1 (más reciente)",
                         "fuente_reciente":    "Fuente más reciente",
-                        "fuente_original_d2": "Campaña (original)",
+                        "campana":            "Campaña (original)",
                         "fuente_original_d1": "An. Det. 1 (original)",
                         "fuente_original":    "Fuente original",
                         "pais":               "País",
@@ -6296,10 +6343,10 @@ def main():
                             "fuente":              "Fuente",
                             "fuente_reciente":     "Fuente más reciente",
                             "fuente_reciente_d1":  "An. Det. 1 reciente",
-                            "fuente_reciente_d2":  "An. Det. 2 reciente (campaña)",
+                            "fuente_reciente_d2":  "An. Det. 2 reciente (crudo)",
                             "fuente_original":     "Fuente original",
                             "fuente_original_d1":  "An. Det. 1 original",
-                            "fuente_original_d2":  "An. Det. 2 original (campaña)",
+                            "fuente_original_d2":  "An. Det. 2 original (crudo)",
                             "categoria":           "Tipo contacto",
                             "lead_status":         "Estado",
                         }).sort_values("Fecha", ascending=False),
