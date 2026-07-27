@@ -264,7 +264,35 @@ st.markdown(f"""
       color:{BARCA['white']} !important;
   }}
 
-  /* ── Login: campo contraseña (fuera del sidebar) ── */
+  /* ── GLOBAL: todos los selects/inputs del área principal ── */
+  /* Selectbox y multiselect — caja exterior */
+  [data-baseweb="select"] > div:first-child {{
+      background:#ffffff !important;
+      border:1.5px solid {BARCA['line2']} !important;
+      border-radius:6px !important;
+  }}
+  /* Texto seleccionado dentro del select */
+  [data-baseweb="select"] span,
+  [data-baseweb="select"] div[aria-selected],
+  [data-baseweb="select"] input {{
+      color:#111111 !important;
+  }}
+  /* Flecha del select */
+  [data-baseweb="select"] svg {{ fill:#555555 !important; }}
+  /* Multiselect contenedor */
+  [data-baseweb="base-input"] {{
+      background:#ffffff !important;
+  }}
+  /* Chips/tags del multiselect en el área principal */
+  [data-baseweb="tag"] {{
+      background:{BARCA['blue']} !important;
+      color:#ffffff !important;
+      border-radius:4px !important;
+  }}
+  [data-baseweb="tag"] span {{ color:#ffffff !important; }}
+  [data-baseweb="tag"] svg  {{ fill:#ffffff !important; }}
+
+  /* ── Login / inputs globales ── */
   input[type="password"] {{
       background:#ffffff !important;
       color:#111111 !important;
@@ -279,6 +307,7 @@ st.markdown(f"""
       background:#ffffff !important;
       border-radius:8px !important;
   }}
+  [data-baseweb="input"] input {{ color:#111111 !important; }}
   [data-baseweb="input"] button svg {{ fill:#555 !important; }}
 
   /* ── Botones ── */
