@@ -4,6 +4,7 @@ Análisis de calidad de leads por fuente, país y estado.
 Fuente de datos: formularios FORM_HighTicket_CA / EN / ES.
 """
 import streamlit as st
+import streamlit.components.v1 as components
 import requests
 import pandas as pd
 import plotly.express as px
@@ -852,6 +853,7 @@ CURSO_LABELS = {
 CONTACT_PROPS = [
     "email",
     "pais_de_residencia", "ip_country", "country", "billing_country",
+    "pais", "pais_formulario", "nacionalidad",
     "pais_de_la_ip_capabilia",
     "hs_lead_status", "lead_valido", "num_contacted_notes",
     "motivos_de_cierre_perdido_rst",
@@ -885,9 +887,30 @@ _CATEGORIAS_OPTS = [
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
 
+# Campos que rellena la persona (formulario, ficha) frente a los inferidos por IP.
+_PAIS_DECLARADO = ["pais_de_residencia", "pais", "pais_formulario",
+                   "country", "billing_country"]
+_PAIS_CADENA = ["pais_de_residencia", "ip_country", "pais_de_la_ip_capabilia",
+                "country", "billing_country", "pais", "pais_formulario",
+                "nacionalidad"]
+
+
 def resolve_pais(cp):
-    for f in ["pais_de_residencia", "ip_country", "pais_de_la_ip_capabilia",
-              "country", "billing_country"]:
+    """País del contacto.
+
+    Si lo declarado por la persona es España o un país de Latam, manda sobre el
+    IP: la geolocalización se falsea con VPN y buena parte del tráfico
+    latinoamericano sale enrutado por Estados Unidos. Medido en julio 2026, esto
+    recupera 28 de los 48 leads que caían en ROW y 3 de sus 4 cierres ganados.
+
+    Fuera de esos dos mercados no se fuerza nada y se sigue la cadena habitual,
+    para no sacar a nadie de un mercado conocido por un dato suelto.
+    """
+    for f in _PAIS_DECLARADO:
+        v = (cp.get(f) or "").strip()
+        if v and resolve_mercado(v.title()) in ("España", "Latam"):
+            return v.title()
+    for f in _PAIS_CADENA:
         v = (cp.get(f) or "").strip()
         if v:
             return v.title()
@@ -1328,6 +1351,7 @@ def fetch_negocios_cerrados(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
                 json={"inputs": [{"id": c} for c in batch],
                       "properties": [
                           "hs_analytics_source", "hs_latest_source",
+                          "pais", "pais_formulario", "nacionalidad",
                           "pais_de_residencia", "ip_country", "country",
                           "billing_country", "pais_de_la_ip_capabilia",
                       ]},
@@ -1539,6 +1563,7 @@ def fetch_pipeline_full(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
                                                "hs_analytics_source",
                                                "hs_analytics_source_data_1",
                                                "hs_analytics_source_data_2",
+                                               "pais", "pais_formulario", "nacionalidad",
                                                "ip_country", "pais_de_residencia",
                                                "country", "billing_country",
                                                "pais_de_la_ip_capabilia",
@@ -2754,11 +2779,28 @@ def main():
 
     # Las campañas de webinar / open day salen del análisis, igual que sus leads:
     # dejar su gasto dentro inflaría el CPL y hundiría el ROI del resto.
+    # EXCEPCIÓN: si una de ellas ha traído una matrícula, se queda dentro —con su
+    # gasto y sus leads— para que su ROI se pueda medir.
+    _wb_con_matricula = set()
+    if not df_pip_full.empty and {"campaña", "gano_periodo"} <= set(df_pip_full.columns):
+        _wg = df_pip_full[df_pip_full["gano_periodo"]
+                          & df_pip_full["campaña"].fillna("").apply(es_campana_webinar)]
+        _wb_con_matricula = set(_wg["campaña"].dropna().astype(str).unique())
+
+    def webinar_excluible(nombre: str) -> bool:
+        """Campaña de webinar / open day que NO ha generado ninguna matrícula."""
+        if not es_campana_webinar(nombre):
+            return False
+        for _u in _wb_con_matricula:
+            if _u == nombre or emparejar_campana(_u, [nombre]):
+                return False          # ha traído matrícula → se conserva
+        return True
+
     def _sin_webinars(d):
-        """Devuelve (df sin webinars, gasto excluido, campañas excluidas)."""
+        """Devuelve (df sin webinars estériles, gasto excluido, campañas excluidas)."""
         if d.empty or "campaña" not in d.columns:
             return d, 0.0, []
-        _m = d["campaña"].apply(es_campana_webinar)
+        _m = d["campaña"].apply(webinar_excluible)
         if not _m.any():
             return d, 0.0, []
         return (d[~_m].copy(), float(d.loc[_m, "gasto"].sum()),
@@ -2976,6 +3018,77 @@ def main():
                 f"border-collapse:collapse'><thead><tr>{th}</tr></thead>"
                 f"<tbody>{body}</tbody></table></div>")
 
+    def _tabla_ordenable(cols, rows, altura=640):
+        """Igual que _table pero en un componente, para poder ordenar al clicar.
+
+        Streamlit no ejecuta JavaScript dentro de st.markdown, así que la tabla
+        se sirve en un iframe con su propio CSS y su ordenación.
+        """
+        th = "".join(
+            f"<th data-i='{i}' style='text-align:{a};'>{c}"
+            f"<span class='ar'></span></th>" for i, (c, a) in enumerate(cols))
+        body = "".join(
+            "<tr>" + "".join(
+                f"<td style='text-align:{cols[i][1]}'>{v}</td>"
+                for i, v in enumerate(r)) + "</tr>" for r in rows)
+        html = rf"""
+<style>
+ *{{box-sizing:border-box}}
+ body{{margin:0;font-family:'Source Sans Pro',-apple-system,BlinkMacSystemFont,
+       'Segoe UI',sans-serif;background:transparent}}
+ .wrap{{overflow:auto;max-height:{altura - 10}px;border:1px solid {_RF['border']};
+        border-radius:12px;background:#fff}}
+ table{{width:100%;border-collapse:separate;border-spacing:0}}
+ th{{position:sticky;top:0;z-index:2;background:#fff;padding:9px 12px;font-size:10.5px;
+     font-weight:700;color:{_RF['th']};text-transform:uppercase;letter-spacing:.5px;
+     border-bottom:1px solid {_RF['border']};white-space:nowrap;cursor:pointer;
+     user-select:none}}
+ th:hover{{color:{_RF['ink']};background:{_RF['line']}}}
+ th .ar{{margin-left:5px;opacity:.35;font-size:9px}}
+ th.asc .ar::after{{content:'▲';opacity:1}}
+ th.desc .ar::after{{content:'▼';opacity:1}}
+ th:not(.asc):not(.desc) .ar::after{{content:'⇅'}}
+ td{{padding:10px 12px;font-size:13px;color:{_RF['ink']};
+     border-bottom:1px solid {_RF['line']};white-space:nowrap}}
+ tbody tr:hover td{{background:{_RF['line']}}}
+</style>
+<div class="wrap"><table><thead><tr>{th}</tr></thead><tbody>{body}</tbody></table></div>
+<script>
+(function(){{
+  var tb=document.querySelector('tbody'), ths=document.querySelectorAll('th');
+  function num(t){{
+    t=(t||'').replace(/[\s ]/g,'').replace(/[€%x]/g,'');
+    if(!t||t==='—') return null;
+    t=t.replace(/\./g,'').replace(',','.');
+    var v=parseFloat(t);
+    return isNaN(v)?null:v;
+  }}
+  ths.forEach(function(th,i){{
+    th.addEventListener('click',function(){{
+      var asc=!th.classList.contains('asc');
+      ths.forEach(function(o){{o.classList.remove('asc','desc');}});
+      th.classList.add(asc?'asc':'desc');
+      var rs=Array.prototype.slice.call(tb.querySelectorAll('tr'));
+      var vals=rs.map(function(r){{return num(r.children[i].innerText);}});
+      var esNum=vals.some(function(v){{return v!==null;}});
+      rs.sort(function(a,b){{
+        if(esNum){{
+          var x=num(a.children[i].innerText), y=num(b.children[i].innerText);
+          if(x===null&&y===null) return 0;
+          if(x===null) return 1;          // los vacíos siempre al final
+          if(y===null) return -1;
+          return asc? x-y : y-x;
+        }}
+        var s1=a.children[i].innerText.trim(), s2=b.children[i].innerText.trim();
+        return asc? s1.localeCompare(s2,'es') : s2.localeCompare(s1,'es');
+      }});
+      rs.forEach(function(r){{tb.appendChild(r);}});
+    }});
+  }});
+}})();
+</script>"""
+        components.html(html, height=altura, scrolling=False)
+
     def _sec_title(title, sub):
         return (f"<div style='font-size:18px;font-weight:700;color:{_RF['ink']};"
                 f"margin:0 0 2px'>{title}</div>"
@@ -3079,8 +3192,8 @@ def main():
                        .str.contains("webinar|open day|openday", regex=True)]
             # Algunos leads de campañas de webinar llegan con otra categoría
             # (Chatbot, Formulario): se filtran también por el nombre de campaña.
-            _lv = _lv[~_lv["campana"].fillna("").apply(es_campana_webinar)
-                      & ~_lv["campana_reciente"].fillna("").apply(es_campana_webinar)]
+            _lv = _lv[~_lv["campana"].fillna("").apply(webinar_excluible)
+                      & ~_lv["campana_reciente"].fillna("").apply(webinar_excluible)]
 
         if _lv.empty and _pipe.empty:
             st.info("No hay datos para el período y filtros seleccionados.")
@@ -3096,7 +3209,7 @@ def main():
             _pipe = _pipe[~_pipe["cont_categoria"].fillna("").str.lower()
                            .str.contains("webinar|open day|openday", regex=True)]
             if "campaña" in _pipe.columns:
-                _pipe = _pipe[~_pipe["campaña"].fillna("").apply(es_campana_webinar)]
+                _pipe = _pipe[~_pipe["campaña"].fillna("").apply(webinar_excluible)]
 
         # Ganados / perdidos = deals que ENTRARON en la etapa dentro del período
         # (incluyen leads captados en meses anteriores → visión de caja del período)
@@ -3399,8 +3512,8 @@ def main():
                     f"margin:0 0 12px'>ℹ️ Se han excluido "
                     f"<b style='color:{_RF['ink_soft']}'>{_fmt_eur(gasto_webinars)}</b> de "
                     f"captación a webinar / open day ({len(camps_webinars)} campañas), porque "
-                    f"sus leads tampoco entran en este análisis. Incluirlos inflaría el CPL y "
-                    f"hundiría el ROI del resto.</div>", unsafe_allow_html=True)
+                    f"sus leads tampoco entran en este análisis. Las que sí han traído alguna "
+                    f"matrícula se mantienen dentro, con su gasto y sus leads.</div>", unsafe_allow_html=True)
 
             _g1, _g2, _g3 = st.columns(3)
             with _g1:
@@ -3892,12 +4005,15 @@ def main():
         elif _sin_casar:
             _aviso = (f"<div style='font-size:12.5px;color:#B32B45;margin:0 0 10px'>"
                       f"⚠️ {_fmt_eur(_sin_casar)} de inversión sin repartir.</div>")
-        _card(
+        st.markdown(
             f"<div style='font-size:12.5px;color:{_RF['muted']};margin:0 0 10px'>"
             f"Las columnas de <b style='color:{_RF['ink_soft']}'>%</b> son conversión "
-            f"<b style='color:{_RF['ink_soft']}'>sobre leads cualificados</b> de esa fila. "
-            f"Desliza la tabla en horizontal para ver el embudo completo.</div>"
-            + _aviso + _table(_cols, _rows))
+            f"<b style='color:{_RF['ink_soft']}'>sobre leads cualificados</b> de esa fila · "
+            f"<b style='color:{_RF['ink_soft']}'>haz clic en cualquier cabecera para "
+            f"ordenar</b> · desliza en horizontal para ver el embudo completo.</div>"
+            + _aviso, unsafe_allow_html=True)
+        _tabla_ordenable(_cols, _rows,
+                         altura=min(660, 120 + 41 * max(len(_rows), 1)))
 
         _q = st.columns(6)
         kpi_card(_q[0], "Inversión total",    _fmt_eur0(_t_inv), BARCA["ink60"])
