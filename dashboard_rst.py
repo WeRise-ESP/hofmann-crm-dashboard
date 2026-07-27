@@ -704,6 +704,11 @@ _SINON_MATCH = {
 
 
 def _toks_match(nombre: str) -> list:
+    """Tokens significativos, sin repetir.
+
+    La deduplicación importa: "Cursos de Pastelería › Pastelería Avanzada" repite
+    PASTELERIA y, contándola dos veces, inflaría el denominador del solape.
+    """
     u = _sin_acentos(nombre).upper()
     out = []
     for t in re.split(r"[^A-Z0-9]+", u):
@@ -711,7 +716,9 @@ def _toks_match(nombre: str) -> list:
             continue
         t = re.sub(r"V\d+$", "", t)              # experiencev2 → experience
         if t and t not in _STOP_MATCH and len(t) > 1:
-            out.append(_SINON_MATCH.get(t, t))
+            t = _SINON_MATCH.get(t, t)
+            if t not in out:
+                out.append(t)
     return out
 
 
@@ -1648,18 +1655,57 @@ def get_google_ads_data(start: str, end: str) -> pd.DataFrame:
               AND campaign.status != 'REMOVED'
               AND metrics.cost_micros > 0
         """
-        rows = []
-        for batch in ga_service.search_stream(
-            customer_id=GA_CUSTOMER_ID.replace("-", ""), query=query
-        ):
+        cid = GA_CUSTOMER_ID.replace("-", "")
+        camp = {}
+        for batch in ga_service.search_stream(customer_id=cid, query=query):
             for row in batch.results:
-                rows.append({
-                    "campaña":      row.campaign.name,
-                    "gasto":        row.metrics.cost_micros / 1_000_000,
-                    "conversiones": row.metrics.conversions,
-                    "clics":        row.metrics.clicks,
-                    "plataforma":   "Google Ads",
-                })
+                a = camp.setdefault(row.campaign.name, [0.0, 0.0, 0])
+                a[0] += row.metrics.cost_micros / 1_000_000
+                a[1] += row.metrics.conversions
+                a[2] += row.metrics.clicks
+
+        # Una campaña PMax puede tener varios grupos de recursos apuntando a
+        # programas distintos, cada uno con su propia landing y su utm_campaign
+        # (p. ej. "Cursos de Pastelería" contiene Intensivo y Avanzada). En ese
+        # caso el gasto se desglosa por grupo, porque es el nivel al que existen
+        # las UTM; si la campaña tiene un solo grupo se deja tal cual.
+        q_ag = f"""
+            SELECT campaign.name, asset_group.name, metrics.cost_micros,
+                   metrics.conversions, metrics.clicks
+            FROM asset_group
+            WHERE segments.date BETWEEN '{start}' AND '{end}'
+              AND metrics.cost_micros > 0
+        """
+        grupos = {}
+        try:
+            for batch in ga_service.search_stream(customer_id=cid, query=q_ag):
+                for row in batch.results:
+                    k = (row.campaign.name, row.asset_group.name)
+                    a = grupos.setdefault(k, [0.0, 0.0, 0])
+                    a[0] += row.metrics.cost_micros / 1_000_000
+                    a[1] += row.metrics.conversions
+                    a[2] += row.metrics.clicks
+        except Exception:
+            grupos = {}          # sin permisos o sin PMax: se sigue por campaña
+
+        _n_grupos = {}
+        for (c, _g) in grupos:
+            _n_grupos[c] = _n_grupos.get(c, 0) + 1
+        _multi = {c for c, n in _n_grupos.items() if n > 1}
+
+        rows = []
+        for c, (g, cv, k) in camp.items():
+            if c in _multi:
+                continue        # se sustituye por sus grupos de recursos
+            rows.append({"campaña": c, "gasto": g, "conversiones": cv,
+                         "clics": k, "plataforma": "Google Ads"})
+        for (c, gr), (g, cv, k) in grupos.items():
+            if c not in _multi:
+                continue
+            # El nombre conserva la campaña —para no perder el token de mercado—
+            # y añade el grupo, que es lo que se parece a la utm_campaign.
+            rows.append({"campaña": f"{c} › {gr}", "gasto": g, "conversiones": cv,
+                         "clics": k, "plataforma": "Google Ads"})
         if not rows:
             return pd.DataFrame()
         return pd.DataFrame(rows)
