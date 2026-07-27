@@ -4215,10 +4215,10 @@ def main():
                 _df_val_base = _df_val_base.copy()
 
                 def _camp_name_val(row):
-                    c = (row.get("fuente_reciente_d2") or "").strip()
+                    c = (row.get("fuente_reciente_d1") or "").strip()
                     if c:
                         return c
-                    c = (row.get("fuente_reciente_d1") or "").strip()
+                    c = (row.get("fuente_reciente_d2") or "").strip()
                     if c:
                         return c
                     return row.get("fuente") or "Sin campaña"
@@ -4354,12 +4354,12 @@ def main():
 
                 _df_camp_base = df_cpn if _sel_fuente == "Todas" else df_cpn[df_cpn["fuente"] == _sel_fuente]
 
-                # Campaña = fuente_reciente_d2 si existe, si no fuente_reciente_d1, si no fuente
+                # Campaña = fuente_reciente_d1 (nombre real), Tipo/Ad Set = fuente_reciente_d2 (medio)
                 def _camp_name(row):
-                    c = (row.get("fuente_reciente_d2") or "").strip()
+                    c = (row.get("fuente_reciente_d1") or "").strip()
                     if c:
                         return c
-                    c = (row.get("fuente_reciente_d1") or "").strip()
+                    c = (row.get("fuente_reciente_d2") or "").strip()
                     if c:
                         return c
                     return row.get("fuente") or "Sin campaña"
@@ -4368,25 +4368,25 @@ def main():
                 _df_camp_base["_campaña"] = _df_camp_base.apply(_camp_name, axis=1)
 
                 _df_resumen = (
-                    _df_camp_base.groupby(["fuente", "_campaña", "fuente_reciente_d1"])
+                    _df_camp_base.groupby(["fuente", "_campaña", "fuente_reciente_d2"])
                     .size().reset_index(name="Leads")
                     .sort_values("Leads", ascending=False)
                     .rename(columns={
                         "fuente":              "Fuente",
                         "_campaña":            "Campaña",
-                        "fuente_reciente_d1":  "Plataforma / Ad Set",
+                        "fuente_reciente_d2":  "Tipo / Medio",
                     })
                 )
 
                 st.dataframe(
-                    _df_resumen,
+                    _df_resumen[["Fuente", "Campaña", "Tipo / Medio", "Leads"]],
                     use_container_width=True,
                     hide_index=True,
                     column_config={
-                        "Leads":              st.column_config.NumberColumn(format="%d", width="small"),
-                        "Fuente":             st.column_config.TextColumn(width="medium"),
-                        "Plataforma / Ad Set": st.column_config.TextColumn(width="medium"),
-                        "Campaña":            st.column_config.TextColumn(width="large"),
+                        "Leads":         st.column_config.NumberColumn(format="%d", width="small"),
+                        "Fuente":        st.column_config.TextColumn(width="medium"),
+                        "Tipo / Medio":  st.column_config.TextColumn(width="small"),
+                        "Campaña":       st.column_config.TextColumn(width="large"),
                     },
                 )
 
