@@ -2423,19 +2423,146 @@ def main():
     st.markdown("<br>", unsafe_allow_html=True)
 
     # ══════════════════════════════════════════════════════════════════════════
-    # PÁGINA — Contactos, Conversión & ROI
+    # PÁGINA — Contactos, Conversión & ROI   (réplica mktsales.netlify.app)
     # ══════════════════════════════════════════════════════════════════════════
     _GANADO_ET = ["Cierre Ganado", "Cierre Ganado (histórico)"]
 
+    # Paleta exacta de la referencia
+    _RF = {
+        "ink":      "#1A2233",
+        "ink_soft": "#46516A",
+        "muted":    "#7A8699",
+        "th":       "#8A94A6",
+        "line":     "#EFF1F5",
+        "border":   "#E7EAF0",
+        "card":     "#FFFFFF",
+        "chip_bg":  "#EEF2FF",
+        "chip_tx":  "#4054C8",
+        "tog_on":   "#17203A",
+    }
+    _PILL = {
+        "green": ("#E3F5EC", "#1E7A4F"),
+        "red":   ("#FDE8EC", "#B32B45"),
+        "amber": ("#FEF3D9", "#8A6206"),
+        "gray":  ("#F0F2F5", "#6B7688"),
+        "blue":  ("#E4EEFE", "#1D5FD0"),
+    }
+    # Colores del donut, en el orden de la referencia
+    _DONUT = ["#A855F7", "#5B8DEF", "#1E3A8A", "#34D399", "#9CA3AF",
+              "#2DD4BF", "#D1D5DB", "#EC4899", "#F59E0B", "#6366F1"]
+    _MERC_COLOR = {"Nacional": "#34D399", "LATAM": "#F59E0B",
+                   "ROW": "#9CA3AF", "Sin país": "#D1D5DB", "—": "#5B8DEF"}
+
     def _fmt_eur(v):
-        if v is None or (isinstance(v, float) and pd.isna(v)) or v == 0:
+        if v is None or (isinstance(v, float) and pd.isna(v)) or not v:
             return "—"
         return f"{v:,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
 
-    def _fmt_pct(v):
-        if v is None:
+    def _fmt_eur0(v):
+        if v is None or (isinstance(v, float) and pd.isna(v)) or not v:
+            return "—"
+        return f"{v:,.0f} €".replace(",", ".")
+
+    def _fmt_int(v):
+        if not v:
+            return "—"
+        return f"{int(v):,}".replace(",", ".")
+
+    def _fmt_pct(v, dash_zero=False):
+        if v is None or (dash_zero and not v):
             return "—"
         return f"{v:.1f}%".replace(".", ",")
+
+    def _pill(txt, kind):
+        bg, tx = _PILL[kind]
+        return (f"<span style='background:{bg};color:{tx};font-size:11px;font-weight:700;"
+                f"padding:3px 9px;border-radius:20px;white-space:nowrap'>{txt}</span>")
+
+    def _pill_conv(v):
+        """Pill de conversión con el color según el valor, como en la referencia."""
+        if not v:
+            return _pill("0%", "gray")
+        kind = "green" if v >= 10 else ("amber" if v >= 3 else "red")
+        return _pill(_fmt_pct(v), kind)
+
+    def _pill_neg(v):
+        """Pill para métricas donde MÁS es PEOR (ilocalizados, perdidos, motivos)."""
+        if not v:
+            return _pill("0%", "gray")
+        kind = "green" if v < 5 else ("amber" if v < 15 else "red")
+        return _pill(_fmt_pct(v), kind)
+
+    def _pill_merc(m):
+        if m in ("—", "", None):
+            return f"<span style='color:{_RF['muted']}'>—</span>"
+        kind = {"Nacional": "green", "LATAM": "amber"}.get(m, "gray")
+        return _pill(m, kind)
+
+    def _bar(pct, color, maxpct):
+        w = (pct / maxpct * 100) if maxpct else 0
+        return (f"<div style='background:{_RF['line']};border-radius:4px;height:6px;"
+                f"width:100%;min-width:60px'>"
+                f"<div style='background:{color};width:{w:.1f}%;height:6px;"
+                f"border-radius:4px'></div></div>")
+
+    def _table(cols, rows, total_row=None):
+        """cols: [(label, align)] · rows: [[celda_html]] · total_row: [celda_html]"""
+        th = "".join(
+            f"<th style='text-align:{a};padding:9px 12px;font-size:10.5px;"
+            f"font-weight:700;color:{_RF['th']};text-transform:uppercase;"
+            f"letter-spacing:.5px;border-bottom:1px solid {_RF['border']};"
+            f"white-space:nowrap'>{c}</th>"
+            for c, a in cols)
+        body = ""
+        for r in rows:
+            tds = "".join(
+                f"<td style='text-align:{cols[i][1]};padding:10px 12px;font-size:13px;"
+                f"color:{_RF['ink']};border-bottom:1px solid {_RF['line']};"
+                f"white-space:nowrap'>{v}</td>"
+                for i, v in enumerate(r))
+            body += f"<tr>{tds}</tr>"
+        if total_row:
+            tds = "".join(
+                f"<td style='text-align:{cols[i][1]};padding:11px 12px;font-size:13px;"
+                f"font-weight:700;color:{_RF['ink']};border-top:2px solid {_RF['border']}'>"
+                f"{v}</td>"
+                for i, v in enumerate(total_row))
+            body += f"<tr>{tds}</tr>"
+        return (f"<div style='overflow-x:auto'><table style='width:100%;"
+                f"border-collapse:collapse'><thead><tr>{th}</tr></thead>"
+                f"<tbody>{body}</tbody></table></div>")
+
+    def _sec_title(title, sub):
+        return (f"<div style='font-size:18px;font-weight:700;color:{_RF['ink']};"
+                f"margin:0 0 2px'>{title}</div>"
+                f"<div style='font-size:12.5px;color:{_RF['muted']};margin:0 0 12px'>"
+                f"{sub}</div>")
+
+    def _card(html):
+        st.markdown(
+            f"<div style='background:{_RF['card']};border:1px solid {_RF['border']};"
+            f"border-radius:14px;padding:20px 22px;margin-bottom:18px;"
+            f"box-shadow:0 1px 3px rgba(16,24,40,.04)'>{html}</div>",
+            unsafe_allow_html=True)
+
+    def _seg(label, opts, key, default=None):
+        """Segmented control con fallback a radio en versiones antiguas."""
+        d = default if default is not None else opts[0]
+        try:
+            v = st.segmented_control(label, opts, default=d, key=key,
+                                     label_visibility="collapsed")
+            return v if v is not None else d
+        except Exception:
+            return st.radio(label, opts, horizontal=True, key=key,
+                            label_visibility="collapsed")
+
+    def _mercado_from_name(name: str) -> str:
+        n = (name or "").lower()
+        if "latam" in n:
+            return "LATAM"
+        if "_nac" in n or "nac_" in n or "- es" in n or "_es" in n or " es" == n[-3:]:
+            return "Nacional"
+        return "—"
 
     # resolve_mercado devuelve España/Latam/Otro/Sin datos → etiquetas de negocio
     _MERC_LBL = {"España": "Nacional", "Latam": "LATAM",
@@ -2444,110 +2571,78 @@ def main():
     def _merc_lbl(m) -> str:
         return _MERC_LBL.get(str(m), "ROW")
 
-    def _mercado_from_name(name: str) -> str:
-        n = (name or "").lower()
-        if "latam" in n:
-            return "LATAM"
-        if "_nac" in n or "nac_" in n or "- es" in n or "_es" in n:
-            return "Nacional"
-        return "—"
+    def _merc_of_pais(p) -> str:
+        return _merc_lbl(resolve_mercado(p))
 
     def page_roi():
         # ── Cabecera ──────────────────────────────────────────────────────────
         st.markdown(f"""
-        <div style="font-size:12px;color:{BARCA['ink40']};margin-bottom:4px">
-            Dashboard › <b style="color:{BARCA['ink80']}">Negocio · Contactos &amp; Conversión</b>
+        <div style="font-size:12px;color:{_RF['muted']};margin:0 0 6px">
+            Dashboard › <b style="color:{_RF['ink_soft']}">Negocio · Contactos &amp; Conversión</b>
         </div>
-        <h1 style="margin:0 0 4px;font-size:30px;font-weight:800;color:{BARCA['ink100']};
-                   letter-spacing:-.5px">
-            📊 Contactos, Conversión &amp; ROI
-            <span style="background:{BARCA['bone']};color:{BARCA['blue_deep']};font-size:13px;
-                         font-weight:700;padding:4px 12px;border-radius:20px;
-                         vertical-align:middle;margin-left:8px">{periodo_txt}</span>
-        </h1>
-        <p style="color:{BARCA['ink60']};font-size:14px;margin:0 0 20px;max-width:1100px">
-            Leads válidos con curso informado + cruce con negocios (Cierre Ganado / Cierre Perdido)
-            · conversión por mercado, país y curso · ROI/ROAS por modalidad
-            — Fuente: HubSpot + Google&nbsp;Ads + Meta + LinkedIn + TikTok
-        </p>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 6px">
+            <span style="font-size:29px;font-weight:800;color:{_RF['ink']};
+                         letter-spacing:-.6px">📊 Contactos, Conversión &amp; ROI</span>
+            <span style="background:{_RF['chip_bg']};color:{_RF['chip_tx']};font-size:12.5px;
+                         font-weight:700;padding:4px 12px;border-radius:20px">{periodo_txt}</span>
+        </div>
+        <div style="color:{_RF['muted']};font-size:13.5px;margin:0 0 16px;max-width:1150px">
+            Leads válidos con curso informado (creados en el período) + cruce con negocios
+            (Cierre Ganado / Cierre Perdido) · conversión por mercado, país y curso ·
+            ROI/ROAS por modalidad — Fuente: HubSpot + Google&nbsp;Ads + Meta + LinkedIn + TikTok
+        </div>
         """, unsafe_allow_html=True)
 
-        # ── Selector de modalidad ─────────────────────────────────────────────
-        _mc1, _mc2 = st.columns([1, 3])
-        with _mc1:
-            _modalidad_sel = st.radio("Modalidad", ["Todo", "🌐 Online", "🏫 Presencial"],
-                                      horizontal=True, key="roi_modalidad")
-        _mod_filter = {"Todo": None, "🌐 Online": "Online", "🏫 Presencial": "Presencial"}[_modalidad_sel]
+        # ── Barra de vistas + modalidad ───────────────────────────────────────
+        _v1, _v2, _v3 = st.columns([1.5, .45, 1.35])
+        with _v1:
+            _vista = _seg("Vista", ["Conversión & ROI", "Cierres perdidos"], "roi_vista")
+        with _v2:
+            st.markdown(f"<div style='padding-top:7px;font-size:11px;font-weight:700;"
+                        f"color:{_RF['th']};text-transform:uppercase;letter-spacing:.6px;"
+                        f"text-align:right'>Modalidad</div>", unsafe_allow_html=True)
+        with _v3:
+            _modalidad_sel = _seg("Modalidad", ["Todo", "🌐 Online", "🏫 Presencial"],
+                                  "roi_modalidad")
+        _mod_filter = {"Todo": None, "🌐 Online": "Online",
+                       "🏫 Presencial": "Presencial"}[_modalidad_sel]
 
         # ── Preparar datasets ─────────────────────────────────────────────────
         _leads = df.copy()
         _pipe  = df_pip_full.copy()
 
-        # Aplicar los filtros globales del sidebar también al pipeline
+        # Los filtros globales del sidebar también aplican al pipeline
         if not _pipe.empty:
             if filtro_fuente:
                 _pipe = _pipe[_pipe["fuente"].isin(filtro_fuente)]
             if filtro_pais:
                 _pipe = _pipe[_pipe["pais"].isin(filtro_pais)]
 
-        # Filtro de modalidad
         if _mod_filter:
-            if not _leads.empty and "modalidad" in _leads.columns:
+            if not _leads.empty:
                 _leads = _leads[_leads["modalidad"].str.contains(_mod_filter, case=False, na=False)]
-            if not _pipe.empty and "modalidad" in _pipe.columns:
+            if not _pipe.empty:
                 _pipe = _pipe[_pipe["modalidad"].str.contains(_mod_filter, case=False, na=False)]
 
-        # Leads válidos (excluye "No válido")
         _lv = _leads[_leads["lead_valido"] != "No válido"] if not _leads.empty else _leads
-
         if _lv.empty and _pipe.empty:
             st.info("No hay datos para el período y filtros seleccionados.")
             return
 
-        _won = _pipe[_pipe["etapa"].isin(_GANADO_ET)] if not _pipe.empty else pd.DataFrame()
-
-        _n_leads    = len(_lv)
-        _n_ganados  = _won["deal_id"].nunique() if not _won.empty else 0
-        _facturado  = float(_won["amount"].sum()) if not _won.empty else 0.0
-        _conv_glob  = (_n_ganados / _n_leads * 100) if _n_leads else 0
-        _fuente_top = _lv["fuente"].value_counts().idxmax() if _n_leads else "—"
-
-        if _n_leads:
+        if not _lv.empty:
             _lv = _lv.copy()
             _lv["mercado_lbl"] = _lv["mercado"].map(_merc_lbl)
-        _merc_counts = _lv["mercado_lbl"].value_counts() if _n_leads else pd.Series(dtype=int)
-        _pct_nac  = _merc_counts.get("Nacional", 0) / _n_leads * 100 if _n_leads else 0
-        _pct_lat  = _merc_counts.get("LATAM", 0)    / _n_leads * 100 if _n_leads else 0
-        _pct_row  = 100 - _pct_nac - _pct_lat if _n_leads else 0
+        if not _pipe.empty:
+            _pipe = _pipe.copy()
+            _pipe["mercado_lbl"] = _pipe["pais"].apply(_merc_of_pais)
 
-        # ── 4 tarjetas KPI ────────────────────────────────────────────────────
-        def _big_card(col, label, value, sub, grad):
-            col.markdown(f"""
-            <div style="background:{grad};border-radius:14px;padding:18px 20px;
-                        min-height:120px;box-shadow:0 2px 8px rgba(0,0,0,.08)">
-                <div style="color:rgba(255,255,255,.82);font-size:11px;font-weight:700;
-                            letter-spacing:.7px;text-transform:uppercase">{label}</div>
-                <div style="color:#fff;font-size:38px;font-weight:800;line-height:1.15;
-                            margin:2px 0 4px">{value}</div>
-                <div style="color:rgba(255,255,255,.85);font-size:12px">{sub}</div>
-            </div>""", unsafe_allow_html=True)
+        _won  = _pipe[_pipe["etapa"].isin(_GANADO_ET)] if not _pipe.empty else pd.DataFrame()
+        _lost = _pipe[_pipe["etapa"] == "Cierre Perdido"] if not _pipe.empty else pd.DataFrame()
 
-        _k1, _k2, _k3, _k4 = st.columns(4)
-        _big_card(_k1, "Contactos del período", f"{_n_leads:,}".replace(",", "."),
-                  f"Válidos · Fuente top: {_fuente_top}",
-                  "linear-gradient(135deg,#4C6FE7 0%,#5B8DEF 100%)")
-        _big_card(_k2, "Ganados", f"{_n_ganados:,}".replace(",", "."), _fmt_eur(_facturado),
-                  "linear-gradient(135deg,#3EA97B 0%,#4CAF7D 100%)")
-        _big_card(_k3, "Conversión lead → ganado", _fmt_pct(_conv_glob),
-                  "Ganados / leads del período",
-                  "linear-gradient(135deg,#E8A33D 0%,#EFB259 100%)")
-        _big_card(_k4, "% Leads nacional", f"{_pct_nac:.0f}%",
-                  f"{_pct_lat:.0f}% LATAM · {_pct_row:.0f}% ROW",
-                  f"linear-gradient(135deg,{BARCA['blue_ink']} 0%,{BARCA['blue_deep']} 100%)")
+        _n_leads   = len(_lv)
+        _n_ganados = _won["deal_id"].nunique()    if not _won.empty else 0
+        _facturado = float(_won["amount"].sum())  if not _won.empty else 0.0
 
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # ── Helper: ganados/facturado por dimensión ───────────────────────────
         def _won_by(key):
             if _won.empty or key not in _won.columns:
                 return pd.DataFrame(columns=[key, "ganados", "facturado"])
@@ -2555,352 +2650,498 @@ def main():
                         .agg(ganados=("deal_id", "nunique"), facturado=("amount", "sum"))
                         .reset_index())
 
-        # ── Fila: donut por fuente + conversión por mercado ───────────────────
-        _c_izq, _c_der = st.columns([1, 1.15])
+        # ══════════════════════════════════════════════════════════════════════
+        if _vista == "Cierres perdidos":
+            _render_perdidos(_lv, _pipe, _lost, _n_leads)
+            return
+        # ══════════════════════════════════════════════════════════════════════
 
-        with _c_izq:
-            st.markdown(f"""<div style="font-size:19px;font-weight:700;color:{BARCA['ink100']};
-                        margin-bottom:2px">Contactos por fuente</div>
-                        <div style="font-size:13px;color:{BARCA['ink60']};margin-bottom:10px">
-                        Canal de captación (fuente original del tráfico) · leads válidos</div>""",
-                        unsafe_allow_html=True)
-            if _n_leads:
-                _fc = _lv["fuente"].value_counts().reset_index()
-                _fc.columns = ["fuente", "n"]
-                _fig = go.Figure(go.Pie(
-                    labels=_fc["fuente"], values=_fc["n"], hole=.62,
-                    marker=dict(colors=COLOR_FUENTES * 3,
-                                line=dict(color="#fff", width=2)),
-                    textinfo="none", sort=True,
-                    hovertemplate="<b>%{label}</b><br>%{value} leads (%{percent})<extra></extra>",
-                ))
-                _fig.update_layout(
-                    showlegend=False, height=250,
-                    margin=dict(t=0, b=0, l=0, r=0),
-                    paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
-                    annotations=[dict(
-                        text=f"<b style='font-size:30px'>{_n_leads}</b><br>"
-                             f"<span style='font-size:10px;letter-spacing:1px;color:{BARCA['ink40']}'>CONTACTOS</span>",
-                        x=.5, y=.5, showarrow=False, font=dict(color=BARCA["ink100"])),
-                    ],
-                )
-                _dc1, _dc2 = st.columns([1, 1.1])
-                with _dc1:
-                    st.plotly_chart(_fig, use_container_width=True,
-                                    config={"displayModeBar": False})
-                with _dc2:
-                    _rows_html = ""
-                    for _i, _r in _fc.iterrows():
-                        _col = COLOR_FUENTES[_i % len(COLOR_FUENTES)]
-                        _pc  = _r["n"] / _n_leads * 100
-                        _rows_html += (
-                            f"<div style='display:flex;align-items:center;gap:8px;"
-                            f"padding:3px 0;font-size:13px'>"
-                            f"<span style='width:9px;height:9px;border-radius:50%;"
-                            f"background:{_col};flex-shrink:0'></span>"
-                            f"<span style='flex:1;color:{BARCA['ink80']}'>{_r['fuente']}</span>"
-                            f"<b style='color:{BARCA['ink100']}'>{_r['n']}</b>"
-                            f"<span style='color:{BARCA['ink40']};width:38px;text-align:right'>"
-                            f"{_pc:.0f}%</span></div>"
-                        )
-                    st.markdown(_rows_html, unsafe_allow_html=True)
+        _conv_glob  = (_n_ganados / _n_leads * 100) if _n_leads else 0
+        _fuente_top = _lv["fuente"].value_counts().idxmax() if _n_leads else "—"
+        _mc = _lv["mercado_lbl"].value_counts() if _n_leads else pd.Series(dtype=int)
+        _pct_nac = _mc.get("Nacional", 0) / _n_leads * 100 if _n_leads else 0
+        _pct_lat = _mc.get("LATAM", 0)    / _n_leads * 100 if _n_leads else 0
+        _pct_row = 100 - _pct_nac - _pct_lat if _n_leads else 0
 
-        with _c_der:
-            st.markdown(f"""<div style="font-size:19px;font-weight:700;color:{BARCA['ink100']};
-                        margin-bottom:2px">Conversión por mercado</div>
-                        <div style="font-size:13px;color:{BARCA['ink60']};margin-bottom:10px">
-                        Leads del período vs matrículas · los ganados incluyen leads anteriores</div>""",
-                        unsafe_allow_html=True)
-            _lm = (_lv.groupby("mercado_lbl").size().reset_index(name="leads")
-                        .rename(columns={"mercado_lbl": "mercado"})
-                   if _n_leads else pd.DataFrame(columns=["mercado", "leads"]))
-            # mercado del pipeline a partir del país
-            if not _won.empty:
-                _wtmp = _won.copy()
-                _wtmp["mercado"] = _wtmp["pais"].apply(
-                    lambda p: _merc_lbl(resolve_mercado(p)))
-                _wm = (_wtmp.groupby("mercado")
-                            .agg(ganados=("deal_id", "nunique"), facturado=("amount", "sum"))
-                            .reset_index())
-            else:
-                _wm = pd.DataFrame(columns=["mercado", "ganados", "facturado"])
-            _mt = _lm.merge(_wm, on="mercado", how="outer").fillna(0)
-            _mt["orden"] = _mt["mercado"].map(
-                {"Nacional": 0, "LATAM": 1, "ROW": 2, "Sin país": 3}).fillna(4)
-            _mt = _mt.sort_values("orden")
-            _mt["% conversión"] = _mt.apply(
-                lambda r: (r["ganados"] / r["leads"] * 100) if r["leads"] else 0, axis=1)
-            _mt_disp = pd.DataFrame({
-                "Mercado":       _mt["mercado"],
-                "Leads":         _mt["leads"].astype(int),
-                "Ganados":       _mt["ganados"].astype(int),
-                "% Conversión":  _mt["% conversión"].map(_fmt_pct),
-                "Facturado":     _mt["facturado"].map(_fmt_eur),
-            })
-            _mt_disp.loc[len(_mt_disp)] = [
-                "Total", int(_mt["leads"].sum()), int(_mt["ganados"].sum()),
-                _fmt_pct(_mt["ganados"].sum() / _mt["leads"].sum() * 100 if _mt["leads"].sum() else 0),
-                _fmt_eur(_mt["facturado"].sum()),
-            ]
-            st.dataframe(_mt_disp, use_container_width=True, hide_index=True)
-            st.caption("**Mercado** derivado del país del contacto: España → Nacional · "
-                       "Latinoamérica → LATAM · resto → ROW.")
+        # ── 4 tarjetas KPI ────────────────────────────────────────────────────
+        def _big(col, label, value, sub, grad):
+            col.markdown(f"""
+            <div style="background:{grad};border-radius:14px;padding:16px 20px;
+                        min-height:104px;box-shadow:0 1px 4px rgba(16,24,40,.10)">
+                <div style="color:rgba(255,255,255,.85);font-size:10.5px;font-weight:800;
+                            letter-spacing:.8px;text-transform:uppercase">{label}</div>
+                <div style="color:#fff;font-size:36px;font-weight:800;line-height:1.2;
+                            margin:1px 0 3px">{value}</div>
+                <div style="color:rgba(255,255,255,.88);font-size:12px">{sub}</div>
+            </div>""", unsafe_allow_html=True)
 
-        st.divider()
+        _k1, _k2, _k3, _k4 = st.columns(4)
+        _big(_k1, "Contactos del período", _fmt_int(_n_leads),
+             f"Válidos · con curso · Fuente top: {_fuente_top}",
+             "linear-gradient(135deg,#4C6FE7 0%,#5B8DEF 100%)")
+        _big(_k2, "Ganados", _fmt_int(_n_ganados), _fmt_eur(_facturado),
+             "linear-gradient(135deg,#12A56B 0%,#2FBF84 100%)")
+        _big(_k3, "Conversión lead → ganado", _fmt_pct(_conv_glob),
+             "Ganados / leads del período",
+             "linear-gradient(135deg,#E89A18 0%,#F0A93A 100%)")
+        _big(_k4, "% Leads nacional", f"{_pct_nac:.0f}%",
+             f"{_pct_lat:.0f}% LATAM · {_pct_row:.0f}% ROW",
+             "linear-gradient(135deg,#1E2A6B 0%,#2E3D8F 100%)")
+        st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
+
+        # ── Contactos por fuente | Conversión por mercado ──────────────────────
+        _cl, _cr = st.columns([1, 1.12])
+
+        with _cl:
+            with st.container(border=True):
+                st.markdown(_sec_title(
+                    "Contactos por fuente",
+                    "Canal de captación (fuente original del tráfico) · leads válidos con curso"),
+                    unsafe_allow_html=True)
+                if _n_leads:
+                    _fc = _lv["fuente"].value_counts().reset_index()
+                    _fc.columns = ["fuente", "n"]
+                    _fig = go.Figure(go.Pie(
+                        labels=_fc["fuente"], values=_fc["n"], hole=.66, sort=True,
+                        marker=dict(colors=_DONUT * 3, line=dict(color="#fff", width=2)),
+                        textinfo="none",
+                        hovertemplate="<b>%{label}</b><br>%{value} leads (%{percent})<extra></extra>",
+                    ))
+                    _fig.update_layout(
+                        showlegend=False, height=232, margin=dict(t=4, b=4, l=4, r=4),
+                        paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
+                        annotations=[dict(
+                            text=f"<b style='font-size:29px'>{_n_leads}</b><br>"
+                                 f"<span style='font-size:9.5px;letter-spacing:1.2px;"
+                                 f"color:{_RF['th']}'>CONTACTOS</span>",
+                            x=.5, y=.5, showarrow=False, font=dict(color=_RF["ink"]))],
+                    )
+                    _d1, _d2 = st.columns([1, 1.15])
+                    with _d1:
+                        st.plotly_chart(_fig, use_container_width=True,
+                                        config={"displayModeBar": False})
+                    with _d2:
+                        _lg = ""
+                        for _i, _r in _fc.iterrows():
+                            _lg += (
+                                f"<div style='display:flex;align-items:center;gap:8px;"
+                                f"padding:3.5px 0;font-size:12.5px'>"
+                                f"<span style='width:9px;height:9px;border-radius:50%;"
+                                f"background:{_DONUT[_i % len(_DONUT)]};flex-shrink:0'></span>"
+                                f"<span style='flex:1;color:{_RF['ink_soft']}'>{_r['fuente']}</span>"
+                                f"<b style='color:{_RF['ink']}'>{_r['n']}</b>"
+                                f"<span style='color:{_RF['muted']};width:36px;"
+                                f"text-align:right'>{_r['n'] / _n_leads * 100:.0f}%</span></div>")
+                        st.markdown(_lg, unsafe_allow_html=True)
+
+        with _cr:
+            with st.container(border=True):
+                st.markdown(_sec_title(
+                    "Conversión por mercado",
+                    "Leads del período vs matrículas (los ganados incluyen leads anteriores)"),
+                    unsafe_allow_html=True)
+                _lm = (_lv.groupby("mercado_lbl").size().reset_index(name="leads")
+                          .rename(columns={"mercado_lbl": "mercado"})
+                       if _n_leads else pd.DataFrame(columns=["mercado", "leads"]))
+                _wm = (_won.groupby("mercado_lbl")
+                           .agg(ganados=("deal_id", "nunique"), facturado=("amount", "sum"))
+                           .reset_index().rename(columns={"mercado_lbl": "mercado"})
+                       if not _won.empty else
+                       pd.DataFrame(columns=["mercado", "ganados", "facturado"]))
+                _mt = _lm.merge(_wm, on="mercado", how="outer").fillna(0)
+                _mt["o"] = _mt["mercado"].map(
+                    {"Nacional": 0, "LATAM": 1, "ROW": 2, "Sin país": 3}).fillna(4)
+                _mt = _mt.sort_values("o")
+                _rows = []
+                for _, r in _mt.iterrows():
+                    _cv = (r["ganados"] / r["leads"] * 100) if r["leads"] else 0
+                    _rows.append([
+                        f"<b>{r['mercado']}</b>", _fmt_int(r["leads"]),
+                        f"<b>{_fmt_int(r['ganados'])}</b>", _pill_conv(_cv),
+                        _fmt_eur(r["facturado"]),
+                    ])
+                _tl, _tg = _mt["leads"].sum(), _mt["ganados"].sum()
+                st.markdown(_table(
+                    [("Mercado", "left"), ("Leads período", "right"), ("Ganados", "right"),
+                     ("% Conversión", "center"), ("Facturado", "right")],
+                    _rows,
+                    ["Total", _fmt_int(_tl), _fmt_int(_tg),
+                     _pill_conv(_tg / _tl * 100 if _tl else 0),
+                     _fmt_eur(_mt["facturado"].sum())]),
+                    unsafe_allow_html=True)
+                st.markdown(
+                    f"<div style='font-size:12px;color:{_RF['muted']};margin-top:10px'>"
+                    f"<b style='color:{_RF['ink_soft']}'>Mercado</b> derivado del país del "
+                    f"contacto: España → Nacional · Latinoamérica → LATAM · resto → ROW.</div>",
+                    unsafe_allow_html=True)
 
         # ── Detalle de campaña por canal ──────────────────────────────────────
-        st.markdown(f"""<div style="font-size:19px;font-weight:700;color:{BARCA['ink100']};
-                    margin-bottom:2px">Detalle de campaña por canal</div>
-                    <div style="font-size:13px;color:{BARCA['ink60']};margin-bottom:10px">
-                    Fuente original + drill-down de campaña · ordenado por leads ·
-                    mercado inferido del naming (nac_/latam_)</div>""", unsafe_allow_html=True)
         if _n_leads:
             _cd = _lv.copy()
             _cd["detalle"] = (_cd["fuente_original_d1"].replace("", pd.NA)
-                              .fillna(_cd["fuente_reciente_d1"])
-                              .replace("", "(sin detalle)").fillna("(sin detalle)"))
-            _cdg = (_cd.groupby(["fuente", "detalle"]).size()
-                       .reset_index(name="leads").sort_values("leads", ascending=False))
-            _cdg["Mercado"] = _cdg["detalle"].apply(_mercado_from_name)
-            _cdg["%"] = _cdg["leads"] / _n_leads * 100
-            st.dataframe(
-                _cdg.rename(columns={"fuente": "Canal", "detalle": "Detalle campaña",
-                                     "leads": "Leads"})[
-                    ["Canal", "Detalle campaña", "Mercado", "Leads", "%"]],
-                use_container_width=True, hide_index=True,
-                column_config={
-                    "%": st.column_config.ProgressColumn(
-                        "Volumen", format="%.1f%%", min_value=0,
-                        max_value=float(_cdg["%"].max()) if not _cdg.empty else 100),
-                },
-            )
+                              .fillna(_cd["fuente_reciente_d1"]).replace("", pd.NA)
+                              .fillna("(sin detalle)"))
+            _cdg = (_cd.groupby(["fuente", "detalle"]).size().reset_index(name="leads")
+                       .sort_values("leads", ascending=False))
+            _cdg["merc"] = _cdg["detalle"].apply(_mercado_from_name)
+            _cdg["pct"]  = _cdg["leads"] / _n_leads * 100
+            _mx = float(_cdg["pct"].max())
+            _rows = [[
+                r["fuente"],
+                f"<span style='color:{_RF['ink_soft']}'>{r['detalle']}</span>",
+                _pill_merc(r["merc"]), f"<b>{r['leads']}</b>", _fmt_pct(r["pct"]),
+                _bar(r["pct"], _MERC_COLOR.get(r["merc"], "#5B8DEF"), _mx),
+            ] for _, r in _cdg.iterrows()]
+            _card(_sec_title(
+                "Detalle de campaña por canal",
+                "Fuente original + drill-down de campaña · ordenado por leads · "
+                "mercado inferido del naming (nac_/latam_)") + _table(
+                [("Canal", "left"), ("Detalle campaña", "left"), ("Mercado", "center"),
+                 ("Leads", "right"), ("%", "right"), ("Volumen", "left")], _rows))
 
-        st.divider()
+        # ── Conversión por país | por curso ───────────────────────────────────
+        _pl, _pr = st.columns([1, 1.12])
 
-        # ── Conversión por país ───────────────────────────────────────────────
-        st.markdown(f"""<div style="font-size:19px;font-weight:700;color:{BARCA['ink100']};
-                    margin-bottom:2px">Conversión por país</div>
-                    <div style="font-size:13px;color:{BARCA['ink60']};margin-bottom:10px">
-                    Leads del período vs matrículas por país del contacto</div>""",
+        with _pl:
+            with st.container(border=True):
+                st.markdown(_sec_title(
+                    "Conversión por país",
+                    "Leads del período vs matrículas por país del contacto"),
                     unsafe_allow_html=True)
-        _lp = (_lv.groupby("pais").size().reset_index(name="leads")
-               if _n_leads else pd.DataFrame(columns=["pais", "leads"]))
-        _wp = _won_by("pais")
-        _pt = _lp.merge(_wp, on="pais", how="outer").fillna(0)
-        if not _pt.empty:
-            _pt["Mercado"] = _pt["pais"].apply(lambda p: _merc_lbl(resolve_mercado(p)))
-            _pt["% conv."] = _pt.apply(
-                lambda r: (r["ganados"] / r["leads"] * 100) if r["leads"] else 0, axis=1)
-            _pt = _pt.sort_values(["facturado", "leads"], ascending=False)
-            st.dataframe(
-                pd.DataFrame({
-                    "País":       _pt["pais"],
-                    "Mercado":    _pt["Mercado"],
-                    "Leads":      _pt["leads"].astype(int),
-                    "Ganados":    _pt["ganados"].astype(int),
-                    "% Conv.":    _pt["% conv."].map(_fmt_pct),
-                    "Facturado":  _pt["facturado"].map(_fmt_eur),
-                }), use_container_width=True, hide_index=True)
+                _lp = (_lv.groupby("pais").size().reset_index(name="leads")
+                       if _n_leads else pd.DataFrame(columns=["pais", "leads"]))
+                _pt = _lp.merge(_won_by("pais"), on="pais", how="outer").fillna(0)
+                if not _pt.empty:
+                    _pt["merc"] = _pt["pais"].apply(_merc_of_pais)
+                    _pt = _pt.sort_values(["leads", "facturado"], ascending=False)
+                    _rows = []
+                    for _, r in _pt.iterrows():
+                        _cv = (r["ganados"] / r["leads"] * 100) if r["leads"] else 0
+                        _rows.append([
+                            f"<b>{r['pais']}</b>", _pill_merc(r["merc"]),
+                            _fmt_int(r["leads"]), _fmt_int(r["ganados"]),
+                            _pill_conv(_cv), _fmt_eur(r["facturado"]),
+                        ])
+                    st.markdown(_table(
+                        [("País", "left"), ("Mercado", "center"), ("Leads", "right"),
+                         ("Ganados", "right"), ("% Conv.", "center"), ("Facturado", "right")],
+                        _rows), unsafe_allow_html=True)
 
-        st.divider()
-
-        # ── Conversión por curso ──────────────────────────────────────────────
-        st.markdown(f"""<div style="font-size:19px;font-weight:700;color:{BARCA['ink100']};
-                    margin-bottom:2px">Conversión por curso</div>
-                    <div style="font-size:13px;color:{BARCA['ink60']};margin-bottom:10px">
-                    Leads del período vs matrículas por curso · con facturación</div>""",
+        with _pr:
+            with st.container(border=True):
+                st.markdown(_sec_title(
+                    "Conversión por curso",
+                    "Leads del período vs matrículas por curso · con facturación"),
                     unsafe_allow_html=True)
-        _merc_tab = st.radio("Mercado", ["Todo", "Nacional", "LATAM", "ROW", "Sin país"],
-                             horizontal=True, key="roi_curso_merc", label_visibility="collapsed")
-        _lv_c = _lv if _merc_tab == "Todo" else _lv[_lv["mercado_lbl"] == _merc_tab]
-        _won_c = _won
-        if _merc_tab != "Todo" and not _won.empty:
-            _won_c = _won[_won["pais"].apply(
-                lambda p: _merc_lbl(resolve_mercado(p))) == _merc_tab]
+                _mt2 = _seg("Mercado", ["Todo", "Mercado Nacional", "Mercado LATAM",
+                                        "Mercado ROW"], "roi_curso_merc")
+                _mkey = {"Todo": None, "Mercado Nacional": "Nacional",
+                         "Mercado LATAM": "LATAM", "Mercado ROW": "ROW"}[_mt2]
+                _lvc = _lv if _mkey is None else _lv[_lv["mercado_lbl"] == _mkey]
+                _wc  = _won if (_mkey is None or _won.empty) else _won[_won["mercado_lbl"] == _mkey]
 
-        _lc = (_lv_c.groupby(["programa", "modalidad"]).size().reset_index(name="leads")
-               if not _lv_c.empty else pd.DataFrame(columns=["programa", "modalidad", "leads"]))
-        if not _won_c.empty:
-            _wc = (_won_c.groupby("programa")
-                         .agg(ganados=("deal_id", "nunique"), facturado=("amount", "sum"))
-                         .reset_index())
-        else:
-            _wc = pd.DataFrame(columns=["programa", "ganados", "facturado"])
-        _ct = _lc.merge(_wc, on="programa", how="outer").fillna({"leads": 0, "ganados": 0,
-                                                                  "facturado": 0,
-                                                                  "modalidad": "(Sin modalidad)"})
-        if not _ct.empty:
-            _ct["% conv."] = _ct.apply(
-                lambda r: (r["ganados"] / r["leads"] * 100) if r["leads"] else 0, axis=1)
-            _ct = _ct.sort_values(["facturado", "leads"], ascending=False)
-            _ct_disp = pd.DataFrame({
-                "Curso":      _ct["programa"],
-                "Modalidad":  _ct["modalidad"],
-                "Leads":      _ct["leads"].astype(int),
-                "Ganados":    _ct["ganados"].astype(int),
-                "% Conv.":    _ct["% conv."].map(_fmt_pct),
-                "Facturado":  _ct["facturado"].map(_fmt_eur),
-            })
-            _ct_disp.loc[len(_ct_disp)] = [
-                f"Total {_merc_tab}", "", int(_ct["leads"].sum()), int(_ct["ganados"].sum()),
-                _fmt_pct(_ct["ganados"].sum() / _ct["leads"].sum() * 100 if _ct["leads"].sum() else 0),
-                _fmt_eur(_ct["facturado"].sum()),
-            ]
-            st.dataframe(_ct_disp, use_container_width=True, hide_index=True)
-            st.caption(f"Vista: **{_merc_tab}** según el país del contacto. Los ganados incluyen "
-                       "leads captados en meses anteriores, por lo que un curso puede mostrar "
-                       "matrículas sin leads nuevos en el período.")
-
-        st.divider()
+                _lc = (_lvc.groupby(["programa", "modalidad"]).size().reset_index(name="leads")
+                       if not _lvc.empty else
+                       pd.DataFrame(columns=["programa", "modalidad", "leads"]))
+                _wcg = (_wc.groupby("programa")
+                           .agg(ganados=("deal_id", "nunique"), facturado=("amount", "sum"))
+                           .reset_index() if not _wc.empty else
+                        pd.DataFrame(columns=["programa", "ganados", "facturado"]))
+                _ct = _lc.merge(_wcg, on="programa", how="outer")
+                _ct[["leads", "ganados", "facturado"]] = _ct[
+                    ["leads", "ganados", "facturado"]].fillna(0)
+                _ct["modalidad"] = _ct["modalidad"].fillna("(Sin modalidad)")
+                if not _ct.empty:
+                    _ct = _ct.sort_values(["facturado", "leads"], ascending=False)
+                    _rows = []
+                    for _, r in _ct.iterrows():
+                        _cv = (r["ganados"] / r["leads"] * 100) if r["leads"] else 0
+                        _md = str(r["modalidad"])
+                        _mp = _pill(_md, "blue" if "online" in _md.lower() else "gray")
+                        _rows.append([
+                            f"<b>{r['programa']}</b>", _mp, _fmt_int(r["leads"]),
+                            _fmt_int(r["ganados"]), _pill_conv(_cv), _fmt_eur(r["facturado"]),
+                        ])
+                    _tl2, _tg2 = _ct["leads"].sum(), _ct["ganados"].sum()
+                    st.markdown(_table(
+                        [("Curso", "left"), ("Modalidad", "center"), ("Leads", "right"),
+                         ("Ganados", "right"), ("% Conv.", "center"), ("Facturado", "right")],
+                        _rows,
+                        [f"Total {_mt2}", "", _fmt_int(_tl2), _fmt_int(_tg2),
+                         _pill_conv(_tg2 / _tl2 * 100 if _tl2 else 0),
+                         _fmt_eur(_ct["facturado"].sum())]), unsafe_allow_html=True)
+                    st.markdown(
+                        f"<div style='font-size:12px;color:{_RF['muted']};margin-top:10px'>"
+                        f"Vista: <b style='color:{_RF['ink_soft']}'>{_mt2}</b> según el país "
+                        f"del contacto. Los ganados incluyen leads captados en meses "
+                        f"anteriores, por lo que un curso puede mostrar matrículas sin leads "
+                        f"nuevos en el período.</div>", unsafe_allow_html=True)
 
         # ── ROI y ROAS por modalidad ──────────────────────────────────────────
-        st.markdown(f"""<div style="font-size:19px;font-weight:700;color:{BARCA['ink100']};
-                    margin-bottom:2px">💶 ROI y ROAS por modalidad de formación</div>
-                    <div style="font-size:13px;color:{BARCA['ink60']};margin-bottom:10px">
-                    Gasto publicitario tomado automáticamente de Google Ads, Meta, LinkedIn y
-                    TikTok · puedes corregirlo abajo</div>""", unsafe_allow_html=True)
+        with st.container(border=True):
+            st.markdown(_sec_title(
+                "💶 ROI y ROAS por modalidad de formación",
+                "Gasto publicitario tomado automáticamente de Google Ads, Meta, LinkedIn y "
+                "TikTok · reparte aquí lo que no se puede asignar por el nombre de campaña"),
+                unsafe_allow_html=True)
 
-        # Reparto automático del gasto por modalidad según el naming de campaña
-        _ads_all = pd.concat([d for d in [df_google, df_meta, df_linkedin, df_tiktok]
-                              if not d.empty], ignore_index=True) if any(
-            not d.empty for d in [df_google, df_meta, df_linkedin, df_tiktok]) else pd.DataFrame()
+            _ads_list = [d for d in [df_google, df_meta, df_linkedin, df_tiktok] if not d.empty]
+            _ads_all = pd.concat(_ads_list, ignore_index=True) if _ads_list else pd.DataFrame()
+            _ga = {"Online": 0.0, "Presencial": 0.0, "Sin asignar": 0.0}
+            if not _ads_all.empty:
+                for _, r in _ads_all.iterrows():
+                    _nm = str(r.get("campaña", "")).lower()
+                    _g  = float(r.get("gasto", 0) or 0)
+                    if "online" in _nm:
+                        _ga["Online"] += _g
+                    elif "presencial" in _nm:
+                        _ga["Presencial"] += _g
+                    else:
+                        _ga["Sin asignar"] += _g
 
-        _gasto_auto = {"Online": 0.0, "Presencial": 0.0, "Sin asignar": 0.0}
-        if not _ads_all.empty:
-            for _, _r in _ads_all.iterrows():
-                _nm = str(_r.get("campaña", "")).lower()
-                _g  = float(_r.get("gasto", 0) or 0)
-                if "online" in _nm or "master_online" in _nm or "maestria_online" in _nm:
-                    _gasto_auto["Online"] += _g
-                elif "presencial" in _nm:
-                    _gasto_auto["Presencial"] += _g
+            _g1, _g2, _g3 = st.columns(3)
+            with _g1:
+                _gon = st.number_input("Gasto Ads · Online (€)", min_value=0.0, step=100.0,
+                                       value=round(_ga["Online"], 2), key="roi_gasto_on")
+            with _g2:
+                _gpr = st.number_input("Gasto Ads · Presencial (€)", min_value=0.0, step=100.0,
+                                       value=round(_ga["Presencial"], 2), key="roi_gasto_pr")
+            with _g3:
+                st.markdown(
+                    f"<div style='padding-top:6px'><div style='font-size:10.5px;"
+                    f"font-weight:700;color:{_RF['th']};text-transform:uppercase;"
+                    f"letter-spacing:.6px'>Sin asignar a modalidad</div>"
+                    f"<div style='font-size:20px;font-weight:800;color:{_RF['ink']};"
+                    f"margin-top:4px'>{_fmt_eur(_ga['Sin asignar'])}</div>"
+                    f"<div style='font-size:11.5px;color:{_RF['muted']}'>Campañas cuyo nombre "
+                    f"no indica Online ni Presencial</div></div>", unsafe_allow_html=True)
+
+            _rows, _tl3, _tm3 = [], 0, 0
+            for _mod, _g, _ic in [("Online", _gon, "🌐"), ("Presencial", _gpr, "🏫")]:
+                _l = int(_lv["modalidad"].str.contains(_mod, case=False, na=False).sum()) \
+                     if _n_leads else 0
+                if not _won.empty:
+                    _ws = _won[_won["modalidad"].str.contains(_mod, case=False, na=False)]
+                    _m, _f = _ws["deal_id"].nunique(), float(_ws["amount"].sum())
                 else:
-                    _gasto_auto["Sin asignar"] += _g
+                    _m, _f = 0, 0.0
+                _tl3 += _l
+                _tm3 += _m
+                _roi = ((_f - _g) / _g * 100) if _g else None
+                _rows.append([
+                    f"<b>{_mod}</b> {_ic}", _fmt_int(_l), f"<b>{_fmt_int(_m)}</b>",
+                    _fmt_eur(_f),
+                    _fmt_eur(_g) if _g else
+                        f"<span style='color:{_RF['muted']};font-style:italic'>introduce gasto</span>",
+                    _fmt_eur(_g / _m) if (_m and _g) else "—",
+                    _fmt_eur(_g / _l) if (_l and _g) else "—",
+                    f"{_f / _g:.2f}x".replace(".", ",") if _g else "—",
+                    _pill(_fmt_pct(_roi), "green" if _roi and _roi > 0 else "red")
+                        if _roi is not None else "—",
+                ])
+            _tg3 = _gon + _gpr
+            _troi = ((_facturado - _tg3) / _tg3 * 100) if _tg3 else None
+            st.markdown(_table(
+                [("Modalidad", "left"), ("Leads período", "right"), ("Matrículas", "right"),
+                 ("Facturado", "right"), ("Gasto Ads", "right"), ("Coste/matrícula", "right"),
+                 ("CPL", "right"), ("ROAS", "right"), ("ROI", "center")],
+                _rows,
+                ["Total", _fmt_int(_tl3), _fmt_int(_tm3), _fmt_eur(_facturado),
+                 _fmt_eur(_tg3), _fmt_eur(_tg3 / _tm3) if (_tm3 and _tg3) else "—",
+                 _fmt_eur(_tg3 / _tl3) if (_tl3 and _tg3) else "—",
+                 f"{_facturado / _tg3:.2f}x".replace(".", ",") if _tg3 else "—",
+                 _pill(_fmt_pct(_troi), "green" if _troi and _troi > 0 else "red")
+                     if _troi is not None else "—"]), unsafe_allow_html=True)
+            st.markdown(
+                f"<div style='font-size:12px;color:{_RF['muted']};margin-top:10px'>"
+                f"ROAS = facturado / gasto · ROI = (facturado − gasto) / gasto. Las matrículas "
+                f"del período incluyen leads captados anteriormente, por lo que el ROAS es una "
+                f"aproximación de caja, no de cohorte.</div>", unsafe_allow_html=True)
 
-        _gc1, _gc2, _gc3 = st.columns(3)
-        with _gc1:
-            _gasto_on = st.number_input("Gasto Ads · Online (€)", min_value=0.0, step=100.0,
-                                        value=round(_gasto_auto["Online"], 2), key="roi_gasto_on")
-        with _gc2:
-            _gasto_pr = st.number_input("Gasto Ads · Presencial (€)", min_value=0.0, step=100.0,
-                                        value=round(_gasto_auto["Presencial"], 2), key="roi_gasto_pr")
-        with _gc3:
-            st.metric("Sin asignar a modalidad", _fmt_eur(_gasto_auto["Sin asignar"]),
-                      help="Campañas cuyo nombre no indica Online ni Presencial. "
-                           "Repártelas manualmente en los campos de la izquierda.")
+        # ── Tabla maestra ─────────────────────────────────────────────────────
+        _render_maestra(_lv, _pipe, _n_leads)
 
-        _mod_rows = []
-        for _mod, _gasto, _icon in [("Online", _gasto_on, "🌐"), ("Presencial", _gasto_pr, "🏫")]:
-            _l = int(_lv["modalidad"].str.contains(_mod, case=False, na=False).sum()) if _n_leads else 0
-            if not _won.empty and "modalidad" in _won.columns:
-                _wsub = _won[_won["modalidad"].str.contains(_mod, case=False, na=False)]
-                _m, _f = _wsub["deal_id"].nunique(), float(_wsub["amount"].sum())
-            else:
-                _m, _f = 0, 0.0
-            _mod_rows.append({
-                "Modalidad":        f"{_mod} {_icon}",
-                "Leads":            _l,
-                "Matrículas":       _m,
-                "Facturado":        _fmt_eur(_f),
-                "Gasto Ads":        _fmt_eur(_gasto),
-                "Coste/Matrícula":  _fmt_eur(_gasto / _m) if _m and _gasto else "—",
-                "CPL":              _fmt_eur(_gasto / _l) if _l and _gasto else "—",
-                "ROAS":             f"{_f / _gasto:.2f}x".replace(".", ",") if _gasto else "—",
-                "ROI":              _fmt_pct((_f - _gasto) / _gasto * 100) if _gasto else "—",
-            })
-        _tot_g = _gasto_on + _gasto_pr
-        _mod_rows.append({
-            "Modalidad": "Total",
-            "Leads":      sum(r["Leads"] for r in _mod_rows),
-            "Matrículas": sum(r["Matrículas"] for r in _mod_rows),
-            "Facturado":  _fmt_eur(_facturado),
-            "Gasto Ads":  _fmt_eur(_tot_g),
-            "Coste/Matrícula": _fmt_eur(_tot_g / _n_ganados) if _n_ganados and _tot_g else "—",
-            "CPL":        _fmt_eur(_tot_g / _n_leads) if _n_leads and _tot_g else "—",
-            "ROAS":       f"{_facturado / _tot_g:.2f}x".replace(".", ",") if _tot_g else "—",
-            "ROI":        _fmt_pct((_facturado - _tot_g) / _tot_g * 100) if _tot_g else "—",
-        })
-        st.dataframe(pd.DataFrame(_mod_rows), use_container_width=True, hide_index=True)
-        st.caption("ROAS = facturado / gasto · ROI = (facturado − gasto) / gasto. "
-                   "Las matrículas del período incluyen leads captados anteriormente, "
-                   "por lo que el ROAS es una aproximación de caja, no de cohorte.")
+        # ── Footer de fuentes ─────────────────────────────────────────────────
+        _cd_ = lambda t: (f"<code style='background:{_RF['line']};color:{_RF['ink_soft']};"
+                          f"padding:1px 5px;border-radius:4px;font-size:11.5px'>{t}</code>")
+        _canales = ["HubSpot CRM"]
+        if GA_AVAILABLE:       _canales.append("Google Ads")
+        if META_AVAILABLE:     _canales.append("Meta Ads")
+        if LINKEDIN_AVAILABLE: _canales.append("LinkedIn Ads")
+        if TIKTOK_AVAILABLE:   _canales.append("TikTok Ads")
+        st.markdown(
+            f"<div style='font-size:11.5px;color:{_RF['muted']};line-height:1.9;"
+            f"margin-top:6px'>"
+            f"<b style='color:{_RF['ink_soft']}'>Fuentes:</b> {' · '.join(_canales)} · "
+            f"Período: {periodo_txt} · Filtros de contactos: fecha de creación en el período, "
+            f"{_cd_('lead_valido ≠ &quot;No válido&quot;')} · "
+            f"Ganados: deals en {_cd_('Cierre Ganado')} (incluye leads de meses anteriores) · "
+            f"Perdidos: deals en {_cd_('Cierre Perdido')} · "
+            f"Modalidad según {_cd_('modalidad_curso')} del contacto · "
+            f"Importes en moneda de la cuenta (EUR) · "
+            f"Inversión publicitaria vía API de cada plataforma, agregada por nombre de campaña."
+            f"</div>", unsafe_allow_html=True)
 
-        st.divider()
+    # ══════════════════════════════════════════════════════════════════════════
+    # VISTA — Cierres perdidos
+    # ══════════════════════════════════════════════════════════════════════════
+    def _render_perdidos(_lv, _pipe, _lost, _n_leads):
+        if _lost.empty:
+            st.info("No hay deals en Cierre Perdido para el período y filtros seleccionados.")
+            return
+        _n_perd = _lost["deal_id"].nunique()
+        _f_perd = float(_lost["amount"].sum())
+        _mot_top = _lost["motivo_cierre"].value_counts().idxmax()
 
-        # ══════════════════════════════════════════════════════════════════════
-        # MEGA-TABLA — embudo completo con selector cruzado
-        # ══════════════════════════════════════════════════════════════════════
+        def _big(col, label, value, sub, grad):
+            col.markdown(f"""
+            <div style="background:{grad};border-radius:14px;padding:16px 20px;
+                        min-height:104px;box-shadow:0 1px 4px rgba(16,24,40,.10)">
+                <div style="color:rgba(255,255,255,.85);font-size:10.5px;font-weight:800;
+                            letter-spacing:.8px;text-transform:uppercase">{label}</div>
+                <div style="color:#fff;font-size:36px;font-weight:800;line-height:1.2;
+                            margin:1px 0 3px">{value}</div>
+                <div style="color:rgba(255,255,255,.88);font-size:12px">{sub}</div>
+            </div>""", unsafe_allow_html=True)
+
+        _k1, _k2, _k3, _k4 = st.columns(4)
+        _big(_k1, "Cierres perdidos", _fmt_int(_n_perd), "Deals en Cierre Perdido",
+             "linear-gradient(135deg,#C0392B 0%,#E05A47 100%)")
+        _big(_k2, "% sobre leads válidos",
+             _fmt_pct(_n_perd / _n_leads * 100 if _n_leads else 0),
+             f"de {_fmt_int(_n_leads)} leads del período",
+             "linear-gradient(135deg,#E89A18 0%,#F0A93A 100%)")
+        _big(_k3, "Facturación perdida", _fmt_eur(_f_perd), "Importe de los deals perdidos",
+             "linear-gradient(135deg,#1E2A6B 0%,#2E3D8F 100%)")
+        _big(_k4, "Motivo principal",
+             f"<span style='font-size:19px;line-height:1.25'>{_mot_top}</span>",
+             f"{_lost['motivo_cierre'].value_counts().iloc[0]} deals",
+             "linear-gradient(135deg,#4C6FE7 0%,#5B8DEF 100%)")
+        st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
+
+        # Motivos de cierre
+        _mg = (_lost.groupby("motivo_cierre")
+                    .agg(deals=("deal_id", "nunique"), importe=("amount", "sum"))
+                    .reset_index().sort_values("deals", ascending=False))
+        _mx = float(_mg["deals"].max())
+        _rows = [[
+            f"<b>{r['motivo_cierre']}</b>", _fmt_int(r["deals"]),
+            _pill_neg(r["deals"] / _n_perd * 100),
+            _fmt_pct(r["deals"] / _n_leads * 100 if _n_leads else 0),
+            _fmt_eur(r["importe"]), _bar(r["deals"], "#E05A47", _mx),
+        ] for _, r in _mg.iterrows()]
+        _card(_sec_title(
+            "❌ Motivos de cierre perdido",
+            "Desglose de por qué se pierden los negocios · % sobre perdidos y sobre "
+            "leads válidos del período") + _table(
+            [("Motivo", "left"), ("Deals", "right"), ("% de perdidos", "center"),
+             ("% de leads", "right"), ("Importe perdido", "right"), ("Volumen", "left")],
+            _rows,
+            ["Total", _fmt_int(_n_perd), _pill("100%", "gray"),
+             _fmt_pct(_n_perd / _n_leads * 100 if _n_leads else 0),
+             _fmt_eur(_f_perd), ""]))
+
+        # Perdidos por fuente / país / curso
+        for _titulo, _sub, _col, _lbl in [
+            ("Perdidos por fuente", "Canal de captación de los deals perdidos",
+             "fuente", "Fuente"),
+            ("Perdidos por país", "País del contacto de los deals perdidos",
+             "pais", "País"),
+            ("Perdidos por curso", "Programa de los deals perdidos", "programa", "Curso"),
+        ]:
+            if _col not in _lost.columns:
+                continue
+            _g = (_lost.groupby(_col)
+                       .agg(deals=("deal_id", "nunique"), importe=("amount", "sum"))
+                       .reset_index().sort_values("deals", ascending=False))
+            _leads_by = (_lv.groupby(_col).size().to_dict()
+                         if not _lv.empty and _col in _lv.columns else {})
+            _rows = []
+            for _, r in _g.iterrows():
+                _nl = _leads_by.get(r[_col], 0)
+                _rows.append([
+                    f"<b>{r[_col]}</b>", _fmt_int(_nl), _fmt_int(r["deals"]),
+                    _pill_neg(r["deals"] / _nl * 100 if _nl else 0),
+                    _fmt_eur(r["importe"]),
+                ])
+            _card(_sec_title(_titulo, _sub) + _table(
+                [(_lbl, "left"), ("Leads período", "right"), ("Perdidos", "right"),
+                 ("% Pérdida", "center"), ("Importe perdido", "right")], _rows))
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # TABLA MAESTRA — embudo completo con selector multidimensional cruzado
+    # ══════════════════════════════════════════════════════════════════════════
+    def _render_maestra(_lv, _pipe, _n_leads):
         st.markdown(f"""
-        <div style="background:linear-gradient(135deg,{BARCA['blue_ink']} 0%,{BARCA['blue_deep']} 100%);
-                    border-radius:12px;padding:20px 24px;margin-bottom:18px;
-                    border-left:5px solid {BARCA['gold']}">
-            <h2 style="color:#fff;margin:0;font-size:20px;font-weight:800">
-                🔎 Tabla maestra — embudo completo
-            </h2>
-            <p style="color:{BARCA['line']};margin:5px 0 0;font-size:13px">
-                Inversión → CPL → Leads cualificados → Entrevista → Envío inscripción →
-                Cierre ganado → ROI · y el lado malo: ilocalizados, no presenta y motivos de cierre
-            </p>
+        <div style="background:linear-gradient(135deg,#17203A 0%,#2E3D8F 100%);
+                    border-radius:14px;padding:20px 24px;margin:6px 0 16px;
+                    border-left:5px solid #F0A93A">
+            <div style="color:#fff;font-size:20px;font-weight:800">
+                🔎 Tabla maestra — todo el negocio en una tabla
+            </div>
+            <div style="color:#C9D2F2;margin:5px 0 0;font-size:13px">
+                Inversión → CPL → leads cualificados → entrevista → envío de inscripción →
+                cierre ganado → ROI · y el lado a corregir: ilocalizados, no se presenta,
+                motivos de cierre y cierre perdido
+            </div>
         </div>""", unsafe_allow_html=True)
 
-        _f1, _f2, _f3, _f4, _f5 = st.columns([1.4, 1, 1, 1, 1])
-        with _f1:
-            dim_sel = st.radio("Agrupar por", ["Fuente", "Campaña", "País", "Producto"],
-                               horizontal=True, key="roi_dim")
-        dim_col = {"Fuente": "fuente", "Campaña": "campaña",
-                   "País": "pais", "Producto": "programa"}[dim_sel]
+        _DIMS = {"Fuente": "fuente", "Campaña": "campaña",
+                 "País": "pais", "Producto": "programa"}
 
         _ml = _lv.copy()
         _mp = _pipe.copy()
         if not _ml.empty:
             _ml["campaña"] = (_ml["fuente_reciente_d1"].replace("", pd.NA)
+                              .fillna(_ml["fuente_original_d1"].replace("", pd.NA))
                               .fillna("Sin campaña"))
 
-        # Filtros cruzados — se ocultan cuando son la dimensión principal
-        def _cross(colbox, label, col, opts_all):
-            nonlocal _ml, _mp
-            _opts = ["Todas"] + sorted([o for o in opts_all if o])
-            with colbox:
-                _v = st.selectbox(label, _opts, key=f"roi_x_{col}")
-            if _v != "Todas":
-                if not _ml.empty and col in _ml.columns:
-                    _ml = _ml[_ml[col] == _v]
-                if not _mp.empty and col in _mp.columns:
-                    _mp = _mp[_mp[col] == _v]
+        _s1, _s2 = st.columns([1.25, 2])
+        with _s1:
+            _dims_sel = st.multiselect(
+                "Agrupar por (1 o 2 dimensiones)", list(_DIMS), default=["Fuente"],
+                max_selections=2, key="roi_dims",
+                help="Elige una o dos dimensiones: serán las primeras columnas de la tabla.")
+        if not _dims_sel:
+            _dims_sel = ["Fuente"]
+        _gcols = [_DIMS[d] for d in _dims_sel]
 
-        if dim_sel != "Fuente":
-            _cross(_f2, "Fuente", "fuente",
-                   _ml["fuente"].dropna().unique().tolist() if not _ml.empty else [])
-        if dim_sel != "Campaña":
-            _cross(_f3, "Campaña", "campaña",
-                   _ml["campaña"].dropna().unique().tolist() if not _ml.empty else [])
-        if dim_sel != "País":
-            _cross(_f4, "País", "pais",
-                   _ml["pais"].dropna().unique().tolist() if not _ml.empty else [])
-        if dim_sel != "Producto":
-            _cross(_f5, "Producto", "programa",
-                   _ml["programa"].dropna().unique().tolist() if not _ml.empty else [])
+        # Filtros cruzados para las dimensiones que no agrupan
+        _libres = [d for d in _DIMS if d not in _dims_sel]
+        if _libres:
+            with _s2:
+                _fcols = st.columns(len(_libres))
+            for _i, _d in enumerate(_libres):
+                _c = _DIMS[_d]
+                _opts = (["Todas"] + sorted(
+                    x for x in _ml[_c].dropna().astype(str).unique() if x) ) \
+                    if (not _ml.empty and _c in _ml.columns) else ["Todas"]
+                with _fcols[_i]:
+                    _v = st.selectbox(_d, _opts, key=f"roi_x_{_c}")
+                if _v != "Todas":
+                    if not _ml.empty and _c in _ml.columns:
+                        _ml = _ml[_ml[_c].astype(str) == _v]
+                    if not _mp.empty and _c in _mp.columns:
+                        _mp = _mp[_mp[_c].astype(str) == _v]
 
-        # ── Inversión automática por dimensión ────────────────────────────────
-        _spend_map: dict = {}
-        _ads_srcs = [(df_google, "Búsqueda pagada"), (df_meta, "Social pagado"),
-                     (df_linkedin, "Social pagado"), (df_tiktok, "Social pagado")]
-        if dim_sel == "Fuente":
-            for _d, _lbl in _ads_srcs:
+        # Inversión automática desde las APIs de Ads
+        _spend: dict = {}
+        _srcs = [(df_google, "Búsqueda pagada"), (df_meta, "Social pagado"),
+                 (df_linkedin, "Social pagado"), (df_tiktok, "Social pagado")]
+        if _dims_sel == ["Fuente"]:
+            for _d, _lbl in _srcs:
                 if not _d.empty and "gasto" in _d.columns:
-                    _spend_map[_lbl] = _spend_map.get(_lbl, 0.0) + float(_d["gasto"].sum())
-        elif dim_sel == "Campaña":
-            for _d, _ in _ads_srcs:
+                    _spend[_lbl] = _spend.get(_lbl, 0.0) + float(_d["gasto"].sum())
+        elif _dims_sel == ["Campaña"]:
+            for _d, _ in _srcs:
                 if not _d.empty and "campaña" in _d.columns:
                     for _c, _g in _d.groupby("campaña")["gasto"].sum().items():
                         if _c:
-                            _spend_map[str(_c)] = _spend_map.get(str(_c), 0.0) + float(_g)
+                            _spend[str(_c)] = _spend.get(str(_c), 0.0) + float(_g)
 
-        _inv_key = f"roi_inv_{dim_sel}"
-        if _inv_key not in st.session_state:
-            st.session_state[_inv_key] = {}
+        _inv_key = "roi_inv_" + "|".join(_dims_sel)
+        st.session_state.setdefault(_inv_key, {})
 
-        # ── Etapas del embudo ─────────────────────────────────────────────────
         _ET = {
             "entrevista": ["Entrevista Realizada"],
             "envio":      ["Envío de Inscripción", "Estudio Financiación",
@@ -2910,147 +3151,137 @@ def main():
             "nopres":     ["No se presenta"],
             "perdido":    ["Cierre Perdido"],
         }
+        _motivos = (sorted(_mp[_mp["etapa"] == "Cierre Perdido"]["motivo_cierre"]
+                           .dropna().unique()) if not _mp.empty else [])
 
-        # Motivos de cierre presentes (una columna por motivo)
-        _motivos = []
-        if not _mp.empty:
-            _motivos = sorted(_mp[_mp["etapa"] == "Cierre Perdido"]["motivo_cierre"]
-                              .dropna().unique().tolist())
-
-        # ── Construir filas ───────────────────────────────────────────────────
-        _dims = set()
-        if not _ml.empty and dim_col in _ml.columns:
-            _dims.update(_ml[dim_col].dropna().astype(str).unique())
-        if not _mp.empty and dim_col in _mp.columns:
-            _dims.update(_mp[dim_col].dropna().astype(str).unique())
-        _dims = sorted(d for d in _dims if d and d != "nan")
-
-        if not _dims:
+        # Claves de agrupación presentes en cualquiera de los dos datasets
+        def _keys(frame):
+            if frame.empty or not all(c in frame.columns for c in _gcols):
+                return set()
+            return set(map(tuple, frame[_gcols].astype(str).values))
+        _all_keys = sorted(_keys(_ml) | _keys(_mp))
+        if not _all_keys:
             st.info("No hay datos para los filtros seleccionados.")
             return
 
-        _rows = []
-        for _d in _dims:
-            _sl = _ml[_ml[dim_col].astype(str) == _d] if not _ml.empty and dim_col in _ml.columns else pd.DataFrame()
-            _sp = _mp[_mp[dim_col].astype(str) == _d] if not _mp.empty and dim_col in _mp.columns else pd.DataFrame()
+        def _mask(frame, key):
+            if frame.empty or not all(c in frame.columns for c in _gcols):
+                return frame.iloc[0:0]
+            m = pd.Series(True, index=frame.index)
+            for c, v in zip(_gcols, key):
+                m &= frame[c].astype(str) == v
+            return frame[m]
 
+        _rows, _data = [], []
+        for _key in _all_keys:
+            _sl, _sp = _mask(_ml, _key), _mask(_mp, _key)
             _cual = len(_sl)
-            def _cnt(k):
-                return _sp[_sp["etapa"].isin(_ET[k])]["deal_id"].nunique() if not _sp.empty else 0
-            def _amt(k):
-                return float(_sp[_sp["etapa"].isin(_ET[k])]["amount"].sum()) if not _sp.empty else 0.0
+            _cnt = lambda k: (_sp[_sp["etapa"].isin(_ET[k])]["deal_id"].nunique()
+                              if not _sp.empty else 0)
+            _amt = lambda k: (float(_sp[_sp["etapa"].isin(_ET[k])]["amount"].sum())
+                              if not _sp.empty else 0.0)
+            _entr, _env, _gan = _cnt("entrevista"), _cnt("envio"), _cnt("ganado")
+            _il, _np_, _perd  = _cnt("iloc"), _cnt("nopres"), _cnt("perdido")
+            _fact, _pend, _fperd = _amt("ganado"), _amt("envio"), _amt("perdido")
 
-            _entr, _env   = _cnt("entrevista"), _cnt("envio")
-            _gan,  _il    = _cnt("ganado"),     _cnt("iloc")
-            _np,   _perd  = _cnt("nopres"),     _cnt("perdido")
-            _fact         = _amt("ganado")
-            _fact_pend    = _amt("envio")
-            _fact_perd    = _amt("perdido")
-
-            _inv = st.session_state[_inv_key].get(_d, _spend_map.get(_d, 0.0))
-            _cpl = (_inv / _cual) if _cual and _inv else None
+            _sk = _key[0] if len(_key) == 1 else " | ".join(_key)
+            _inv = st.session_state[_inv_key].get(_sk, _spend.get(_sk, 0.0))
+            _cpl = (_inv / _cual) if (_cual and _inv) else None
             _roi = ((_fact - _inv) / _inv * 100) if _inv else None
-            _pc  = lambda n: (n / _cual * 100) if _cual else 0
+            _p   = lambda n: (n / _cual * 100) if _cual else 0
 
-            _row = {
-                dim_sel:                _d,
-                "Inversión €":          round(_inv, 2),
-                "CPL €":                round(_cpl, 2) if _cpl else None,
-                "Leads cualif.":        _cual,
-                "Entrevistas":          _entr,
-                "% Entrev.":            round(_pc(_entr), 1),
-                "Envío insc.":          _env,
-                "% Envío":              round(_pc(_env), 1),
-                "Fact. pendiente €":    round(_fact_pend, 2),
-                "Cierre ganado":        _gan,
-                "% Ganado":             round(_pc(_gan), 1),
-                "Facturado €":          round(_fact, 2),
-                "ROI %":                round(_roi, 1) if _roi is not None else None,
-                "Ilocalizados":         _il,
-                "% Iloc.":              round(_pc(_il), 1),
-                "No se presenta":       _np,
-                "% No pres.":           round(_pc(_np), 1),
-            }
+            _d = {"key": _sk, "cual": _cual, "inv": _inv, "gan": _gan, "fact": _fact}
+            _data.append(_d)
+
+            _row = list(_key) + [
+                _fmt_eur(_inv), _fmt_eur(_cpl) if _cpl else "—", f"<b>{_fmt_int(_cual)}</b>",
+                _fmt_int(_entr), _pill_conv(_p(_entr)),
+                _fmt_int(_env), _pill_conv(_p(_env)), _fmt_eur(_pend),
+                f"<b>{_fmt_int(_gan)}</b>", _pill_conv(_p(_gan)), _fmt_eur(_fact),
+                _pill(_fmt_pct(_roi), "green" if _roi > 0 else "red") if _roi is not None else "—",
+                _fmt_int(_il), _pill_neg(_p(_il)),
+                _fmt_int(_np_), _pill_neg(_p(_np_)),
+            ]
             for _m in _motivos:
-                _n = _sp[(_sp["etapa"] == "Cierre Perdido") &
-                         (_sp["motivo_cierre"] == _m)]["deal_id"].nunique() if not _sp.empty else 0
-                _row[f"❌ {_m}"] = round(_pc(_n), 1)
-            _row["Cierre perdido"]     = _perd
-            _row["Fact. perdida €"]    = round(_fact_perd, 2)
-            _rows.append(_row)
+                _n = (_sp[(_sp["etapa"] == "Cierre Perdido") &
+                          (_sp["motivo_cierre"] == _m)]["deal_id"].nunique()
+                      if not _sp.empty else 0)
+                _row.append(_pill_neg(_p(_n)) if _n else
+                            f"<span style='color:{_RF['muted']}'>—</span>")
+            _row += [_fmt_int(_perd), _fmt_eur(_fperd)]
+            _rows.append((_cual, _row))
 
-        _mega = pd.DataFrame(_rows).sort_values("Leads cualif.", ascending=False)
+        _rows.sort(key=lambda t: -t[0])
+        _rows = [r for _, r in _rows]
 
-        _cfg = {
-            "Inversión €":       st.column_config.NumberColumn(format="€ %.2f", width="small"),
-            "CPL €":             st.column_config.NumberColumn(format="€ %.2f", width="small"),
-            "Fact. pendiente €": st.column_config.NumberColumn(format="€ %.0f", width="small"),
-            "Facturado €":       st.column_config.NumberColumn(format="€ %.0f", width="small"),
-            "Fact. perdida €":   st.column_config.NumberColumn(format="€ %.0f", width="small"),
-            "ROI %":             st.column_config.NumberColumn(format="%.1f%%", width="small"),
-            "% Entrev.":         st.column_config.NumberColumn(format="%.1f%%", width="small"),
-            "% Envío":           st.column_config.NumberColumn(format="%.1f%%", width="small"),
-            "% Ganado":          st.column_config.NumberColumn(format="%.1f%%", width="small"),
-            "% Iloc.":           st.column_config.NumberColumn(format="%.1f%%", width="small"),
-            "% No pres.":        st.column_config.NumberColumn(format="%.1f%%", width="small"),
-        }
-        for _m in _motivos:
-            _cfg[f"❌ {_m}"] = st.column_config.NumberColumn(format="%.1f%%", width="small")
+        _cols = [(d, "left") for d in _dims_sel] + [
+            ("Inversión", "right"), ("CPL", "right"), ("Leads cualif.", "right"),
+            ("Entrevistas", "right"), ("% Entrev.", "center"),
+            ("Envío insc.", "right"), ("% Envío", "center"), ("Factura por pagar", "right"),
+            ("Cierre ganado", "right"), ("% Ganado", "center"), ("Facturado", "right"),
+            ("ROI", "center"),
+            ("Ilocalizados", "right"), ("% Iloc.", "center"),
+            ("No se presenta", "right"), ("% No pres.", "center"),
+        ] + [(f"❌ {m}", "center") for m in _motivos] + [
+            ("Cierre perdido", "right"), ("Facturación perdida", "right"),
+        ]
 
-        st.dataframe(_mega, use_container_width=True, hide_index=True, column_config=_cfg)
-        st.caption("Los porcentajes de entrevista, envío, ganado, ilocalizado, no-presenta y "
-                   "motivos de cierre están calculados **sobre leads cualificados** de esa fila.")
+        _t_inv  = sum(d["inv"]  for d in _data)
+        _t_cual = sum(d["cual"] for d in _data)
+        _t_gan  = sum(d["gan"]  for d in _data)
+        _t_fact = sum(d["fact"] for d in _data)
+        _t_roi  = ((_t_fact - _t_inv) / _t_inv * 100) if _t_inv else None
 
-        # ── Totales de la tabla maestra ───────────────────────────────────────
-        _t_inv  = float(_mega["Inversión €"].sum())
-        _t_cual = int(_mega["Leads cualif."].sum())
-        _t_gan  = int(_mega["Cierre ganado"].sum())
-        _t_fac  = float(_mega["Facturado €"].sum())
-        _t_roi  = ((_t_fac - _t_inv) / _t_inv * 100) if _t_inv else None
+        _card(
+            f"<div style='font-size:12.5px;color:{_RF['muted']};margin:0 0 10px'>"
+            f"Las columnas de <b style='color:{_RF['ink_soft']}'>%</b> son conversión "
+            f"<b style='color:{_RF['ink_soft']}'>sobre leads cualificados</b> de esa fila. "
+            f"Desliza la tabla en horizontal para ver el embudo completo.</div>"
+            + _table(_cols, _rows))
 
-        _q1, _q2, _q3, _q4, _q5, _q6 = st.columns(6)
-        kpi_card(_q1, "Inversión total",    _fmt_eur(_t_inv),               BARCA["ink60"])
-        kpi_card(_q2, "Leads cualificados", f"{_t_cual:,}".replace(",", "."), BARCA["blue"])
-        kpi_card(_q3, "CPL medio",
-                 _fmt_eur(_t_inv / _t_cual) if _t_cual and _t_inv else "—", BARCA["blue_deep"])
-        kpi_card(_q4, "Cierres ganados",    f"{_t_gan:,}".replace(",", "."), BARCA["gold"])
-        kpi_card(_q5, "Facturado",          _fmt_eur(_t_fac),               BARCA["garnet"])
-        kpi_card(_q6, "ROI global",
+        _q = st.columns(6)
+        kpi_card(_q[0], "Inversión total",    _fmt_eur0(_t_inv), BARCA["ink60"])
+        kpi_card(_q[1], "Leads cualificados", _fmt_int(_t_cual), BARCA["blue"])
+        kpi_card(_q[2], "CPL medio",
+                 _fmt_eur(_t_inv / _t_cual) if (_t_cual and _t_inv) else "—",
+                 BARCA["blue_deep"])
+        kpi_card(_q[3], "Cierres ganados",    _fmt_int(_t_gan),  BARCA["gold"])
+        kpi_card(_q[4], "Facturado",          _fmt_eur0(_t_fact), BARCA["garnet"])
+        kpi_card(_q[5], "ROI global",
                  _fmt_pct(_t_roi) if _t_roi is not None else "—",
                  BARCA["gold"] if (_t_roi or 0) > 0 else BARCA["garnet_deep"])
 
-        # ── Corrección manual de la inversión ─────────────────────────────────
-        with st.expander("✏️ Corregir inversión manualmente"):
-            st.caption("La inversión se toma automáticamente de las APIs de Ads. "
-                       "Usa este editor si necesitas ajustar un valor concreto.")
-            _e1, _e2, _e3, _e4 = st.columns([2, 1, 1, 1])
-            with _e1:
-                _sel = st.selectbox(f"Selecciona {dim_sel}", _dims, key="roi_inv_sel")
-            with _e2:
-                _val = st.number_input("Inversión (€)", min_value=0.0, step=100.0,
-                                       value=float(st.session_state[_inv_key].get(
-                                           _sel, _spend_map.get(_sel, 0.0))),
-                                       key="roi_inv_val")
-            with _e3:
-                st.markdown("<br>", unsafe_allow_html=True)
-                if st.button("💾 Guardar", key="roi_inv_save", use_container_width=True):
-                    st.session_state[_inv_key][_sel] = _val
+        # Corrección manual de inversión + descarga
+        _e = st.columns([2, 1, .7, .7])
+        _opts_k = [d["key"] for d in _data]
+        with _e[0]:
+            _sel = st.selectbox("Corregir inversión de", _opts_k, key="roi_inv_sel")
+        with _e[1]:
+            _val = st.number_input("Inversión (€)", min_value=0.0, step=100.0,
+                                   value=float(st.session_state[_inv_key].get(
+                                       _sel, _spend.get(_sel, 0.0))), key="roi_inv_val")
+        with _e[2]:
+            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+            if st.button("💾 Guardar", key="roi_inv_save", use_container_width=True):
+                st.session_state[_inv_key][_sel] = _val
+                st.rerun()
+        with _e[3]:
+            st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+            if _sel in st.session_state[_inv_key]:
+                if st.button("↩️ Auto", key="roi_inv_reset", use_container_width=True,
+                             help="Volver al valor automático de las APIs de Ads"):
+                    del st.session_state[_inv_key][_sel]
                     st.rerun()
-            with _e4:
-                st.markdown("<br>", unsafe_allow_html=True)
-                if _sel in st.session_state[_inv_key]:
-                    if st.button("↩️ Auto", key="roi_inv_reset", use_container_width=True,
-                                 help="Volver al valor automático de Ads"):
-                        del st.session_state[_inv_key][_sel]
-                        st.rerun()
 
-        # ── Descarga ──────────────────────────────────────────────────────────
+        # CSV en texto plano (sin HTML)
+        import re as _re
+        _plain = [[_re.sub(r"<[^>]+>", "", str(c)) for c in r] for r in _rows]
+        _csv = pd.DataFrame(_plain, columns=[c for c, _ in _cols])
         st.download_button(
             "⬇️ Descargar tabla maestra (CSV)",
-            _mega.to_csv(index=False).encode("utf-8-sig"),
-            file_name=f"tabla_maestra_{dim_sel.lower()}_{fi}_{ff}.csv",
-            mime="text/csv",
-        )
+            _csv.to_csv(index=False).encode("utf-8-sig"),
+            file_name=f"tabla_maestra_{'_'.join(_dims_sel).lower()}_{fi}_{ff}.csv",
+            mime="text/csv")
 
     def page_rst():
         # ── KPIs ──────────────────────────────────────────────────────────────────
