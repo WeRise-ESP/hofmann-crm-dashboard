@@ -16,6 +16,8 @@ import os
 import time
 import hashlib
 import json
+import re
+import unicodedata
 
 load_dotenv()
 
@@ -567,6 +569,61 @@ LATAM_PAIS_ES = {
 }
 
 _JUNK_PAIS = {"seleccione su país...", "selecciona tu país", "seleccione su pais", "other", "otros"}
+
+# ── Nomenclatura de campañas de Ads ───────────────────────────────────────────
+# Mercado   : "- ES" / "- CAT" / "- NAC"        → Nacional
+#             "- LATAM" / "- LAT" / "LATAM 2"   → Latam
+# Modalidad : contiene "Online"                 → Online
+#             cualquier otra                    → Presencial
+# Los delimitadores evitan falsos positivos ("Maestrías" no es ES, "Coctelería"
+# no es CAT). Funciona con los nombres del panel de Google Ads
+# ("PMAX - Diploma de Cocina - ES") y con los de las UTM ("pmax_nac_diploma_cocina").
+_RE_CAMP_LATAM = re.compile(r"(?<![A-Z])(LATAM|LAT)(?![A-Z])")
+_RE_CAMP_NAC   = re.compile(r"(?<![A-Z])(NAC|NACIONAL|CAT|ES|SPAIN)(?![A-Z])")
+
+# Tokens que no identifican el producto: plataforma, mercado y palabras vacías
+_STOP_CAMP = {
+    "PMAX", "SEARCH", "SRCH", "S", "DISPLAY", "YOUTUBE", "YT", "PERFORMANCE",
+    "MAX", "AUTO", "TAGGED", "PPC",
+    "LATAM", "LAT", "NAC", "NACIONAL", "CAT", "ES", "SPAIN",
+    "DE", "DEL", "LA", "EL", "LOS", "LAS", "Y", "EN", "A",
+}
+
+
+def _sin_acentos(txt: str) -> str:
+    return "".join(c for c in unicodedata.normalize("NFD", txt or "")
+                   if unicodedata.category(c) != "Mn")
+
+
+def clasificar_mercado_camp(nombre: str) -> str:
+    """Nacional / Latam / '—' a partir del nombre de la campaña."""
+    u = _sin_acentos(nombre).upper()
+    if _RE_CAMP_LATAM.search(u):
+        return "Latam"
+    if _RE_CAMP_NAC.search(u):
+        return "Nacional"
+    return "—"
+
+
+def clasificar_modalidad_camp(nombre: str) -> str:
+    """Online si el nombre contiene 'Online'; el resto es Presencial."""
+    if not (nombre or "").strip():
+        return "Sin asignar"
+    return "Online" if "ONLINE" in _sin_acentos(nombre).upper() else "Presencial"
+
+
+def clave_campana(nombre: str) -> str:
+    """Clave canónica para casar el nombre de Google Ads con el de la UTM.
+
+    "PMAX - Diploma de Cocina - ES"  y  "pmax_nac_diploma_cocina"
+    producen la misma clave: "Nacional|COCINA-DIPLOMA".
+    """
+    u = _sin_acentos(nombre).upper()
+    toks = {t for t in re.split(r"[^A-Z0-9]+", u) if t and t not in _STOP_CAMP}
+    if not toks:
+        return ""
+    return clasificar_mercado_camp(nombre) + "|" + "-".join(sorted(toks))
+
 
 def resolve_mercado(pais: str) -> str:
     p = pais.lower().strip()
@@ -2462,6 +2519,21 @@ def main():
         df_linkedin  = fut_linkedin.result()
         df_tiktok    = fut_tiktok.result()
 
+    # Clasificar cada campaña de Ads por mercado y modalidad según su nombre
+    def _enriquecer_ads(d):
+        if d.empty or "campaña" not in d.columns:
+            return d
+        d = d.copy()
+        d["mercado_camp"]   = d["campaña"].apply(clasificar_mercado_camp)
+        d["modalidad_camp"] = d["campaña"].apply(clasificar_modalidad_camp)
+        d["clave_camp"]     = d["campaña"].apply(clave_campana)
+        return d
+
+    df_google   = _enriquecer_ads(df_google)
+    df_meta     = _enriquecer_ads(df_meta)
+    df_linkedin = _enriquecer_ads(df_linkedin)
+    df_tiktok   = _enriquecer_ads(df_tiktok)
+
     if df.empty and df_mat_all.empty:
         st.warning("No hay datos para el período seleccionado.")
         return
@@ -2692,12 +2764,8 @@ def main():
                             label_visibility="collapsed")
 
     def _mercado_from_name(name: str) -> str:
-        n = (name or "").lower()
-        if "latam" in n:
-            return "LATAM"
-        if "_nac" in n or "nac_" in n or "- es" in n or "_es" in n or " es" == n[-3:]:
-            return "Nacional"
-        return "—"
+        m = clasificar_mercado_camp(name)
+        return "LATAM" if m == "Latam" else m
 
     # resolve_mercado devuelve España/Latam/Otro/Sin datos → etiquetas de negocio
     _MERC_LBL = {"España": "Nacional", "Latam": "LATAM",
@@ -2916,27 +2984,57 @@ def main():
                 _mt["o"] = _mt["mercado"].map(
                     {"Nacional": 0, "LATAM": 1, "ROW": 2, "Sin país": 3}).fillna(4)
                 _mt = _mt.sort_values("o")
+
+                # Inversión de Ads por mercado, según la nomenclatura de campaña
+                _inv_merc, _inv_nc = {}, 0.0
+                for _d in [df_google, df_meta, df_linkedin, df_tiktok]:
+                    if _d.empty or "mercado_camp" not in _d.columns:
+                        continue
+                    for _m, _g in _d.groupby("mercado_camp")["gasto"].sum().items():
+                        if _m == "Latam":
+                            _inv_merc["LATAM"] = _inv_merc.get("LATAM", 0.0) + float(_g)
+                        elif _m == "Nacional":
+                            _inv_merc["Nacional"] = _inv_merc.get("Nacional", 0.0) + float(_g)
+                        else:
+                            _inv_nc += float(_g)
+
                 _rows = []
                 for _, r in _mt.iterrows():
-                    _cv = (r["ganados"] / r["leads"] * 100) if r["leads"] else 0
+                    _cv  = (r["ganados"] / r["leads"] * 100) if r["leads"] else 0
+                    _iv  = _inv_merc.get(r["mercado"], 0.0)
+                    _cpl = (_iv / r["leads"]) if (r["leads"] and _iv) else None
                     _rows.append([
-                        f"<b>{r['mercado']}</b>", _fmt_int(r["leads"]),
+                        f"<b>{r['mercado']}</b>", _fmt_eur(_iv),
+                        _fmt_eur(_cpl) if _cpl else "—",
+                        _fmt_int(r["leads"]),
                         f"<b>{_fmt_int(r['ganados'])}</b>", _pill_conv(_cv),
                         _fmt_eur(r["facturado"]),
                     ])
                 _tl, _tg = _mt["leads"].sum(), _mt["ganados"].sum()
+                _ti = sum(_inv_merc.values()) + _inv_nc
                 st.markdown(_table(
-                    [("Mercado", "left"), ("Leads período", "right"), ("Ganados", "right"),
+                    [("Mercado", "left"), ("Inversión", "right"), ("CPL", "right"),
+                     ("Leads período", "right"), ("Ganados", "right"),
                      ("% Conversión", "center"), ("Facturado", "right")],
                     _rows,
-                    ["Total", _fmt_int(_tl), _fmt_int(_tg),
+                    ["Total", _fmt_eur(_ti),
+                     _fmt_eur(_ti / _tl) if (_tl and _ti) else "—",
+                     _fmt_int(_tl), _fmt_int(_tg),
                      _pill_conv(_tg / _tl * 100 if _tl else 0),
                      _fmt_eur(_mt["facturado"].sum())]),
                     unsafe_allow_html=True)
+                if _inv_nc:
+                    st.markdown(
+                        f"<div style='font-size:12px;color:{_RF['muted']};margin-top:8px'>"
+                        f"⚠️ {_fmt_eur(_inv_nc)} en campañas cuyo nombre no indica mercado "
+                        f"(sin ES/CAT/NAC ni LATAM/LAT) — no se reparten por mercado, "
+                        f"pero sí cuentan en el total.</div>", unsafe_allow_html=True)
                 st.markdown(
                     f"<div style='font-size:12px;color:{_RF['muted']};margin-top:10px'>"
-                    f"<b style='color:{_RF['ink_soft']}'>Mercado</b> derivado del país del "
-                    f"contacto: España → Nacional · Latinoamérica → LATAM · resto → ROW.</div>",
+                    f"<b style='color:{_RF['ink_soft']}'>Mercado</b> de los leads según el "
+                    f"país del contacto (España → Nacional · Latinoamérica → LATAM · "
+                    f"resto → ROW) y de la inversión según la nomenclatura de la campaña "
+                    f"(ES/CAT/NAC → Nacional · LATAM/LAT → LATAM).</div>",
                     unsafe_allow_html=True)
 
         # ── Detalle de campaña por canal ──────────────────────────────────────
@@ -3045,23 +3143,16 @@ def main():
         with st.container(border=True):
             st.markdown(_sec_title(
                 "💶 ROI y ROAS por modalidad de formación",
-                "Gasto publicitario tomado automáticamente de Google Ads, Meta, LinkedIn y "
-                "TikTok · reparte aquí lo que no se puede asignar por el nombre de campaña"),
+                "Gasto de Google Ads, Meta, LinkedIn y TikTok repartido por el nombre de "
+                "la campaña: si contiene «Online» es Online, el resto es Presencial"),
                 unsafe_allow_html=True)
 
             _ads_list = [d for d in [df_google, df_meta, df_linkedin, df_tiktok] if not d.empty]
             _ads_all = pd.concat(_ads_list, ignore_index=True) if _ads_list else pd.DataFrame()
             _ga = {"Online": 0.0, "Presencial": 0.0, "Sin asignar": 0.0}
-            if not _ads_all.empty:
-                for _, r in _ads_all.iterrows():
-                    _nm = str(r.get("campaña", "")).lower()
-                    _g  = float(r.get("gasto", 0) or 0)
-                    if "online" in _nm:
-                        _ga["Online"] += _g
-                    elif "presencial" in _nm:
-                        _ga["Presencial"] += _g
-                    else:
-                        _ga["Sin asignar"] += _g
+            if not _ads_all.empty and "modalidad_camp" in _ads_all.columns:
+                for _m, _g in _ads_all.groupby("modalidad_camp")["gasto"].sum().items():
+                    _ga[str(_m)] = _ga.get(str(_m), 0.0) + float(_g)
 
             _g1, _g2, _g3 = st.columns(3)
             with _g1:
@@ -3071,14 +3162,18 @@ def main():
                 _gpr = st.number_input("Gasto Ads · Presencial (€)", min_value=0.0, step=100.0,
                                        value=round(_ga["Presencial"], 2), key="roi_gasto_pr")
             with _g3:
+                _n_camp = _ads_all["campaña"].nunique() if not _ads_all.empty else 0
+                _sin_a  = _ga.get("Sin asignar", 0.0)
                 st.markdown(
                     f"<div style='padding-top:6px'><div style='font-size:10.5px;"
                     f"font-weight:700;color:{_RF['th']};text-transform:uppercase;"
-                    f"letter-spacing:.6px'>Sin asignar a modalidad</div>"
+                    f"letter-spacing:.6px'>Campañas clasificadas</div>"
                     f"<div style='font-size:20px;font-weight:800;color:{_RF['ink']};"
-                    f"margin-top:4px'>{_fmt_eur(_ga['Sin asignar'])}</div>"
-                    f"<div style='font-size:11.5px;color:{_RF['muted']}'>Campañas cuyo nombre "
-                    f"no indica Online ni Presencial</div></div>", unsafe_allow_html=True)
+                    f"margin-top:4px'>{_n_camp}</div>"
+                    f"<div style='font-size:11.5px;color:{_RF['muted']}'>"
+                    + (f"Sin nombre: {_fmt_eur(_sin_a)}" if _sin_a else
+                       "Todo el gasto queda asignado por nomenclatura")
+                    + f"</div></div>", unsafe_allow_html=True)
 
             _rows, _tl3, _tm3 = [], 0, 0
             for _mod, _g, _ic in [("Online", _gon, "🌐"), ("Presencial", _gpr, "🏫")]:
@@ -3297,21 +3392,6 @@ def main():
                     if not _mw.empty and _c in _mw.columns:
                         _mw = _mw[_mw[_c].astype(str) == _v]
 
-        # Inversión automática desde las APIs de Ads
-        _spend: dict = {}
-        _srcs = [(df_google, "Búsqueda pagada"), (df_meta, "Social pagado"),
-                 (df_linkedin, "Social pagado"), (df_tiktok, "Social pagado")]
-        if _dims_sel == ["Fuente"]:
-            for _d, _lbl in _srcs:
-                if not _d.empty and "gasto" in _d.columns:
-                    _spend[_lbl] = _spend.get(_lbl, 0.0) + float(_d["gasto"].sum())
-        elif _dims_sel == ["Campaña"]:
-            for _d, _ in _srcs:
-                if not _d.empty and "campaña" in _d.columns:
-                    for _c, _g in _d.groupby("campaña")["gasto"].sum().items():
-                        if _c:
-                            _spend[str(_c)] = _spend.get(str(_c), 0.0) + float(_g)
-
         _inv_key = "roi_inv_" + "|".join(_dims_sel)
         st.session_state.setdefault(_inv_key, {})
 
@@ -3344,6 +3424,63 @@ def main():
             for c, v in zip(_gcols, key):
                 m &= frame[c].astype(str) == v
             return frame[m]
+
+        # ── Inversión automática desde las APIs de Ads ─────────────────────────
+        _srcs = [(df_google, "Búsqueda pagada"), (df_meta, "Social pagado"),
+                 (df_linkedin, "Social pagado"), (df_tiktok, "Social pagado")]
+        _spend, _sin_casar = {}, 0.0
+        _cual_key = {k: len(_mask(_ml, k)) for k in _all_keys}
+
+        def _sk_de(key):
+            return key[0] if len(key) == 1 else " | ".join(key)
+
+        if "campaña" in _gcols:
+            # El nombre en Google Ads ("PMAX - Diploma de Cocina - ES") no coincide
+            # literalmente con el de la UTM ("pmax_nac_diploma_cocina"): se casan por
+            # clave canónica (mercado + tokens de producto).
+            _gasto_clave = {}
+            for _d, _ in _srcs:
+                if _d.empty or "clave_camp" not in _d.columns:
+                    continue
+                for _k, _g in _d.groupby("clave_camp")["gasto"].sum().items():
+                    if _k:
+                        _gasto_clave[_k] = _gasto_clave.get(_k, 0.0) + float(_g)
+
+            _idx = _gcols.index("campaña")
+            _gasto_camp, _usadas = {}, set()
+            for _key in _all_keys:
+                _c = _key[_idx]
+                if _c in _gasto_camp:
+                    continue
+                _k = clave_campana(_c)
+                if _k and _k in _gasto_clave:
+                    _gasto_camp[_c] = _gasto_clave[_k]
+                    _usadas.add(_k)
+            _sin_casar = sum(g for k, g in _gasto_clave.items() if k not in _usadas)
+
+            # Si una campaña aparece en varias filas (p. ej. agrupando también por
+            # país), su gasto se reparte proporcionalmente a los leads de cada fila
+            # para no contarlo dos veces.
+            _leads_camp = {}
+            for _key in _all_keys:
+                _c = _key[_idx]
+                _leads_camp[_c] = _leads_camp.get(_c, 0) + _cual_key[_key]
+            _filas_camp = {}
+            for _key in _all_keys:
+                _c = _key[_idx]
+                _filas_camp[_c] = _filas_camp.get(_c, 0) + 1
+            for _key in _all_keys:
+                _c = _key[_idx]
+                _g = _gasto_camp.get(_c, 0.0)
+                if not _g:
+                    continue
+                _tl = _leads_camp.get(_c, 0)
+                _spend[_sk_de(_key)] = (_g * _cual_key[_key] / _tl) if _tl \
+                                       else (_g / max(_filas_camp.get(_c, 1), 1))
+        elif _gcols == ["fuente"]:
+            for _d, _lbl in _srcs:
+                if not _d.empty and "gasto" in _d.columns:
+                    _spend[_lbl] = _spend.get(_lbl, 0.0) + float(_d["gasto"].sum())
 
         _rows, _data = [], []
         for _key in _all_keys:
@@ -3409,12 +3546,19 @@ def main():
         _t_fact = sum(d["fact"] for d in _data)
         _t_roi  = ((_t_fact - _t_inv) / _t_inv * 100) if _t_inv else None
 
+        _aviso = ""
+        if _sin_casar:
+            _aviso = (f"<div style='font-size:12.5px;color:#B32B45;margin:0 0 10px'>"
+                      f"⚠️ {_fmt_eur(_sin_casar)} de inversión en campañas de Ads que no "
+                      f"se han podido casar con ninguna campaña de HubSpot (el nombre no "
+                      f"coincide ni por nomenclatura). No están repartidos en las filas: "
+                      f"revísalos con el editor de abajo.</div>")
         _card(
             f"<div style='font-size:12.5px;color:{_RF['muted']};margin:0 0 10px'>"
             f"Las columnas de <b style='color:{_RF['ink_soft']}'>%</b> son conversión "
             f"<b style='color:{_RF['ink_soft']}'>sobre leads cualificados</b> de esa fila. "
             f"Desliza la tabla en horizontal para ver el embudo completo.</div>"
-            + _table(_cols, _rows))
+            + _aviso + _table(_cols, _rows))
 
         _q = st.columns(6)
         kpi_card(_q[0], "Inversión total",    _fmt_eur0(_t_inv), BARCA["ink60"])
