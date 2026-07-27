@@ -318,6 +318,55 @@ st.markdown(f"""
   }}
   .stButton>button:hover {{ background:{BARCA['garnet_deep']} !important; }}
 
+  /* ── Calendar popup (date_input) — portal renderizado en el body ── */
+  [data-baseweb="calendar"] {{
+      background:#ffffff !important;
+      border:1px solid {BARCA['line2']} !important;
+      border-radius:8px !important;
+  }}
+  [data-baseweb="calendar"] * {{
+      color:#111111 !important;
+  }}
+  /* Cabecera del mes/año */
+  [data-baseweb="calendar"] [data-baseweb="select"] > div:first-child {{
+      background:#f0f4f8 !important;
+      color:#111111 !important;
+  }}
+  /* Días de la semana (Mo Tu We…) */
+  [data-baseweb="calendar"] [role="columnheader"] {{
+      color:{BARCA['ink60']} !important;
+      font-weight:600 !important;
+  }}
+  /* Celdas de día */
+  [data-baseweb="calendar"] [role="gridcell"] button {{
+      color:#111111 !important;
+      background:transparent !important;
+  }}
+  /* Día seleccionado */
+  [data-baseweb="calendar"] [aria-selected="true"] button,
+  [data-baseweb="calendar"] button[aria-selected="true"] {{
+      background:{BARCA['blue']} !important;
+      color:#ffffff !important;
+      border-radius:50% !important;
+  }}
+  /* Hover sobre día */
+  [data-baseweb="calendar"] [role="gridcell"] button:hover {{
+      background:{BARCA['bone']} !important;
+      color:{BARCA['blue_ink']} !important;
+  }}
+  /* Navegación prev/next */
+  [data-baseweb="calendar"] button[aria-label*="previous"],
+  [data-baseweb="calendar"] button[aria-label*="next"],
+  [data-baseweb="calendar"] button[aria-label*="anterior"],
+  [data-baseweb="calendar"] button[aria-label*="siguiente"] {{
+      color:{BARCA['blue']} !important;
+      background:transparent !important;
+  }}
+  /* Popover contenedor */
+  [data-baseweb="popover"] {{
+      background:#ffffff !important;
+  }}
+
   /* ── Títulos ── */
   h1,h2,h3 {{ color:{BARCA['blue_ink']}; }}
   hr {{ border-color:{BARCA['line']}; }}
