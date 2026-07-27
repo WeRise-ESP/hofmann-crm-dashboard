@@ -74,6 +74,15 @@ def _check_password():
         return True
 
     st.markdown("""
+    <style>
+    input[type="password"] {
+        background:#ffffff !important; color:#111111 !important;
+        border:2px solid #d0d5dd !important; border-radius:8px !important;
+    }
+    input[type="password"]::placeholder { color:#9aa5b4 !important; opacity:1 !important; }
+    [data-baseweb="input"] { background:#ffffff !important; border-radius:8px !important; }
+    [data-baseweb="input"] button svg { fill:#555 !important; }
+    </style>
     <div style="max-width:380px;margin:80px auto 0;text-align:center">
         <h2 style="margin-bottom:8px">🔒 Hofmann CRM Dashboard</h2>
         <p style="color:#555;font-size:14px;margin-bottom:24px">
@@ -165,17 +174,122 @@ st.set_page_config(
 
 st.markdown(f"""
 <style>
+  /* ── Fondo app ── */
   [data-testid="stAppViewContainer"] {{ background:{BARCA['paper']}; }}
+
+  /* ── Sidebar: fondo navy ── */
   [data-testid="stSidebar"] {{ background:{BARCA['blue_ink']} !important; }}
+
+  /* Textos genéricos en sidebar */
   [data-testid="stSidebar"] label,
   [data-testid="stSidebar"] p,
-  [data-testid="stSidebar"] small {{ color:{BARCA['white']} !important; }}
+  [data-testid="stSidebar"] span,
+  [data-testid="stSidebar"] small,
+  [data-testid="stSidebar"] .stMarkdown {{ color:{BARCA['white']} !important; }}
+
+  /* ── Sidebar: inputs de texto y contraseña ── */
+  [data-testid="stSidebar"] input,
+  [data-testid="stSidebar"] textarea {{
+      background:#ffffff !important;
+      color:#111111 !important;
+      border:1.5px solid {BARCA['line2']} !important;
+      border-radius:6px !important;
+  }}
+  [data-testid="stSidebar"] input::placeholder,
+  [data-testid="stSidebar"] textarea::placeholder {{
+      color:#888888 !important;
+      opacity:1 !important;
+  }}
+
+  /* ── Sidebar: date_input ── */
+  [data-testid="stSidebar"] [data-baseweb="input"] {{
+      background:#ffffff !important;
+      border:1.5px solid {BARCA['line2']} !important;
+      border-radius:6px !important;
+  }}
+  [data-testid="stSidebar"] [data-baseweb="input"] input {{
+      color:#111111 !important;
+      background:transparent !important;
+  }}
+
+  /* ── Sidebar: selectbox (select/dropdown) ── */
+  [data-testid="stSidebar"] [data-baseweb="select"] > div:first-child {{
+      background:#ffffff !important;
+      border:1.5px solid {BARCA['line2']} !important;
+      border-radius:6px !important;
+  }}
+  [data-testid="stSidebar"] [data-baseweb="select"] [data-testid="stSelectboxLabel"],
+  [data-testid="stSidebar"] [data-baseweb="select"] span,
+  [data-testid="stSidebar"] [data-baseweb="select"] div[aria-selected] {{
+      color:#111111 !important;
+  }}
+  /* Flecha del select */
+  [data-testid="stSidebar"] [data-baseweb="select"] svg {{ fill:#555555 !important; }}
+
+  /* ── Sidebar: multiselect — caja contenedora ── */
+  [data-testid="stSidebar"] [data-baseweb="base-input"] {{
+      background:#ffffff !important;
+      border-radius:6px !important;
+  }}
+  [data-testid="stSidebar"] [data-testid="stMultiSelect"] [data-baseweb="select"] > div {{
+      background:#ffffff !important;
+      border:1.5px solid {BARCA['line2']} !important;
+      border-radius:6px !important;
+  }}
+  /* Texto de placeholder del multiselect */
+  [data-testid="stSidebar"] [data-baseweb="select"] input {{
+      color:#111111 !important;
+  }}
+
+  /* ── Sidebar: chips/tags del multiselect ── */
+  [data-testid="stSidebar"] [data-baseweb="tag"] {{
+      background:{BARCA['garnet']} !important;
+      color:#ffffff !important;
+      border-radius:4px !important;
+  }}
+  [data-testid="stSidebar"] [data-baseweb="tag"] span {{
+      color:#ffffff !important;
+  }}
+  [data-testid="stSidebar"] [data-baseweb="tag"] svg {{
+      fill:#ffffff !important;
+  }}
+
+  /* ── Sidebar: radio buttons — texto siempre blanco ── */
+  [data-testid="stSidebar"] [data-testid="stRadio"] label {{
+      color:{BARCA['white']} !important;
+  }}
+
+  /* ── Sidebar: checkbox ── */
+  [data-testid="stSidebar"] [data-testid="stCheckbox"] label {{
+      color:{BARCA['white']} !important;
+  }}
+
+  /* ── Login: campo contraseña (fuera del sidebar) ── */
+  input[type="password"] {{
+      background:#ffffff !important;
+      color:#111111 !important;
+      border:2px solid #d0d5dd !important;
+      border-radius:8px !important;
+  }}
+  input[type="password"]::placeholder {{
+      color:#9aa5b4 !important;
+      opacity:1 !important;
+  }}
+  [data-baseweb="input"] {{
+      background:#ffffff !important;
+      border-radius:8px !important;
+  }}
+  [data-baseweb="input"] button svg {{ fill:#555 !important; }}
+
+  /* ── Botones ── */
   .stButton>button {{
       background:{BARCA['garnet']} !important;
       color:{BARCA['white']} !important;
       border:none !important; font-weight:700;
   }}
   .stButton>button:hover {{ background:{BARCA['garnet_deep']} !important; }}
+
+  /* ── Títulos ── */
   h1,h2,h3 {{ color:{BARCA['blue_ink']}; }}
   hr {{ border-color:{BARCA['line']}; }}
 </style>
