@@ -158,19 +158,21 @@ TIKTOK_ADVERTISER_ID = _s("TIKTOK_ADVERTISER_ID")
 TIKTOK_AVAILABLE     = bool(TIKTOK_TOKEN and TIKTOK_ADVERTISER_ID)
 
 # ── Paleta Hofmann ────────────────────────────────────────────────────────────
+# Colores de marca Hofmann — tomados del logo y de hofmann-bcn.com
+#   azul  #0D0E95  ·  oro  #EAAB12  ·  amarillo  #FFE900
 HOFMANN = {
-    "blue":         "#0053B3",   # azul medio (gráficos)
-    "blue_deep":    "#001E8C",   # azul oscuro
-    "blue_ink":     "#000a3f",   # navy brand (sidebar, headers)
+    "blue":         "#2A2BC4",   # azul medio (gráficos)
+    "blue_deep":    "#1414A8",   # azul oscuro
+    "blue_ink":     "#0D0E95",   # AZUL DE MARCA (sidebar, headers)
     "garnet":       "#D95F02",   # naranja-rojo (negativos / pérdidas)
     "garnet_deep":  "#A63D00",   # naranja-rojo oscuro
-    "gold":         "#ECAB0F",   # naranja brand (ganancias, botones)
-    "yellow":       "#F5C842",   # naranja-amarillo suave
+    "gold":         "#EAAB12",   # oro brand (ganancias, botones)
+    "yellow":       "#FFE900",   # amarillo brand
     "white":        "#FFFFFF",
-    "paper":        "#F8FBFD",   # fondo casi blanco
-    "bone":         "#e6f3fb",   # azul claro brand
-    "line":         "#D4EBFA",   # borde claro
-    "line2":        "#C8E2F5",   # borde medio
+    "paper":        "#F8F9FE",   # fondo casi blanco
+    "bone":         "#E9E9FB",   # azul claro brand
+    "line":         "#DDDDF7",   # borde claro
+    "line2":        "#C9C9F0",   # borde medio
     "ink100":       "#111111",
     "ink80":        "#2A2A2A",
     "ink60":        "#555555",
@@ -198,8 +200,26 @@ COLOR_FUENTES = [
     BARCA["ink60"], BARCA["ink40"], BARCA["ink20"],
 ]
 
+# ── Logo de marca (se empotra en base64 para que no dependa de la red) ────────
+LOGO_URL = ("https://www.hofmann-bcn.com/wp-content/uploads/2026/02/"
+            "logo-hofmann-292x148-1WEBP2.webp")
+
+
+@st.cache_data(ttl=86_400, show_spinner=False)
+def _logo_src() -> str:
+    """data-URI del logo local; si no está, cae al URL remoto."""
+    import base64
+    ruta = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "assets", "logo-hofmann.webp")
+    try:
+        with open(ruta, "rb") as fh:
+            return "data:image/webp;base64," + base64.b64encode(fh.read()).decode()
+    except Exception:
+        return LOGO_URL
+
+
 st.set_page_config(
-    page_title=f"RST Dashboard — {ACCOUNT_NAME}",
+    page_title=f"Dashboard · {ACCOUNT_NAME}",
     page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -287,9 +307,28 @@ st.markdown(f"""
       fill:#ffffff !important;
   }}
 
-  /* ── Sidebar: radio buttons — texto siempre blanco ── */
+  /* ── Sidebar: radio buttons — texto blanco y marcador visible ── */
   [data-testid="stSidebar"] [data-testid="stRadio"] label {{
       color:{BARCA['white']} !important;
+  }}
+  /* El círculo del radio: el color primario coincide con el fondo del sidebar,
+     así que se fuerza contorno claro y relleno dorado al seleccionar. */
+  [data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] > label
+      > div:first-child {{
+      background-color:transparent !important;
+      border-color:rgba(255,255,255,.65) !important;
+  }}
+  [data-testid="stSidebar"] [data-testid="stRadio"]
+      [role="radiogroup"] > label[data-checked="true"] > div:first-child,
+  [data-testid="stSidebar"] [data-testid="stRadio"]
+      [role="radiogroup"] > label:has(input:checked) > div:first-child {{
+      background-color:{BARCA['gold']} !important;
+      border-color:{BARCA['gold']} !important;
+  }}
+  /* Punto interior del radio marcado */
+  [data-testid="stSidebar"] [data-testid="stRadio"]
+      [role="radiogroup"] > label:has(input:checked) > div:first-child > div {{
+      background-color:{BARCA['blue_ink']} !important;
   }}
 
   /* ── Sidebar: checkbox ── */
@@ -350,6 +389,39 @@ st.markdown(f"""
       border:none !important; font-weight:700;
   }}
   .stButton>button:hover {{ background:{BARCA['garnet_deep']} !important; }}
+
+  /* ── Botones de filtrado (segmented_control) — píldoras de marca ── */
+  [data-testid="stButtonGroup"] {{ gap:8px !important; }}
+  [data-testid="stButtonGroup"] button {{
+      border-radius:999px !important;
+      border:1px solid {BARCA['line2']} !important;
+      background:#ffffff !important;
+      color:{BARCA['ink80']} !important;
+      font-weight:600 !important;
+      font-size:13.5px !important;
+      padding:7px 18px !important;
+      box-shadow:none !important;
+      transition:none !important;
+  }}
+  [data-testid="stButtonGroup"] button p {{
+      color:{BARCA['ink80']} !important; font-weight:600 !important;
+  }}
+  [data-testid="stButtonGroup"] button:hover {{
+      border-color:{BARCA['blue']} !important;
+  }}
+  /* Opción activa → azul de marca */
+  [data-testid="stButtonGroup"] button[aria-checked="true"],
+  [data-testid="stButtonGroup"] button[kind="segmented_controlActive"],
+  [data-testid="stBaseButton-segmented_controlActive"] {{
+      background:{BARCA['blue_ink']} !important;
+      border-color:{BARCA['blue_ink']} !important;
+      color:#ffffff !important;
+  }}
+  [data-testid="stButtonGroup"] button[aria-checked="true"] p,
+  [data-testid="stButtonGroup"] button[kind="segmented_controlActive"] p,
+  [data-testid="stBaseButton-segmented_controlActive"] p {{
+      color:#ffffff !important;
+  }}
 
   /* ── Calendar popup (date_input) — portal renderizado en el body ── */
   [data-baseweb="calendar"] {{
@@ -2179,23 +2251,14 @@ def conclusiones(df, df_mat, df_deals_periodo):
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 
 def main():
+    # ── Cabecera compacta: logo + título ──────────────────────────────────────
     st.markdown(f"""
-    <div style="background:linear-gradient(135deg,{BARCA['blue_ink']} 0%,
-                {BARCA['blue_deep']} 60%,{BARCA['blue']} 100%);
-                padding:28px 36px;border-radius:12px;
-                margin-bottom:28px;
-                border-bottom:4px solid {BARCA['garnet']}">
-        <div style="display:flex;align-items:center;gap:12px">
-            <div>
-                <h1 style="color:{BARCA['white']};margin:0;font-size:26px;
-                           font-weight:800;letter-spacing:-.3px">
-                    Dashboard RST — {ACCOUNT_NAME}
-                </h1>
-                <p style="color:{BARCA['line']};margin:5px 0 0;font-size:14px">
-                    Análisis de calidad de leads · HubSpot CRM
-                </p>
-            </div>
-        </div>
+    <div style="display:flex;align-items:center;gap:14px;padding:2px 0 12px;
+                border-bottom:2px solid {BARCA['gold']};margin-bottom:16px">
+        <img src="{_logo_src()}" alt="{ACCOUNT_NAME}"
+             style="height:38px;width:auto;display:block">
+        <span style="font-size:23px;font-weight:800;color:{BARCA['blue_ink']};
+                     letter-spacing:-.4px">Dashboard. {ACCOUNT_NAME}</span>
     </div>""", unsafe_allow_html=True)
 
     # ── Sidebar — bloque 1: fecha y fuente (antes de cargar datos) ───────────────
@@ -2436,19 +2499,19 @@ def main():
         "line":     "#EFF1F5",
         "border":   "#E7EAF0",
         "card":     "#FFFFFF",
-        "chip_bg":  "#EEF2FF",
-        "chip_tx":  "#4054C8",
-        "tog_on":   "#17203A",
+        "chip_bg":  "#E9E9FB",
+        "chip_tx":  "#0D0E95",
+        "tog_on":   "#0D0E95",
     }
     _PILL = {
         "green": ("#E3F5EC", "#1E7A4F"),
         "red":   ("#FDE8EC", "#B32B45"),
         "amber": ("#FEF3D9", "#8A6206"),
         "gray":  ("#F0F2F5", "#6B7688"),
-        "blue":  ("#E4EEFE", "#1D5FD0"),
+        "blue":  ("#E9E9FB", "#0D0E95"),
     }
     # Colores del donut, en el orden de la referencia
-    _DONUT = ["#A855F7", "#5B8DEF", "#1E3A8A", "#34D399", "#9CA3AF",
+    _DONUT = ["#0D0E95", "#2A2BC4", "#6B6BE0", "#34D399", "#9CA3AF",
               "#2DD4BF", "#D1D5DB", "#EC4899", "#F59E0B", "#6366F1"]
     _MERC_COLOR = {"Nacional": "#34D399", "LATAM": "#F59E0B",
                    "ROW": "#9CA3AF", "Sin país": "#D1D5DB", "—": "#5B8DEF"}
@@ -2596,7 +2659,8 @@ def main():
         # ── Barra de vistas + modalidad ───────────────────────────────────────
         _v1, _v2, _v3 = st.columns([1.5, .45, 1.35])
         with _v1:
-            _vista = _seg("Vista", ["Conversión & ROI", "Cierres perdidos"], "roi_vista")
+            _vista = _seg("Vista", ["Conversión & ROI", "Cierres perdidos (leads del mes)"],
+                         "roi_vista")
         with _v2:
             st.markdown(f"<div style='padding-top:7px;font-size:11px;font-weight:700;"
                         f"color:{_RF['th']};text-transform:uppercase;letter-spacing:.6px;"
@@ -2651,7 +2715,7 @@ def main():
                         .reset_index())
 
         # ══════════════════════════════════════════════════════════════════════
-        if _vista == "Cierres perdidos":
+        if _vista == "Cierres perdidos (leads del mes)":
             _render_perdidos(_lv, _pipe, _lost, _n_leads)
             return
         # ══════════════════════════════════════════════════════════════════════
@@ -2678,15 +2742,15 @@ def main():
         _k1, _k2, _k3, _k4 = st.columns(4)
         _big(_k1, "Contactos del período", _fmt_int(_n_leads),
              f"Válidos · con curso · Fuente top: {_fuente_top}",
-             "linear-gradient(135deg,#4C6FE7 0%,#5B8DEF 100%)")
+             "linear-gradient(135deg,#1414A8 0%,#2A2BC4 100%)")
         _big(_k2, "Ganados", _fmt_int(_n_ganados), _fmt_eur(_facturado),
              "linear-gradient(135deg,#12A56B 0%,#2FBF84 100%)")
         _big(_k3, "Conversión lead → ganado", _fmt_pct(_conv_glob),
              "Ganados / leads del período",
-             "linear-gradient(135deg,#E89A18 0%,#F0A93A 100%)")
+             "linear-gradient(135deg,#EAAB12 0%,#F2BE3F 100%)")
         _big(_k4, "% Leads nacional", f"{_pct_nac:.0f}%",
              f"{_pct_lat:.0f}% LATAM · {_pct_row:.0f}% ROW",
-             "linear-gradient(135deg,#1E2A6B 0%,#2E3D8F 100%)")
+             "linear-gradient(135deg,#0A0A6E 0%,#0D0E95 100%)")
         st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
 
         # ── Contactos por fuente | Conversión por mercado ──────────────────────
@@ -3010,13 +3074,13 @@ def main():
         _big(_k2, "% sobre leads válidos",
              _fmt_pct(_n_perd / _n_leads * 100 if _n_leads else 0),
              f"de {_fmt_int(_n_leads)} leads del período",
-             "linear-gradient(135deg,#E89A18 0%,#F0A93A 100%)")
+             "linear-gradient(135deg,#EAAB12 0%,#F2BE3F 100%)")
         _big(_k3, "Facturación perdida", _fmt_eur(_f_perd), "Importe de los deals perdidos",
-             "linear-gradient(135deg,#1E2A6B 0%,#2E3D8F 100%)")
+             "linear-gradient(135deg,#0A0A6E 0%,#0D0E95 100%)")
         _big(_k4, "Motivo principal",
              f"<span style='font-size:19px;line-height:1.25'>{_mot_top}</span>",
              f"{_lost['motivo_cierre'].value_counts().iloc[0]} deals",
-             "linear-gradient(135deg,#4C6FE7 0%,#5B8DEF 100%)")
+             "linear-gradient(135deg,#1414A8 0%,#2A2BC4 100%)")
         st.markdown("<div style='height:18px'></div>", unsafe_allow_html=True)
 
         # Motivos de cierre
@@ -3073,13 +3137,13 @@ def main():
     # ══════════════════════════════════════════════════════════════════════════
     def _render_maestra(_lv, _pipe, _n_leads):
         st.markdown(f"""
-        <div style="background:linear-gradient(135deg,#17203A 0%,#2E3D8F 100%);
+        <div style="background:linear-gradient(135deg,#0A0A6E 0%,#1414A8 100%);
                     border-radius:14px;padding:20px 24px;margin:6px 0 16px;
-                    border-left:5px solid #F0A93A">
+                    border-left:5px solid #EAAB12">
             <div style="color:#fff;font-size:20px;font-weight:800">
                 🔎 Tabla maestra — todo el negocio en una tabla
             </div>
-            <div style="color:#C9D2F2;margin:5px 0 0;font-size:13px">
+            <div style="color:#C8C8F2;margin:5px 0 0;font-size:13px">
                 Inversión → CPL → leads cualificados → entrevista → envío de inscripción →
                 cierre ganado → ROI · y el lado a corregir: ilocalizados, no se presenta,
                 motivos de cierre y cierre perdido
