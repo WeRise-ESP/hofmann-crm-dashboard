@@ -1163,57 +1163,101 @@ def fetch_pipeline(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-# ── Pipeline completo enriquecido con datos de contacto ───────────────────────
+# ── Deals del período enriquecidos con datos de contacto ──────────────────────
+# Criterio de negocio (igual que el informe de referencia):
+#   · Ganados  → deals que ENTRARON en Cierre Ganado dentro del período
+#                (hs_v2_date_entered_closedwon), incluyan leads de meses anteriores
+#   · Perdidos → deals que ENTRARON en Cierre Perdido dentro del período
+#   · Embudo   → deals cuyo CONTACTO se creó en el período (cohorte del período)
+PROP_ENTRO_GANADO  = "hs_v2_date_entered_closedwon"
+PROP_ENTRO_PERDIDO = "hs_v2_date_entered_closedlost"
+
+
 @st.cache_data(ttl=600, show_spinner=False)
 def fetch_pipeline_full(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
-    """Todos los deals del pipeline (cualquier etapa) con fuente/campaña/país/programa del contacto."""
-    filters = [{"propertyName": "pipeline", "operator": "EQ", "value": PIPELINE_ID}]
-    if fecha_inicio != "todos":
-        fi_ts = int(datetime.fromisoformat(fecha_inicio).replace(tzinfo=timezone.utc).timestamp() * 1000)
-        ff_ts = int(datetime.fromisoformat(fecha_fin).replace(tzinfo=timezone.utc).timestamp() * 1000) + 86_400_000 - 1
-        filters += [
-            {"propertyName": "createdate", "operator": "GTE", "value": str(fi_ts)},
-            {"propertyName": "createdate", "operator": "LTE", "value": str(ff_ts)},
+    """Deals del período con fuente/campaña/país/programa del contacto.
+
+    Devuelve un flag por fila:
+      gano_periodo   — entró en Cierre Ganado dentro del período
+      perdio_periodo — entró en Cierre Perdido dentro del período
+      cohorte        — el contacto asociado se creó dentro del período
+    """
+    _DEAL_PROPS = ["dealstage", "amount", "closedate", "createdate",
+                   "motivo_de_cierre_del_negocio", "modalidad",
+                   PROP_ENTRO_GANADO, PROP_ENTRO_PERDIDO]
+
+    def _buscar(filters):
+        res, after = [], None
+        while True:
+            payload = {"filterGroups": [{"filters": filters}],
+                       "properties": _DEAL_PROPS, "limit": 100}
+            if after:
+                payload["after"] = after
+            data = _hs_search("/crm/v3/objects/deals/search", payload)
+            if not data:
+                break
+            res += data.get("results", [])
+            pg = data.get("paging", {})
+            if not pg or "next" not in pg:
+                break
+            after = pg["next"]["after"]
+        return res
+
+    _pipe_f = [{"propertyName": "pipeline", "operator": "EQ", "value": PIPELINE_ID}]
+
+    if fecha_inicio == "todos":
+        grupos = [("cohorte", _pipe_f)]
+    else:
+        fi_ts = int(datetime.fromisoformat(fecha_inicio)
+                    .replace(tzinfo=timezone.utc).timestamp() * 1000)
+        ff_ts = (int(datetime.fromisoformat(fecha_fin)
+                     .replace(tzinfo=timezone.utc).timestamp() * 1000)
+                 + 86_400_000 - 1)
+
+        def _rango(prop):
+            return [{"propertyName": prop, "operator": "GTE", "value": str(fi_ts)},
+                    {"propertyName": prop, "operator": "LTE", "value": str(ff_ts)}]
+
+        grupos = [
+            ("gano",    _pipe_f + [{"propertyName": "dealstage", "operator": "EQ",
+                                    "value": STAGE_GANADO}] + _rango(PROP_ENTRO_GANADO)),
+            ("perdio",  _pipe_f + [{"propertyName": "dealstage", "operator": "EQ",
+                                    "value": STAGE_PERDIDO}] + _rango(PROP_ENTRO_PERDIDO)),
+            ("cohorte", _pipe_f + _rango("createdate")),
         ]
 
-    deal_map, after = {}, None
-    while True:
-        payload = {
-            "filterGroups": [{"filters": filters}],
-            "properties": ["dealstage", "amount", "closedate", "createdate",
-                           "motivo_de_cierre_del_negocio", "modalidad"],
-            "limit": 100,
-        }
-        if after:
-            payload["after"] = after
-        data = _hs_search("/crm/v3/objects/deals/search", payload)
-        if not data:
-            break
-        for d in data.get("results", []):
+    deal_map = {}
+    for flag, filters in grupos:
+        for d in _buscar(filters):
             p = d["properties"]
-            etapa = PIPELINE_STAGES.get(p.get("dealstage", ""), p.get("dealstage", ""))
-            deal_map[d["id"]] = {
-                "etapa":          etapa,
-                "amount":         float(p.get("amount") or 0),
-                "motivo_cierre":  (p.get("motivo_de_cierre_del_negocio") or "Sin especificar").strip(),
-                "modalidad":      (p.get("modalidad") or "Sin modalidad").strip().title(),
+            info = deal_map.setdefault(d["id"], {
+                "etapa":  PIPELINE_STAGES.get(p.get("dealstage", ""),
+                                              p.get("dealstage", "")),
+                "amount": float(p.get("amount") or 0),
+                "motivo_cierre": (p.get("motivo_de_cierre_del_negocio")
+                                  or "Sin especificar").strip(),
+                "modalidad": (p.get("modalidad") or "Sin modalidad").strip().title(),
                 "fecha_cierre":   (p.get("closedate") or "")[:10],
                 "fecha_creacion": (p.get("createdate") or "")[:10],
-            }
-        pg = data.get("paging", {})
-        if not pg or "next" not in pg:
-            break
-        after = pg["next"]["after"]
+                "gano_periodo": False, "perdio_periodo": False, "deal_cohorte": False,
+            })
+            if flag == "gano":
+                info["gano_periodo"] = True
+            elif flag == "perdio":
+                info["perdio_periodo"] = True
+            else:
+                info["deal_cohorte"] = True
 
     if not deal_map:
         return pd.DataFrame()
 
+    # ── Asociación deal → contacto ────────────────────────────────────────────
     deal_ids = list(deal_map)
     deal_to_contact = {}
     for i in range(0, len(deal_ids), 100):
         r = requests.post(f"{BASE}/crm/v4/associations/deals/contacts/batch/read",
                           headers=HEADERS,
-                          json={"inputs": [{"id": d} for d in deal_ids[i:i+100]]},
+                          json={"inputs": [{"id": d} for d in deal_ids[i:i + 100]]},
                           timeout=30)
         if r.status_code == 200:
             for item in r.json().get("results", []):
@@ -1222,39 +1266,67 @@ def fetch_pipeline_full(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
                 if did and tos:
                     deal_to_contact[did] = str(tos[0].get("toObjectId", ""))
 
+    # ── Propiedades del contacto ──────────────────────────────────────────────
     contact_ids = list(set(deal_to_contact.values()))
     contact_data = {}
     for i in range(0, len(contact_ids), 100):
         r = requests.post(f"{BASE}/crm/v3/objects/contacts/batch/read",
                           headers=HEADERS,
-                          json={"inputs": [{"id": c} for c in contact_ids[i:i+100]],
-                                "properties": ["email", "hs_latest_source",
-                                               "hs_latest_source_data_1", "hs_latest_source_data_2",
-                                               "hs_analytics_source", "hs_analytics_source_data_1",
-                                               "ip_country", "pais_de_residencia", "country",
-                                               "curso", "modalidad_curso"]},
+                          json={"inputs": [{"id": c} for c in contact_ids[i:i + 100]],
+                                "properties": ["email", "createdate", "lead_valido",
+                                               "curso", "categoria_lead",
+                                               "hs_object_source",
+                                               "first_conversion_event_name",
+                                               "hs_latest_source",
+                                               "hs_latest_source_data_1",
+                                               "hs_latest_source_data_2",
+                                               "hs_analytics_source",
+                                               "hs_analytics_source_data_1",
+                                               "ip_country", "pais_de_residencia",
+                                               "country", "billing_country",
+                                               "pais_de_la_ip_capabilia",
+                                               "modalidad_curso"]},
                           timeout=30)
         if r.status_code == 200:
             for c in r.json().get("results", []):
                 p = c["properties"]
                 fuente, _ = resolve_fuente(p)
+                _camp = ((p.get("hs_latest_source_data_1") or "").strip()
+                         or (p.get("hs_analytics_source_data_1") or "").strip()
+                         or "Sin campaña")
                 contact_data[c["id"]] = {
                     "fuente":   fuente,
-                    "campaña":  (p.get("hs_latest_source_data_1") or "Sin campaña").strip() or "Sin campaña",
+                    "campaña":  _camp,
                     "pais":     resolve_pais(p),
                     "programa": CURSO_LABELS.get(p.get("curso") or "",
-                                    (p.get("curso") or "Sin programa").strip()) or "Sin programa",
+                                    (p.get("curso") or "Sin programa").strip())
+                                or "Sin programa",
                     "email":    (p.get("email") or "").lower().strip(),
+                    "cont_creado":  (p.get("createdate") or "")[:10],
+                    "cont_valido":  (p.get("lead_valido") or "Sin datos").strip(),
+                    "cont_curso":   bool((p.get("curso") or "").strip()),
+                    "cont_categoria": _resolve_categoria(p),
                 }
+
+    _VACIO = {"fuente": "Sin datos", "campaña": "Sin campaña", "pais": "Sin datos",
+              "programa": "Sin programa", "email": "", "cont_creado": "",
+              "cont_valido": "Sin datos", "cont_curso": False,
+              "cont_categoria": "Sin categoría"}
 
     rows = []
     for did, info in deal_map.items():
-        cnt = contact_data.get(deal_to_contact.get(did, ""),
-                               {"fuente": "Sin datos", "campaña": "Sin campaña",
-                                "pais": "Sin datos", "programa": "Sin programa", "email": ""})
+        cnt = contact_data.get(deal_to_contact.get(did, ""), _VACIO)
         rows.append({**info, "deal_id": did, **cnt})
 
-    return pd.DataFrame(rows)
+    dfp = pd.DataFrame(rows)
+
+    # cohorte = el CONTACTO se creó dentro del período (no el deal)
+    if fecha_inicio == "todos":
+        dfp["cohorte"] = True
+    else:
+        dfp["cohorte"] = ((dfp["cont_creado"] >= fecha_inicio) &
+                          (dfp["cont_creado"] <= fecha_fin))
+    return dfp
 
 
 # ── Conector Google Ads ───────────────────────────────────────────────────────
@@ -2650,8 +2722,9 @@ def main():
                          font-weight:700;padding:4px 12px;border-radius:20px">{periodo_txt}</span>
         </div>
         <div style="color:{_RF['muted']};font-size:13.5px;margin:0 0 16px;max-width:1150px">
-            Leads válidos con curso informado (creados en el período) + cruce con negocios
-            (Cierre Ganado / Cierre Perdido) · conversión por mercado, país y curso ·
+            Leads <b>válidos</b> con curso informado creados en el período —sin Webinar ni
+            Open Day— cruzados con los negocios que <b>entraron</b> en Cierre Ganado /
+            Cierre Perdido dentro del período · conversión por mercado, país y curso ·
             ROI/ROAS por modalidad — Fuente: HubSpot + Google&nbsp;Ads + Meta + LinkedIn + TikTok
         </div>
         """, unsafe_allow_html=True)
@@ -2688,7 +2761,18 @@ def main():
             if not _pipe.empty:
                 _pipe = _pipe[_pipe["modalidad"].str.contains(_mod_filter, case=False, na=False)]
 
-        _lv = _leads[_leads["lead_valido"] != "No válido"] if not _leads.empty else _leads
+        # ── Leads cualificados del análisis ───────────────────────────────────
+        #   · lead_valido == "Válido"  (no basta con "≠ No válido")
+        #   · curso informado
+        #   · fuera Webinar y Open Day (no son leads comerciales del embudo RST)
+        _lv = _leads
+        if not _lv.empty:
+            _lv = _lv[_lv["lead_valido"] == "Válido"]
+            _lv = _lv[_lv["programa"].fillna("").str.strip().ne("")
+                      & _lv["programa"].ne("Sin programa")]
+            _lv = _lv[~_lv["categoria"].fillna("").str.lower()
+                       .str.contains("webinar|open day|openday", regex=True)]
+
         if _lv.empty and _pipe.empty:
             st.info("No hay datos para el período y filtros seleccionados.")
             return
@@ -2699,9 +2783,25 @@ def main():
         if not _pipe.empty:
             _pipe = _pipe.copy()
             _pipe["mercado_lbl"] = _pipe["pais"].apply(_merc_of_pais)
+            # Mismo criterio de exclusión en los negocios
+            _pipe = _pipe[~_pipe["cont_categoria"].fillna("").str.lower()
+                           .str.contains("webinar|open day|openday", regex=True)]
 
-        _won  = _pipe[_pipe["etapa"].isin(_GANADO_ET)] if not _pipe.empty else pd.DataFrame()
-        _lost = _pipe[_pipe["etapa"] == "Cierre Perdido"] if not _pipe.empty else pd.DataFrame()
+        # Ganados / perdidos = deals que ENTRARON en la etapa dentro del período
+        # (incluyen leads captados en meses anteriores → visión de caja del período)
+        _won = (_pipe[_pipe["gano_periodo"]] if "gano_periodo" in _pipe.columns
+                else _pipe[_pipe["etapa"].isin(_GANADO_ET)]) \
+               if not _pipe.empty else pd.DataFrame()
+        # Perdidos: además el contacto se creó en el período (igual que la referencia)
+        if not _pipe.empty and "perdio_periodo" in _pipe.columns:
+            _lost = _pipe[_pipe["perdio_periodo"] & _pipe["cohorte"]]
+        elif not _pipe.empty:
+            _lost = _pipe[_pipe["etapa"] == "Cierre Perdido"]
+        else:
+            _lost = pd.DataFrame()
+        # Embudo intermedio: deals de la cohorte de leads del período
+        _cohorte = (_pipe[_pipe["cohorte"]] if "cohorte" in _pipe.columns
+                    else _pipe) if not _pipe.empty else pd.DataFrame()
 
         _n_leads   = len(_lv)
         _n_ganados = _won["deal_id"].nunique()    if not _won.empty else 0
@@ -3023,7 +3123,7 @@ def main():
                 f"aproximación de caja, no de cohorte.</div>", unsafe_allow_html=True)
 
         # ── Tabla maestra ─────────────────────────────────────────────────────
-        _render_maestra(_lv, _pipe, _n_leads)
+        _render_maestra(_lv, _cohorte, _won, _n_leads)
 
         # ── Footer de fuentes ─────────────────────────────────────────────────
         _cd_ = lambda t: (f"<code style='background:{_RF['line']};color:{_RF['ink_soft']};"
@@ -3037,10 +3137,16 @@ def main():
             f"<div style='font-size:11.5px;color:{_RF['muted']};line-height:1.9;"
             f"margin-top:6px'>"
             f"<b style='color:{_RF['ink_soft']}'>Fuentes:</b> {' · '.join(_canales)} · "
-            f"Período: {periodo_txt} · Filtros de contactos: fecha de creación en el período, "
-            f"{_cd_('lead_valido ≠ &quot;No válido&quot;')} · "
-            f"Ganados: deals en {_cd_('Cierre Ganado')} (incluye leads de meses anteriores) · "
-            f"Perdidos: deals en {_cd_('Cierre Perdido')} · "
+            f"Período: {periodo_txt} · <b style='color:{_RF['ink_soft']}'>Leads:</b> "
+            f"creados en el período con {_cd_('lead_valido = &quot;Válido&quot;')} y "
+            f"{_cd_('curso')} informado, excluyendo Webinar y Open&nbsp;Day · "
+            f"<b style='color:{_RF['ink_soft']}'>Ganados:</b> deals que entraron en "
+            f"{_cd_('Cierre Ganado')} dentro del período según "
+            f"{_cd_('hs_v2_date_entered_closedwon')} — incluyen leads de meses anteriores, "
+            f"por eso es una visión de caja y no de cohorte · "
+            f"<b style='color:{_RF['ink_soft']}'>Perdidos:</b> deals que entraron en "
+            f"{_cd_('Cierre Perdido')} en el período y cuyo contacto se creó en el período · "
+            f"Etapas intermedias del embudo: deals de la cohorte de leads del período · "
             f"Modalidad según {_cd_('modalidad_curso')} del contacto · "
             f"Importes en moneda de la cuenta (EUR) · "
             f"Inversión publicitaria vía API de cada plataforma, agregada por nombre de campaña."
@@ -3135,7 +3241,7 @@ def main():
     # ══════════════════════════════════════════════════════════════════════════
     # TABLA MAESTRA — embudo completo con selector multidimensional cruzado
     # ══════════════════════════════════════════════════════════════════════════
-    def _render_maestra(_lv, _pipe, _n_leads):
+    def _render_maestra(_lv, _pipe, _won_periodo, _n_leads):
         st.markdown(f"""
         <div style="background:linear-gradient(135deg,#0A0A6E 0%,#1414A8 100%);
                     border-radius:14px;padding:20px 24px;margin:6px 0 16px;
@@ -3155,6 +3261,7 @@ def main():
 
         _ml = _lv.copy()
         _mp = _pipe.copy()
+        _mw = _won_periodo.copy()
         if not _ml.empty:
             _ml["campaña"] = (_ml["fuente_reciente_d1"].replace("", pd.NA)
                               .fillna(_ml["fuente_original_d1"].replace("", pd.NA))
@@ -3187,6 +3294,8 @@ def main():
                         _ml = _ml[_ml[_c].astype(str) == _v]
                     if not _mp.empty and _c in _mp.columns:
                         _mp = _mp[_mp[_c].astype(str) == _v]
+                    if not _mw.empty and _c in _mw.columns:
+                        _mw = _mw[_mw[_c].astype(str) == _v]
 
         # Inversión automática desde las APIs de Ads
         _spend: dict = {}
@@ -3223,7 +3332,7 @@ def main():
             if frame.empty or not all(c in frame.columns for c in _gcols):
                 return set()
             return set(map(tuple, frame[_gcols].astype(str).values))
-        _all_keys = sorted(_keys(_ml) | _keys(_mp))
+        _all_keys = sorted(_keys(_ml) | _keys(_mp) | _keys(_mw))
         if not _all_keys:
             st.info("No hay datos para los filtros seleccionados.")
             return
@@ -3239,14 +3348,18 @@ def main():
         _rows, _data = [], []
         for _key in _all_keys:
             _sl, _sp = _mask(_ml, _key), _mask(_mp, _key)
+            _sw = _mask(_mw, _key)          # ganados que entraron en el período
             _cual = len(_sl)
             _cnt = lambda k: (_sp[_sp["etapa"].isin(_ET[k])]["deal_id"].nunique()
                               if not _sp.empty else 0)
             _amt = lambda k: (float(_sp[_sp["etapa"].isin(_ET[k])]["amount"].sum())
                               if not _sp.empty else 0.0)
-            _entr, _env, _gan = _cnt("entrevista"), _cnt("envio"), _cnt("ganado")
+            _entr, _env       = _cnt("entrevista"), _cnt("envio")
             _il, _np_, _perd  = _cnt("iloc"), _cnt("nopres"), _cnt("perdido")
-            _fact, _pend, _fperd = _amt("ganado"), _amt("envio"), _amt("perdido")
+            _pend, _fperd     = _amt("envio"), _amt("perdido")
+            # Ganados y facturado: visión de caja del período (cualquier cohorte)
+            _gan  = _sw["deal_id"].nunique()   if not _sw.empty else 0
+            _fact = float(_sw["amount"].sum()) if not _sw.empty else 0.0
 
             _sk = _key[0] if len(_key) == 1 else " | ".join(_key)
             _inv = st.session_state[_inv_key].get(_sk, _spend.get(_sk, 0.0))
