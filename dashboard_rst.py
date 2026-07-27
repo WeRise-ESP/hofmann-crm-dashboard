@@ -20,6 +20,7 @@ import json
 import re
 import unicodedata
 from difflib import SequenceMatcher
+from urllib.parse import unquote_plus
 
 load_dotenv()
 
@@ -1648,7 +1649,8 @@ def get_google_ads_data(start: str, end: str) -> pd.DataFrame:
         client     = GoogleAdsClient.load_from_dict(cfg)
         ga_service = client.get_service("GoogleAdsService")
         query = f"""
-            SELECT campaign.name, metrics.cost_micros, metrics.conversions,
+            SELECT campaign.name, campaign.tracking_url_template,
+                   metrics.cost_micros, metrics.conversions,
                    metrics.clicks, metrics.impressions
             FROM campaign
             WHERE segments.date BETWEEN '{start}' AND '{end}'
@@ -1656,56 +1658,100 @@ def get_google_ads_data(start: str, end: str) -> pd.DataFrame:
               AND metrics.cost_micros > 0
         """
         cid = GA_CUSTOMER_ID.replace("-", "")
+
+        def _utm(tpl):
+            """utm_campaign que declara una plantilla de seguimiento."""
+            m = re.search(r"utm_campaign=([^&]+)", tpl or "")
+            return unquote_plus(m.group(1)).strip() if m else ""
+
+        # ── Nivel campaña ─────────────────────────────────────────────────────
         camp = {}
         for batch in ga_service.search_stream(customer_id=cid, query=query):
             for row in batch.results:
-                a = camp.setdefault(row.campaign.name, [0.0, 0.0, 0])
+                a = camp.setdefault(row.campaign.name,
+                                    [0.0, 0.0, 0, _utm(row.campaign.tracking_url_template)])
                 a[0] += row.metrics.cost_micros / 1_000_000
                 a[1] += row.metrics.conversions
                 a[2] += row.metrics.clicks
 
-        # Una campaña PMax puede tener varios grupos de recursos apuntando a
-        # programas distintos, cada uno con su propia landing y su utm_campaign
-        # (p. ej. "Cursos de Pastelería" contiene Intensivo y Avanzada). En ese
-        # caso el gasto se desglosa por grupo, porque es el nivel al que existen
-        # las UTM; si la campaña tiene un solo grupo se deja tal cual.
+        # ── Grupos de anuncios con plantilla propia ───────────────────────────
+        # Cuando un grupo declara su propio utm_campaign, es él —y no la campaña—
+        # quien aparece en el CRM: "Search - Máster Dirección - Nac" agrupa la
+        # versión presencial y la online, cada una con su UTM y su landing.
         q_ag = f"""
+            SELECT campaign.name, ad_group.name, ad_group.tracking_url_template,
+                   metrics.cost_micros, metrics.conversions, metrics.clicks
+            FROM ad_group
+            WHERE segments.date BETWEEN '{start}' AND '{end}'
+              AND metrics.cost_micros > 0
+        """
+        adg = {}
+        try:
+            for batch in ga_service.search_stream(customer_id=cid, query=q_ag):
+                for row in batch.results:
+                    u = _utm(row.ad_group.tracking_url_template)
+                    if not u:
+                        continue                      # hereda la de la campaña
+                    k = (row.campaign.name, row.ad_group.name)
+                    a = adg.setdefault(k, [0.0, 0.0, 0, u])
+                    a[0] += row.metrics.cost_micros / 1_000_000
+                    a[1] += row.metrics.conversions
+                    a[2] += row.metrics.clicks
+        except Exception:
+            adg = {}
+
+        # ── Grupos de recursos de PMax ────────────────────────────────────────
+        # No tienen plantilla propia: la UTM viene de la landing de cada grupo,
+        # así que se desglosa cuando la campaña tiene más de uno con gasto.
+        q_asg = f"""
             SELECT campaign.name, asset_group.name, metrics.cost_micros,
                    metrics.conversions, metrics.clicks
             FROM asset_group
             WHERE segments.date BETWEEN '{start}' AND '{end}'
               AND metrics.cost_micros > 0
         """
-        grupos = {}
+        asg = {}
         try:
-            for batch in ga_service.search_stream(customer_id=cid, query=q_ag):
+            for batch in ga_service.search_stream(customer_id=cid, query=q_asg):
                 for row in batch.results:
                     k = (row.campaign.name, row.asset_group.name)
-                    a = grupos.setdefault(k, [0.0, 0.0, 0])
+                    a = asg.setdefault(k, [0.0, 0.0, 0])
                     a[0] += row.metrics.cost_micros / 1_000_000
                     a[1] += row.metrics.conversions
                     a[2] += row.metrics.clicks
         except Exception:
-            grupos = {}          # sin permisos o sin PMax: se sigue por campaña
+            asg = {}
 
-        _n_grupos = {}
-        for (c, _g) in grupos:
-            _n_grupos[c] = _n_grupos.get(c, 0) + 1
-        _multi = {c for c, n in _n_grupos.items() if n > 1}
+        _n_asg = {}
+        for (c, _g) in asg:
+            _n_asg[c] = _n_asg.get(c, 0) + 1
+        _pmax_multi = {c for c, n in _n_asg.items() if n > 1}
 
         rows = []
-        for c, (g, cv, k) in camp.items():
-            if c in _multi:
-                continue        # se sustituye por sus grupos de recursos
-            rows.append({"campaña": c, "gasto": g, "conversiones": cv,
-                         "clics": k, "plataforma": "Google Ads"})
-        for (c, gr), (g, cv, k) in grupos.items():
-            if c not in _multi:
+
+        def _fila(nombre, v, utm):
+            rows.append({"campaña": nombre, "gasto": v[0], "conversiones": v[1],
+                         "clics": v[2], "utm_declarada": utm,
+                         "plataforma": "Google Ads"})
+
+        # Grupos de anuncios con UTM propia
+        _gastado = {}
+        for (c, g), v in adg.items():
+            _fila(f"{c} › {g}", v, v[3])
+            _gastado[c] = _gastado.get(c, 0.0) + v[0]
+        # Grupos de recursos de las PMax con varios
+        for (c, g), v in asg.items():
+            if c in _pmax_multi:
+                _fila(f"{c} › {g}", v, "")
+        # Resto de campañas, con el gasto que no se haya desglosado ya
+        for c, v in camp.items():
+            if c in _pmax_multi:
                 continue
-            # El nombre conserva la campaña —para no perder el token de mercado—
-            # y añade el grupo, que es lo que se parece a la utm_campaign.
-            rows.append({"campaña": f"{c} › {gr}", "gasto": g, "conversiones": cv,
-                         "clics": k, "plataforma": "Google Ads"})
+            resto = v[0] - _gastado.get(c, 0.0)
+            if resto <= 0.01:
+                continue
+            _fila(c, [resto, v[1], v[2]], v[3])
+
         if not rows:
             return pd.DataFrame()
         return pd.DataFrame(rows)
@@ -2828,6 +2874,8 @@ def main():
         d["mercado_camp"]   = d["campaña"].apply(clasificar_mercado_camp)
         d["modalidad_camp"] = d["campaña"].apply(clasificar_modalidad_camp)
         d["clave_camp"]     = d["campaña"].apply(clave_campana)
+        if "utm_declarada" not in d.columns:
+            d["utm_declarada"] = ""
         return d
 
     df_google   = _enriquecer_ads(df_google)
@@ -3905,6 +3953,17 @@ def main():
                             out[str(_c)] = out.get(str(_c), 0.0) + float(_g)
                 return out
 
+            # Google declara su utm_campaign en la plantilla de seguimiento, así
+            # que ahí no hace falta adivinar por parecido: se casa exacto.
+            _utm_decl = {}
+            for _d in (df_google, df_meta, df_linkedin, df_tiktok):
+                if _d.empty or "utm_declarada" not in _d.columns:
+                    continue
+                for _u, _c in zip(_d["utm_declarada"], _d["campaña"]):
+                    _u = str(_u or "").strip().lower()
+                    if _u:
+                        _utm_decl.setdefault(_u, str(_c))
+
             # Un conjunto de candidatos por plataforma. Mezclarlas provoca empates:
             # "Webinar_Julio26_Vinos" existe en Meta y "Webinar_vinos_julio2026" en
             # TikTok, y ambas competían por la misma utm_campaign.
@@ -3944,8 +4003,11 @@ def main():
             for _c in sorted({k[_idx] for k in _all_keys}):
                 _ps = _plats_camp.get(_c) or list(_pools)
                 _hechas = []
+                # 1º por la utm_campaign que declara la propia plataforma
+                _exacta = _utm_decl.get(str(_c).strip().lower())
                 for _p in _ps:
-                    _m = emparejar_campana(_c, list(_pools.get(_p, {})))
+                    _m = (_exacta if _exacta in _pools.get(_p, {})
+                          else emparejar_campana(_c, list(_pools.get(_p, {}))))
                     if _m:
                         _map_camp[(_c, _p)] = _m
                         _hechas.append((_p, _m))
