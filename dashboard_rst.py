@@ -5855,8 +5855,8 @@ def main():
             unsafe_allow_html=True,
         )
 
-        df_prog = df if not df.empty else pd.DataFrame(columns=df.columns)
-        df_prog_sin = df_prog[df_prog["programa"] != "Sin programa"]
+        df_lead_prog = df if not df.empty else pd.DataFrame(columns=df.columns)
+        df_prog_sin = df_lead_prog[df_lead_prog["programa"] != "Sin programa"]
 
         # ── Filtro local de modalidad ──────────────────────────────────────────────
         _modal_opts = ["Todas las modalidades", "Presencial", "Online", "Sin modalidad"]
@@ -5868,8 +5868,8 @@ def main():
             key="prog_modal_filter",
         )
         if _modal_sel != "Todas las modalidades":
-            df_prog     = df_prog[df_prog["modalidad"] == _modal_sel]
-            df_prog_sin = df_prog_sin[df_prog_sin["modalidad"] == _modal_sel]
+            df_lead_prog = df_lead_prog[df_lead_prog["modalidad"] == _modal_sel]
+            df_prog_sin  = df_prog_sin[df_prog_sin["modalidad"] == _modal_sel]
 
         prog_tab1, prog_tab2, prog_tab3, prog_tab4 = st.tabs([
             "📊 Leads por Programa",
