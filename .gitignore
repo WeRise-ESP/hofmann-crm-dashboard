@@ -27,3 +27,6 @@ docx_gen/
 .devcontainer/
 # Repo anidado del dashboard de Ads (tiene su propio git)
 Dashboard/
+
+# Entregables del Forecast 2027 — NO son parte del dashboard (viven solo en local)
+FC2027/
