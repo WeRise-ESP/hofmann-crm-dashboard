@@ -30,3 +30,10 @@ Dashboard/
 
 # Entregables del Forecast 2027 — NO son parte del dashboard (viven solo en local)
 FC2027/
+
+# Entorno virtual local (cualquiera de los dos nombres)
+.venv/
+
+# Credenciales: TODAS las variantes (copias, .bak, .local...)
+.streamlit/secrets*
+!.streamlit/secrets.toml.example
