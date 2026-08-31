@@ -211,7 +211,7 @@ LOGO_URL = ("https://www.hofmann-bcn.com/wp-content/uploads/2026/02/"
             "logo-hofmann-292x148-1WEBP2.webp")
 
 
-@st.cache_data(ttl=86_400, show_spinner=False)
+@st.cache_data(ttl=86_400, max_entries=6, show_spinner=False)
 def _logo_src() -> str:
     """data-URI del logo local; si no está, cae al URL remoto."""
     import base64
@@ -1070,7 +1070,7 @@ def _resolve_categoria(cp: dict) -> str:
     return "Sin categoría"
 
 
-@st.cache_data(ttl=86_400, show_spinner=False)
+@st.cache_data(ttl=86_400, max_entries=6, show_spinner=False)
 def fetch_usuarios() -> dict:
     """{id de usuario: nombre}. Sirve para etiquetar las altas manuales."""
     try:
@@ -1105,7 +1105,7 @@ def etiqueta_campana(campana: str, data2: str, usuarios: dict) -> str:
 
 # ── Fetching de contactos (con caché) ─────────────────────────────────────────
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, max_entries=6, show_spinner=False)
 def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
     test = _hs_get(f"{BASE}/crm/v3/objects/contacts?limit=1", headers=HEADERS)
     if test.status_code == 401:
@@ -1220,7 +1220,7 @@ def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
     return df
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, max_entries=6, show_spinner=False)
 def fetch_matriculados_total(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
     """
     Contactos Matriculados (Cierre ganado) del equipo RST.
@@ -1363,7 +1363,7 @@ MOTIVOS_CIERRE_ORDEN = [
 ]
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, max_entries=6, show_spinner=False)
 def fetch_negocios_cerrados(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
     """
     Deals cerrados (ganado + perdido) del pipeline RST en el período indicado.
@@ -1491,7 +1491,7 @@ def fetch_negocios_cerrados(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, max_entries=6, show_spinner=False)
 def fetch_pipeline(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
     """Deals del pipeline vivos en algún momento del período indicado.
 
@@ -1579,7 +1579,7 @@ PROP_ENTRO_GANADO  = "hs_v2_date_entered_closedwon"
 PROP_ENTRO_PERDIDO = "hs_v2_date_entered_closedlost"
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, max_entries=6, show_spinner=False)
 def fetch_pipeline_full(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
     """Deals del período con fuente/campaña/país/programa del contacto.
 
@@ -1741,7 +1741,7 @@ def fetch_pipeline_full(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
 
 
 # ── Conector Google Ads ───────────────────────────────────────────────────────
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=3600, max_entries=6, show_spinner=False)
 def get_google_ads_data(start: str, end: str) -> pd.DataFrame:
     if not GA_AVAILABLE:
         return pd.DataFrame()
@@ -1870,7 +1870,7 @@ def get_google_ads_data(start: str, end: str) -> pd.DataFrame:
 
 
 # ── Conector Meta Ads ─────────────────────────────────────────────────────────
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=3600, max_entries=6, show_spinner=False)
 def get_meta_ads_data(start: str, end: str) -> pd.DataFrame:
     if not META_AVAILABLE:
         return pd.DataFrame()
@@ -1919,7 +1919,7 @@ def get_meta_ads_data(start: str, end: str) -> pd.DataFrame:
 
 
 # ── Conector LinkedIn Ads vía Google Sheets ───────────────────────────────────
-@st.cache_data(ttl=1800, show_spinner=False)
+@st.cache_data(ttl=1800, max_entries=6, show_spinner=False)
 def get_linkedin_sheets_data(start: str, end: str) -> pd.DataFrame:
     if not LINKEDIN_AVAILABLE:
         return pd.DataFrame()
@@ -1965,7 +1965,7 @@ def get_linkedin_sheets_data(start: str, end: str) -> pd.DataFrame:
 
 
 # ── Conector TikTok Ads ───────────────────────────────────────────────────────
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=3600, max_entries=6, show_spinner=False)
 def get_tiktok_ads_data(start: str, end: str) -> pd.DataFrame:
     if not TIKTOK_AVAILABLE:
         return pd.DataFrame()
@@ -2018,7 +2018,7 @@ def get_tiktok_ads_data(start: str, end: str) -> pd.DataFrame:
 
 # ── Email Marketing fetch ─────────────────────────────────────────────────────
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, max_entries=6, show_spinner=False)
 def _fetch_list_names(list_ids_tuple: tuple) -> dict:
     def _get(lid):
         try:
@@ -2065,7 +2065,7 @@ def _email_list_ids(e):
     return result
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, max_entries=6, show_spinner=False)
 def fetch_emails_enviados(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
     raw = []
     params: dict = {"state": "PUBLISHED", "limit": 100, "orderBy": "-publishDate"}
@@ -2175,7 +2175,7 @@ def fetch_emails_enviados(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values("fecha", ascending=False) if rows else pd.DataFrame()
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, max_entries=6, show_spinner=False)
 def fetch_emails_programados() -> pd.DataFrame:
     raw = []
     params: dict = {"state": "SCHEDULED", "limit": 100, "orderBy": "publishDate"}
@@ -2261,7 +2261,7 @@ def fetch_emails_programados() -> pd.DataFrame:
     return df_p
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, max_entries=6, show_spinner=False)
 def fetch_click_urls(campaign_id: str) -> list:
     """Returns [(url, clicks)] sorted desc for a campaign."""
     events: list = []
@@ -2288,7 +2288,7 @@ def fetch_click_urls(campaign_id: str) -> list:
     return sorted(url_counts.items(), key=lambda x: x[1], reverse=True)[:15]
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, max_entries=6, show_spinner=False)
 def fetch_all_lists() -> pd.DataFrame:
     lists: list = []
     offset = 0
@@ -2321,7 +2321,7 @@ def fetch_all_lists() -> pd.DataFrame:
     return pd.DataFrame(lists) if lists else pd.DataFrame()
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, max_entries=6, show_spinner=False)
 def fetch_workflows() -> pd.DataFrame:
     import json as _json
 
@@ -2470,7 +2470,7 @@ def fetch_workflows() -> pd.DataFrame:
     return pd.DataFrame(rows) if rows else pd.DataFrame()
 
 
-@st.cache_data(ttl=600, show_spinner=False)
+@st.cache_data(ttl=600, max_entries=6, show_spinner=False)
 def fetch_sequences() -> pd.DataFrame:
     r = _hs_get(f"{BASE}/settings/v3/users", headers=HEADERS, timeout=15)
     if r.status_code != 200:
