@@ -1,7 +1,8 @@
 """
-Dashboard RST — Hofmann
+Dashboard CRM — Hofmann
 Análisis de calidad de leads por fuente, país y estado.
-Fuente de datos: formularios FORM_HighTicket_CA / EN / ES.
+Fuente de datos: API de HubSpot del portal Hofmann (143302790) — contactos,
+negocios y email marketing.
 """
 import streamlit as st
 import streamlit.components.v1 as components
@@ -684,6 +685,26 @@ def es_campana_no_captacion(nombre: str) -> bool:
     return bool(_RE_CAMP_WEBINAR.search(u) or _RE_CAMP_SIN_LEADS.search(u))
 
 
+def mask_leads_evento(frame: "pd.DataFrame") -> "pd.Series":
+    """True en los registros de eventos (webinar / open day / sesión informativa),
+    detectados por la categoría del contacto, el formulario de conversión o la
+    campaña de origen. Un Cierre Ganado nunca se marca: la matrícula manda sobre
+    el origen, para no perder de vista negocios cerrados.
+    """
+    if frame.empty:
+        return pd.Series(False, index=frame.index, dtype=bool)
+
+    def _hit(col):
+        if col not in frame.columns:
+            return pd.Series(False, index=frame.index, dtype=bool)
+        return frame[col].fillna("").astype(str).apply(es_campana_webinar)
+
+    m = _hit("categoria") | _hit("form_conv") | _hit("campana") | _hit("campana_reciente")
+    if "lead_status" in frame.columns:
+        m &= frame["lead_status"].ne("Cierre Ganado")
+    return m
+
+
 def clasificar_modalidad_camp(nombre: str) -> str:
     """Online si el nombre contiene 'Online'; el resto es Presencial."""
     if not (nombre or "").strip():
@@ -1190,6 +1211,9 @@ def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
                                ) or "Sin programa",
                 "mercado":     resolve_mercado(resolve_pais(cp)),
                 "categoria":   _resolve_categoria(cp),
+                # Formulario de la primera conversión: permite excluir eventos
+                # (open day / webinar) aunque categoria_lead diga otra cosa.
+                "form_conv":   (cp.get("first_conversion_event_name") or "").strip(),
             })
 
         pg = data.get("paging", {})
@@ -1202,7 +1226,7 @@ def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
              "fuente_reciente", "fuente_reciente_d1", "fuente_reciente_d2",
              "fuente_original", "fuente_original_d1", "fuente_original_d2",
              "campana", "campana_reciente", "tipo_medio", "red_social",
-             "modalidad", "programa", "mercado", "categoria"]
+             "modalidad", "programa", "mercado", "categoria", "form_conv"]
     df = pd.DataFrame(rows, columns=_COLS) if rows else pd.DataFrame(columns=_COLS)
     # Derive calidad from lead_valido + lead_status for program analysis
     def _calidad(row):
@@ -3114,6 +3138,13 @@ def main():
     df               = _apply(df)
     df_mat           = _apply(df_mat)
     df_deals_periodo = _apply(df_deals_periodo)
+
+    # Los registros de eventos (webinar / open day / sesión informativa) no son
+    # leads comerciales: fuera de todos los recuentos, en todas las páginas.
+    # Se detectan por categoría, formulario de conversión o campaña de origen;
+    # un Cierre Ganado se queda aunque venga de un evento (la matrícula manda).
+    if not df.empty:
+        df = df[~mask_leads_evento(df)]
 
     # Aplicar filtro de modalidad de negocio al pipeline
     if filtro_modalidad_negocio and not df_pipeline_periodo.empty:
@@ -7121,7 +7152,7 @@ def main():
     # ── Footer ──────────────────────────────────────────────────────────────────
     st.markdown(
         f"<br><div style='text-align:center;color:{BARCA['ink40']};font-size:12px'>"
-        f"{ACCOUNT_NAME} · Formularios HighTicket RST · Datos actualizados automáticamente cada 5 min</div>",
+        f"{ACCOUNT_NAME} · CRM HubSpot Hofmann · Datos actualizados automáticamente cada 5 min</div>",
         unsafe_allow_html=True
     )
 
