@@ -7386,6 +7386,9 @@ def main():
                    "anteriores, no del gasto de Ads de este período (atribución no directa). "
                    "Para el ROI con emparejamiento por plataforma, usa la página «Contactos, "
                    "Conversión & ROI».")
+        st.caption("**Leads** = contactos nuevos creados ese día (por su fuente de "
+                   "tráfico) · **Matrículas** = cierres ganados / deals · "
+                   "**Facturación** = importe de esos cierres ganados.")
 
         def _mini(fig, legend=False):
             fig.update_layout(height=280, margin=dict(l=0, r=0, t=8, b=0),
@@ -7580,7 +7583,16 @@ def main():
             _tot["Total"]       = int(tab["Total"].sum())
             _tot["Matrículas"]  = int(tab["Matriculas"].sum())
             _tot["Facturación"] = _e0(tab["Facturacion"].sum())
-            return pd.concat([disp, pd.DataFrame([_tot])], ignore_index=True)
+            _out = pd.concat([disp, pd.DataFrame([_tot])], ignore_index=True)
+            # cabeceras agrupadas: LEADS · MATRÍCULAS · FACTURACIÓN
+            _out.columns = pd.MultiIndex.from_tuples(
+                [("", "Día")]
+                + [("LEADS (contactos)", c) for c in _cols]
+                + [("LEADS (contactos)", "TOTAL"),
+                   ("MATRÍCULAS (cierres)", "Nº"),
+                   ("FACTURACIÓN", "€")]
+            )
+            return _out
 
         _t_pres, _t_onl = st.tabs(["🏫 Presencial", "🌐 Online"])
         with _t_pres:
