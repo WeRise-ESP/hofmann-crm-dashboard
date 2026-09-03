@@ -7587,9 +7587,9 @@ def main():
             # cabeceras agrupadas: LEADS · MATRÍCULAS · FACTURACIÓN
             _out.columns = pd.MultiIndex.from_tuples(
                 [("", "Día")]
-                + [("LEADS (contactos)", c) for c in _cols]
-                + [("LEADS (contactos)", "TOTAL"),
-                   ("MATRÍCULAS (cierres)", "Nº"),
+                + [("LEADS", c) for c in _cols]
+                + [("LEADS", "TOTAL"),
+                   ("MATRÍCULAS", "Nº"),
                    ("FACTURACIÓN", "€")]
             )
             return _out
