@@ -7222,6 +7222,8 @@ def main():
                               legend_title_text="", showlegend=legend,
                               legend=dict(orientation="h", y=1.12, x=0),
                               plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
+            # Eje X y hover solo con el día (sin hora)
+            fig.update_xaxes(tickformat="%d/%m/%Y", hoverformat="%d/%m/%Y")
             return fig
 
         # ── series diarias ─────────────────────────────────────────────────────
