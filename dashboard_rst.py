@@ -7217,15 +7217,23 @@ def main():
         _j4.metric("ROI", (f"{_roi:.0f} %".replace(".", ",")) if _roi is not None else "—")
 
         def _mini(fig, legend=False):
-            fig.update_layout(height=250, margin=dict(l=0, r=0, t=8, b=0),
+            fig.update_layout(height=280, margin=dict(l=0, r=0, t=8, b=0),
                               xaxis_title=None, yaxis_title=None,
                               legend_title_text="", showlegend=legend,
                               legend=dict(orientation="h", y=1.12, x=0),
                               hovermode="x unified",
+                              uniformtext_minsize=8, uniformtext_mode="hide",
                               plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
-            # Eje X y hover solo con el día (sin hora)
-            fig.update_xaxes(tickformat="%d/%m/%Y", hoverformat="%d/%m/%Y")
             return fig
+
+        def _dia(fr):
+            """Eje X como día (categoría): evita horas y fechas repetidas.
+            Devuelve (df con col 'dia', orden cronológico, etiquetas a mostrar)."""
+            fr = fr.sort_values("fecha").copy()
+            fr["dia"] = fr["fecha"].dt.strftime("%d/%m/%Y")
+            orden = list(dict.fromkeys(fr["dia"]))
+            _k = max(1, len(orden) // 14)          # ~14 etiquetas máximo
+            return fr, orden, orden[::_k]
 
         # ── series diarias ─────────────────────────────────────────────────────
         # leads/día por modalidad
@@ -7255,16 +7263,23 @@ def main():
         with _r1c1:
             st.markdown("**Leads por día · Presencial vs Online**")
             if not _ld.empty:
-                _f = px.bar(_ld, x="fecha", y="Leads", color="Modalidad",
-                            color_discrete_map=_CMAP)
+                _ld, _o, _tv = _dia(_ld)
+                _f = px.bar(_ld, x="dia", y="Leads", color="Modalidad",
+                            color_discrete_map=_CMAP, text_auto=True,
+                            category_orders={"dia": _o})
+                _f.update_traces(textposition="inside", textfont_size=10)
+                _f.update_xaxes(tickmode="array", tickvals=_tv)
                 st.plotly_chart(_mini(_f, legend=True), use_container_width=True)
             else:
                 st.info("Sin leads en el período/filtros.")
         with _r1c2:
             st.markdown("**Inversión por día (€)**")
             if not _id.empty:
-                _f = px.bar(_id, x="fecha", y="Inversión")
-                _f.update_traces(marker_color="#5B8DEF")
+                _id, _o, _tv = _dia(_id)
+                _f = px.bar(_id, x="dia", y="Inversión", category_orders={"dia": _o})
+                _f.update_traces(marker_color="#5B8DEF", texttemplate="%{y:,.0f} €",
+                                 textposition="outside", textfont_size=10, cliponaxis=False)
+                _f.update_xaxes(tickmode="array", tickvals=_tv)
                 st.plotly_chart(_mini(_f), use_container_width=True)
             else:
                 st.info("Sin datos de inversión (Ads) en el período.")
@@ -7273,8 +7288,12 @@ def main():
         with _r2c1:
             st.markdown("**Matrículas por día · Presencial vs Online**")
             if not _md.empty:
-                _f = px.bar(_md, x="fecha", y="Matriculas", color="Modalidad",
-                            color_discrete_map=_CMAP)
+                _mdp, _o, _tv = _dia(_md)
+                _f = px.bar(_mdp, x="dia", y="Matriculas", color="Modalidad",
+                            color_discrete_map=_CMAP, text_auto=True,
+                            category_orders={"dia": _o})
+                _f.update_traces(textposition="inside", textfont_size=10)
+                _f.update_xaxes(tickmode="array", tickvals=_tv)
                 st.plotly_chart(_mini(_f, legend=True), use_container_width=True)
             else:
                 st.info("Sin matrículas en el período/filtros.")
@@ -7282,8 +7301,11 @@ def main():
             st.markdown("**Facturación por día (€)**")
             if not _md.empty:
                 _fd = _md.groupby("fecha")["Facturacion"].sum().reset_index()
-                _f = px.bar(_fd, x="fecha", y="Facturacion")
-                _f.update_traces(marker_color="#0D0E95")
+                _fd, _o, _tv = _dia(_fd)
+                _f = px.bar(_fd, x="dia", y="Facturacion", category_orders={"dia": _o})
+                _f.update_traces(marker_color="#0D0E95", texttemplate="%{y:,.0f} €",
+                                 textposition="outside", textfont_size=10, cliponaxis=False)
+                _f.update_xaxes(tickmode="array", tickvals=_tv)
                 st.plotly_chart(_mini(_f), use_container_width=True)
             else:
                 st.info("Sin facturación en el período/filtros.")
