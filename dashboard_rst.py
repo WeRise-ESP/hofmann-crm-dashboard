@@ -11,6 +11,26 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
+
+try:
+    _TZ_MADRID = ZoneInfo("Europe/Madrid")
+except Exception:               # sin tzdata en el sistema → no romper, quedarse en UTC
+    _TZ_MADRID = timezone.utc
+
+def _dia_local(iso, largo=10):
+    """Timestamp ISO-UTC de HubSpot → 'YYYY-MM-DD' (largo=10) o 'YYYY-MM'
+    (largo=7) en hora de Madrid (Europe/Madrid, con horario de verano
+    automático). Así los días cuadran con lo que muestra HubSpot al equipo."""
+    if not iso:
+        return ""
+    try:
+        dt = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt.astimezone(_TZ_MADRID).strftime("%Y-%m-%d" if largo == 10 else "%Y-%m")
+    except Exception:
+        return (str(iso) or "")[:largo]
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 from io import StringIO
@@ -1169,7 +1189,7 @@ def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
             cp = c["properties"]
             email = (cp.get("email") or "").lower().strip()
             fuente, origen = resolve_fuente(cp)
-            createdate = (cp.get("createdate") or "")[:10]
+            createdate = _dia_local(cp.get("createdate"))
             rows.append({
                 "email":       email,
                 "fecha":       createdate,
@@ -1317,7 +1337,7 @@ def fetch_matriculados_total(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
                 history = (c.get("propertiesWithHistory") or {}).get("hs_lead_status", [])
                 for change in history:
                     if change.get("value") == "Cierre ganado":
-                        matriculation_dates[c["id"]] = (change.get("timestamp") or "")[:10]
+                        matriculation_dates[c["id"]] = _dia_local(change.get("timestamp"))
                         break
         except Exception:
             pass
@@ -1328,7 +1348,7 @@ def fetch_matriculados_total(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
         cp = contact_props_map[cid]
         fuente, origen = resolve_fuente(cp)
         # Fecha de matriculación real; fallback a createdate si no hay historial
-        fecha_mat = matriculation_dates.get(cid) or (cp.get("createdate") or "")[:10]
+        fecha_mat = matriculation_dates.get(cid) or _dia_local(cp.get("createdate"))
         rows.append({
             "email":       (cp.get("email") or "").lower().strip(),
             "fecha":       fecha_mat,
@@ -1434,7 +1454,7 @@ def fetch_negocios_cerrados(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
 
             for d in data.get("results", []):
                 p = d["properties"]
-                fecha_cierre = (p.get("closedate") or p.get("createdate") or "")[:10]
+                fecha_cierre = _dia_local(p.get("closedate") or p.get("createdate"))
                 motivo = (p.get("motivo_de_cierre_del_negocio") or "Sin especificar").strip()
                 deal_map[d["id"]] = {
                     "etapa":        stage_label,
@@ -1573,8 +1593,8 @@ def fetch_pipeline(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
             p = d["properties"]
             stage_id = p.get("dealstage", "")
             etapa = PIPELINE_STAGES.get(stage_id, stage_id)
-            fecha_creacion = (p.get("createdate") or "")[:10]
-            fecha_cierre   = (p.get("closedate") or "")[:10]
+            fecha_creacion = _dia_local(p.get("createdate"))
+            fecha_cierre   = _dia_local(p.get("closedate"))
             fecha_ref      = fecha_cierre or fecha_creacion
             motivo_cierre = (p.get("motivo_de_cierre_del_negocio") or "Sin especificar").strip()
             amount = float(p.get("amount") or 0)
@@ -1672,8 +1692,8 @@ def fetch_pipeline_full(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
                 "motivo_cierre": (p.get("motivo_de_cierre_del_negocio")
                                   or "Sin especificar").strip(),
                 "modalidad": (p.get("modalidad") or "Sin modalidad").strip().title(),
-                "fecha_cierre":   (p.get("closedate") or "")[:10],
-                "fecha_creacion": (p.get("createdate") or "")[:10],
+                "fecha_cierre":   _dia_local(p.get("closedate")),
+                "fecha_creacion": _dia_local(p.get("createdate")),
                 "gano_periodo": False, "perdio_periodo": False, "deal_cohorte": False,
             })
             if flag == "gano":
@@ -1742,7 +1762,7 @@ def fetch_pipeline_full(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
                                     (p.get("curso") or "Sin programa").strip())
                                 or "Sin programa",
                     "email":    (p.get("email") or "").lower().strip(),
-                    "cont_creado":  (p.get("createdate") or "")[:10],
+                    "cont_creado":  _dia_local(p.get("createdate")),
                     "cont_valido":  (p.get("lead_valido") or "Sin datos").strip(),
                     "cont_curso":   bool((p.get("curso") or "").strip()),
                     "cont_categoria": _resolve_categoria(p),
