@@ -155,9 +155,14 @@ META_TOKEN      = _s("META_ACCESS_TOKEN")
 META_ACCOUNT_ID = _s("META_AD_ACCOUNT_ID", "2649358358505616")
 META_AVAILABLE  = bool(META_TOKEN and META_ACCOUNT_ID)
 
-# ── Credenciales LinkedIn Ads vía Google Sheets (opcional) ────────────────────
-LINKEDIN_SHEET_URL = _s("LINKEDIN_SHEET_URL")
-LINKEDIN_AVAILABLE = bool(LINKEDIN_SHEET_URL)
+# ── Credenciales LinkedIn Ads ─────────────────────────────────────────────────
+# API directa (preferente) — cae al Google Sheet si no hay token.
+LINKEDIN_TOKEN      = _s("LINKEDIN_ACCESS_TOKEN")
+LINKEDIN_ACCOUNT_ID = _s("LINKEDIN_AD_ACCOUNT_ID")
+LINKEDIN_VERSION    = _s("LINKEDIN_API_VERSION", "202503")
+LINKEDIN_SHEET_URL  = _s("LINKEDIN_SHEET_URL")
+LINKEDIN_VIA_API    = bool(LINKEDIN_TOKEN and LINKEDIN_ACCOUNT_ID)
+LINKEDIN_AVAILABLE  = bool(LINKEDIN_VIA_API or LINKEDIN_SHEET_URL)
 
 # ── Credenciales TikTok Ads (opcional) ────────────────────────────────────────
 TIKTOK_TOKEN         = _s("TIKTOK_ACCESS_TOKEN")
@@ -1942,6 +1947,71 @@ def get_meta_ads_data(start: str, end: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+# ── Conector LinkedIn Ads vía API directa ─────────────────────────────────────
+@st.cache_data(ttl=3600, max_entries=6, show_spinner=False)
+def get_linkedin_api_data(start: str, end: str) -> pd.DataFrame:
+    """Métricas de LinkedIn por campaña/día vía Marketing API (Rest.li 2.0).
+    conversiones = externalWebsiteConversions + oneClickLeads (posibles contactos)."""
+    if not (LINKEDIN_TOKEN and LINKEDIN_ACCOUNT_ID):
+        return pd.DataFrame()
+    try:
+        H = {"Authorization": f"Bearer {LINKEDIN_TOKEN}",
+             "LinkedIn-Version": LINKEDIN_VERSION,
+             "X-Restli-Protocol-Version": "2.0.0"}
+        # nombres de campaña
+        camp_url = (f"https://api.linkedin.com/rest/adAccounts/{LINKEDIN_ACCOUNT_ID}/adCampaigns"
+                    "?q=search&search=(status:(values:List(ACTIVE,PAUSED,DRAFT,COMPLETED)))"
+                    "&fields=id,name&count=200")
+        cr = requests.get(camp_url, headers=H, timeout=30)
+        names = ({str(e["id"]): e.get("name", f"LI_{e['id']}")
+                  for e in cr.json().get("elements", [])} if cr.status_code == 200 else {})
+        # métricas diarias (URL a mano: Rest.li exige comas y List() sin codificar)
+        sy, sm, sd = start.split("-"); ey, em, ed = end.split("-")
+        acct = requests.utils.quote(f"urn:li:sponsoredAccount:{LINKEDIN_ACCOUNT_ID}", safe="")
+        au = ("https://api.linkedin.com/rest/adAnalytics?q=analytics&pivot=CAMPAIGN"
+              "&timeGranularity=DAILY"
+              f"&accounts=List({acct})"
+              f"&dateRange=(start:(year:{sy},month:{int(sm)},day:{int(sd)}),"
+              f"end:(year:{ey},month:{int(em)},day:{int(ed)}))"
+              "&fields=costInLocalCurrency,externalWebsiteConversions,oneClickLeads,"
+              "clicks,impressions,pivotValues,dateRange&count=500")
+        r = requests.get(au, headers=H, timeout=30)
+        r.raise_for_status()
+        rows = []
+        for it in r.json().get("elements", []):
+            g = float(it.get("costInLocalCurrency", 0) or 0)
+            if g == 0:
+                continue
+            cid = (it.get("pivotValues", [""])[0] or "").replace("urn:li:sponsoredCampaign:", "")
+            dr  = it.get("dateRange", {}).get("start", {})
+            rows.append({
+                "fecha": f"{dr.get('year',2026)}-{str(dr.get('month',1)).zfill(2)}-{str(dr.get('day',1)).zfill(2)}",
+                "campaña": names.get(cid, f"LI_{cid}"),
+                "gasto": g,
+                "clics": int(it.get("clicks", 0) or 0),
+                "conversiones": (float(it.get("externalWebsiteConversions", 0) or 0)
+                                 + float(it.get("oneClickLeads", 0) or 0)),
+            })
+        if not rows:
+            return pd.DataFrame()
+        d = pd.DataFrame(rows)
+        d["fecha"] = pd.to_datetime(d["fecha"], errors="coerce")
+        d["plataforma"] = "LinkedIn Ads"
+        return d[["fecha", "campaña", "gasto", "clics", "conversiones", "plataforma"]]
+    except Exception as e:
+        st.warning(f"LinkedIn API: {e}")
+        return pd.DataFrame()
+
+
+def get_linkedin_ads_data(start: str, end: str) -> pd.DataFrame:
+    """Despachador: usa la API si hay token; si no, cae al Google Sheet."""
+    if LINKEDIN_VIA_API:
+        d = get_linkedin_api_data(start, end)
+        if not d.empty:
+            return d
+    return get_linkedin_sheets_data(start, end)
+
+
 # ── Conector LinkedIn Ads vía Google Sheets ───────────────────────────────────
 @st.cache_data(ttl=1800, max_entries=6, show_spinner=False)
 def get_linkedin_sheets_data(start: str, end: str) -> pd.DataFrame:
@@ -2987,7 +3057,7 @@ def main():
             fut_prog     = ex.submit(fetch_emails_programados)
             fut_google   = ex.submit(get_google_ads_data,       _ads_start, _ads_end)
             fut_meta     = ex.submit(get_meta_ads_data,         _ads_start, _ads_end)
-            fut_linkedin = ex.submit(get_linkedin_sheets_data,  _ads_start, _ads_end)
+            fut_linkedin = ex.submit(get_linkedin_ads_data,     _ads_start, _ads_end)
             fut_tiktok   = ex.submit(get_tiktok_ads_data,       _ads_start, _ads_end)
         df           = fut_data.result()
         df_mat_all   = fut_mat.result()
@@ -7203,7 +7273,9 @@ def main():
         _ticket  = (_fact / _n_won) if _n_won else 0.0
         _cpl     = (_inv_tot / _n_leads) if _n_leads else 0.0
         _cac     = (_inv_tot / _n_won) if _n_won else 0.0
-        _roi     = ((_fact - _inv_tot) / _inv_tot * 100) if _inv_tot else None
+        # ROAS = facturación / gasto (en múltiplo). Ojo: las matrículas cerradas en
+        # el período vienen de leads previos, no del gasto del período → orientativo.
+        _roas    = (_fact / _inv_tot) if _inv_tot else None
 
         _k1, _k2, _k3, _k4 = st.columns(4)
         _k1.metric("Inversión (Ads)", _fmt_eur0(_inv_tot))
@@ -7214,7 +7286,13 @@ def main():
         _j1.metric("CPL (coste/lead)", _fmt_eur(_cpl) if _inv_tot else "—")
         _j2.metric("Coste/matrícula", _fmt_eur(_cac) if _inv_tot else "—")
         _j3.metric("Ticket medio", _fmt_eur0(_ticket) if _n_won else "—")
-        _j4.metric("ROI", (f"{_roi:.0f} %".replace(".", ",")) if _roi is not None else "—")
+        _j4.metric("ROAS", (f"{_roas:,.1f}×".replace(",", "·").replace(".", ",").replace("·", "."))
+                   if _roas is not None else "—")
+        st.caption("ℹ️ ROAS = facturación ÷ gasto del período. Es orientativo: las matrículas "
+                   "cerradas en estas fechas provienen de leads captados en semanas/meses "
+                   "anteriores, no del gasto de Ads de este período (atribución no directa). "
+                   "Para el ROI con emparejamiento por plataforma, usa la página «Contactos, "
+                   "Conversión & ROI».")
 
         def _mini(fig, legend=False):
             fig.update_layout(height=280, margin=dict(l=0, r=0, t=8, b=0),
