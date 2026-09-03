@@ -7569,11 +7569,30 @@ def main():
         st.markdown("#### Cuadro diario por fuente de tráfico")
         st.caption("Leads del día desglosados por su fuente de tráfico original, "
                    "con matrículas y facturación. Una pestaña por modalidad.")
-        _present = list(_lc["fuente"].dropna().unique()) if not _lc.empty else []
-        _fuente_cols = ([c for c in _fuente_opts if c in _present]
-                        + [c for c in _present if c not in _fuente_opts])
         _e0 = lambda v: (f"{float(v):,.0f}".replace(",", ".") + " €")
-        _ren_fuente = {"Social pagado": "Meta", "Búsqueda pagada": "Google Ads"}
+        # Dentro del social de pago, separar Meta / TikTok / LinkedIn según red_social
+        _RED2PLAT = {"facebook": "Meta", "instagram": "Meta", "meta": "Meta", "fb": "Meta",
+                     "linkedin": "LinkedIn", "tiktok": "TikTok"}
+
+        def _fdisp(fuente, red):
+            if fuente == "Búsqueda pagada":
+                return "Google Ads"
+            if fuente == "Social pagado":
+                return _RED2PLAT.get(str(red).strip().lower(), "Social pagado")
+            return fuente
+
+        _ORDEN_DISP = ["Google Ads", "Meta", "TikTok", "LinkedIn", "Social pagado",
+                       "Redes sociales", "Búsqueda orgánica", "Tráfico directo",
+                       "Otras campañas", "Offline", "Referencias", "Referral IA",
+                       "Email marketing", "Sin datos"]
+        if not _lc.empty:
+            _red_lc = (_lc["red_social"] if "red_social" in _lc.columns
+                       else pd.Series([""] * len(_lc), index=_lc.index))
+            _present = list(dict.fromkeys(_fdisp(f, r) for f, r in zip(_lc["fuente"], _red_lc)))
+        else:
+            _present = []
+        _fuente_cols = ([c for c in _ORDEN_DISP if c in _present]
+                        + [c for c in _present if c not in _ORDEN_DISP])
 
         def _cuadro(mod):
             _lm = (_lc[_lc["modalidad"].str.contains(mod, case=False, na=False)]
@@ -7588,8 +7607,14 @@ def main():
                 _om = _om[_om["modalidad"].str.contains(mod, case=False, na=False)]
             if _lm.empty and _wm.empty and _om.empty:
                 return None
-            piv = (_lm.groupby(["fecha", "fuente"]).size().unstack("fuente", fill_value=0)
-                   if not _lm.empty else pd.DataFrame())
+            if not _lm.empty:
+                _lm = _lm.copy()
+                _red_lm = (_lm["red_social"] if "red_social" in _lm.columns
+                           else pd.Series([""] * len(_lm), index=_lm.index))
+                _lm["_fd"] = [_fdisp(f, r) for f, r in zip(_lm["fuente"], _red_lm)]
+                piv = _lm.groupby(["fecha", "_fd"]).size().unstack("_fd", fill_value=0)
+            else:
+                piv = pd.DataFrame()
             if not _wm.empty:
                 wg = _wm.groupby("fecha_cierre").agg(Matriculas=("deal_id", "nunique"),
                                                      Facturacion=("amount", "sum"))
@@ -7623,7 +7648,7 @@ def main():
             # cabeceras agrupadas: LEADS · MATRÍCULAS · FACTURACIÓN · OPEN DAY
             _out.columns = pd.MultiIndex.from_tuples(
                 [("", "Día")]
-                + [("LEADS", _ren_fuente.get(c, c)) for c in _cols]
+                + [("LEADS", c) for c in _cols]
                 + [("LEADS", "TOTAL"),
                    ("MATRÍCULAS", "Nº"),
                    ("FACTURACIÓN", "€"),
