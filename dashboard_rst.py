@@ -7632,6 +7632,40 @@ def main():
             out.columns = pd.MultiIndex.from_tuples(tuples)
             return out
 
+        def _tabla_conversion(piv_l, piv_m):
+            """Conversión a matrícula = matrículas / leads, por día y fuente.
+            La fila TOTAL agrega el período (fiable); las celdas diarias mezclan
+            fecha de creación del lead con fecha de cierre de la matrícula."""
+            pl = (piv_l.drop(columns=["Open Day"], errors="ignore")
+                  if piv_l is not None else pd.DataFrame())
+            pm = piv_m if piv_m is not None else pd.DataFrame()
+            if pl.empty and pm.empty:
+                return None
+            idx = pl.index.union(pm.index).sort_values()
+            cols = [c for c in _ORDEN_DISP if (c in pl.columns or c in pm.columns)]
+            cols += [c for c in list(pl.columns) + list(pm.columns)
+                     if c not in _ORDEN_DISP and c != "Open Day" and c not in cols]
+            pl = pl.reindex(index=idx, columns=cols, fill_value=0)
+            pm = pm.reindex(index=idx, columns=cols, fill_value=0)
+
+            def _pct(m, l):
+                return (f"{m / l * 100:.1f} %".replace(".", ",")) if l else "—"
+
+            disp = pd.DataFrame()
+            disp["Día"] = pd.to_datetime(idx, errors="coerce").strftime("%d/%m/%Y")
+            for c in cols:
+                disp[c] = [_pct(m, l) for m, l in zip(pm[c].values, pl[c].values)]
+            _lt, _mt = pl[cols].sum(axis=1), pm[cols].sum(axis=1)
+            disp["TOTAL"] = [_pct(m, l) for m, l in zip(_mt.values, _lt.values)]
+            _tot = {"Día": "TOTAL"}
+            for c in cols:
+                _tot[c] = _pct(pm[c].sum(), pl[c].sum())
+            _tot["TOTAL"] = _pct(pm[cols].sum().sum(), pl[cols].sum().sum())
+            out = pd.concat([disp, pd.DataFrame([_tot])], ignore_index=True)
+            out.columns = pd.MultiIndex.from_tuples(
+                [("", "Día")] + [(_GRUPO.get(c, "OTROS"), c) for c in cols] + [("", "TOTAL")])
+            return out
+
         def _show_tabla(out):
             """Renderiza la tabla en HTML con las cabeceras de grupo centradas."""
             _sty = [
@@ -7707,6 +7741,17 @@ def main():
                 _show_tabla(_tab_m)
             else:
                 st.info("Sin matrículas en el período/filtros.")
+
+            _tab_c = _tabla_conversion(_piv_l, _piv_m)
+            st.markdown("**Conversión a matrícula (matrículas / leads)**")
+            if _tab_c is not None:
+                _show_tabla(_tab_c)
+                st.caption("La fila TOTAL (matrículas ÷ leads del período por fuente) es la "
+                           "referencia fiable. Las celdas diarias mezclan la fecha de creación "
+                           "del lead con la de cierre de la matrícula, así que pueden ser >100 % "
+                           "o «—» (días sin leads).")
+            else:
+                st.info("Sin datos para calcular la conversión.")
 
             _tab_f = _render_tabla(_piv_f, True, "TOTAL facturación")
             st.markdown("**Facturación por fuente (€)**")
