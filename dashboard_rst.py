@@ -7155,16 +7155,24 @@ def main():
                          font-weight:700;padding:4px 12px;border-radius:20px">{periodo_txt}</span>
         </div>
         <div style="color:{_RF['muted']};font-size:13.5px;margin:0 0 16px;max-width:1150px">
-            Serie diaria de contactos creados y cierres ganados con su facturación, desglosado
-            por curso y por modalidad (presencial / online) · Fuente: HubSpot CRM
+            Embudo diario — inversión, leads, matrículas y facturación — desglosado por
+            modalidad (presencial / online) y por curso · Fuente: HubSpot CRM + Ads
         </div>
         """, unsafe_allow_html=True)
 
-        _eur = lambda v: (f"{float(v):,.0f}".replace(",", ".") + " €")
-        _mil = lambda v: (f"{int(v):,}".replace(",", "."))
+        _CMAP = {"Presencial": "#0D0E95", "Online": "#ECAB0F",
+                 "Otro": "#B8BEC8", "Sin asignar": "#B8BEC8"}
+
+        def _modcol(fr, col):
+            """Normaliza la modalidad a Presencial / Online / Otro."""
+            m = pd.Series("Otro", index=fr.index)
+            if col in fr.columns:
+                m[fr[col].str.contains("presencial", case=False, na=False)] = "Presencial"
+                m[fr[col].str.contains("online", case=False, na=False)]     = "Online"
+            return m
 
         # ── datasets con los filtros del sidebar ──────────────────────────────
-        _lc = df.copy()
+        _lc = df.copy()                       # leads (df ya viene sin eventos y filtrado)
         _pp = df_pip_full.copy()
         if not _lc.empty:
             if filtro_fuente:              _lc = _lc[_lc["fuente"].isin(filtro_fuente)]
@@ -7176,94 +7184,157 @@ def main():
             if filtro_pais:                _pp = _pp[_pp["pais"].isin(filtro_pais)]
             if filtro_modalidad_negocio:   _pp = _pp[_pp["modalidad"].isin(filtro_modalidad_negocio)]
         _won = (_pp[_pp["gano_periodo"]] if (not _pp.empty and "gano_periodo" in _pp.columns)
-                else pd.DataFrame(columns=_pp.columns if not _pp.empty else ["deal_id", "amount", "programa", "modalidad", "fecha_cierre"]))
+                else pd.DataFrame(columns=_pp.columns if not _pp.empty else
+                                  ["deal_id", "amount", "programa", "modalidad", "fecha_cierre"]))
 
-        # ── KPIs ──────────────────────────────────────────────────────────────
-        _n_cont = len(_lc)
-        _n_won  = _won["deal_id"].nunique() if not _won.empty else 0
-        _fact   = float(_won["amount"].sum()) if not _won.empty else 0.0
-        _ticket = (_fact / _n_won) if _n_won else 0.0
+        # ── inversión (gasto de Ads, ya sin webinars) ─────────────────────────
+        _ads_l = [d for d in [df_google, df_meta, df_linkedin, df_tiktok]
+                  if isinstance(d, pd.DataFrame) and not d.empty and "gasto" in d.columns]
+        _ads = (pd.concat(_ads_l, ignore_index=True) if _ads_l
+                else pd.DataFrame(columns=["fecha", "gasto", "modalidad_camp"]))
+        _inv_tot = float(_ads["gasto"].sum()) if not _ads.empty else 0.0
+        _inv_by  = (_ads.groupby("modalidad_camp")["gasto"].sum().to_dict()
+                    if not _ads.empty and "modalidad_camp" in _ads.columns else {})
+
+        # ── KPIs (embudo) ──────────────────────────────────────────────────────
+        _n_leads = len(_lc)
+        _n_won   = _won["deal_id"].nunique() if not _won.empty else 0
+        _fact    = float(_won["amount"].sum()) if not _won.empty else 0.0
+        _ticket  = (_fact / _n_won) if _n_won else 0.0
+        _cpl     = (_inv_tot / _n_leads) if _n_leads else 0.0
+        _cac     = (_inv_tot / _n_won) if _n_won else 0.0
+        _roi     = ((_fact - _inv_tot) / _inv_tot * 100) if _inv_tot else None
+
         _k1, _k2, _k3, _k4 = st.columns(4)
-        _k1.metric("Contactos", _mil(_n_cont))
-        _k2.metric("Cierres ganados", _mil(_n_won))
-        _k3.metric("Facturación", _eur(_fact))
-        _k4.metric("Ticket medio", _eur(_ticket) if _n_won else "—")
+        _k1.metric("Inversión (Ads)", _fmt_eur0(_inv_tot))
+        _k2.metric("Leads", _fmt_int(_n_leads))
+        _k3.metric("Matrículas", _fmt_int(_n_won))
+        _k4.metric("Facturación", _fmt_eur0(_fact))
+        _j1, _j2, _j3, _j4 = st.columns(4)
+        _j1.metric("CPL (coste/lead)", _fmt_eur(_cpl) if _inv_tot else "—")
+        _j2.metric("Coste/matrícula", _fmt_eur(_cac) if _inv_tot else "—")
+        _j3.metric("Ticket medio", _fmt_eur0(_ticket) if _n_won else "—")
+        _j4.metric("ROI", (f"{_roi:.0f} %".replace(".", ",")) if _roi is not None else "—")
 
-        # ── serie diaria ──────────────────────────────────────────────────────
-        _cd = (_lc.groupby("fecha").size().rename("Contactos").reset_index()
-               if not _lc.empty else pd.DataFrame(columns=["fecha", "Contactos"]))
-        if not _won.empty:
-            _wd = (_won.groupby("fecha_cierre")
-                       .agg(Cierres=("deal_id", "nunique"), Facturacion=("amount", "sum"))
-                       .reset_index().rename(columns={"fecha_cierre": "fecha"}))
-        else:
-            _wd = pd.DataFrame(columns=["fecha", "Cierres", "Facturacion"])
-        if not _cd.empty: _cd["fecha"] = pd.to_datetime(_cd["fecha"], errors="coerce")
-        if not _wd.empty: _wd["fecha"] = pd.to_datetime(_wd["fecha"], errors="coerce")
-
-        def _mini(fig):
+        def _mini(fig, legend=False):
             fig.update_layout(height=250, margin=dict(l=0, r=0, t=8, b=0),
                               xaxis_title=None, yaxis_title=None,
+                              legend_title_text="", showlegend=legend,
+                              legend=dict(orientation="h", y=1.12, x=0),
                               plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
             return fig
 
-        _c1, _c2 = st.columns(2)
-        with _c1:
-            st.markdown("**Contactos por día**")
-            if not _cd.empty:
-                _f = px.area(_cd, x="fecha", y="Contactos")
-                _f.update_traces(line_color="#0D0E95", fillcolor="rgba(13,14,149,.12)")
-                st.plotly_chart(_mini(_f), use_container_width=True)
-            else:
-                st.info("Sin contactos en el período/filtros.")
-        with _c2:
-            st.markdown("**Cierres ganados por día**")
-            if not _wd.empty:
-                _f = px.bar(_wd, x="fecha", y="Cierres")
-                _f.update_traces(marker_color="#ECAB0F")
-                st.plotly_chart(_mini(_f), use_container_width=True)
-            else:
-                st.info("Sin cierres en el período/filtros.")
+        # ── series diarias ─────────────────────────────────────────────────────
+        # leads/día por modalidad
+        if not _lc.empty:
+            _l2 = _lc.copy(); _l2["Modalidad"] = _modcol(_l2, "modalidad")
+            _ld = (_l2.groupby(["fecha", "Modalidad"]).size().rename("Leads").reset_index())
+            _ld["fecha"] = pd.to_datetime(_ld["fecha"], errors="coerce")
+        else:
+            _ld = pd.DataFrame(columns=["fecha", "Modalidad", "Leads"])
+        # matrículas + facturación/día por modalidad
+        if not _won.empty:
+            _w2 = _won.copy(); _w2["Modalidad"] = _modcol(_w2, "modalidad")
+            _md = (_w2.groupby(["fecha_cierre", "Modalidad"])
+                      .agg(Matriculas=("deal_id", "nunique"), Facturacion=("amount", "sum"))
+                      .reset_index().rename(columns={"fecha_cierre": "fecha"}))
+            _md["fecha"] = pd.to_datetime(_md["fecha"], errors="coerce")
+        else:
+            _md = pd.DataFrame(columns=["fecha", "Modalidad", "Matriculas", "Facturacion"])
+        # inversión/día
+        if not _ads.empty and "fecha" in _ads.columns:
+            _id = _ads.groupby("fecha")["gasto"].sum().rename("Inversión").reset_index()
+            _id["fecha"] = pd.to_datetime(_id["fecha"], errors="coerce")
+        else:
+            _id = pd.DataFrame(columns=["fecha", "Inversión"])
 
-        st.markdown("**Facturación por día (€)**")
-        if not _wd.empty:
-            _f = px.bar(_wd, x="fecha", y="Facturacion")
-            _f.update_traces(marker_color="#0D0E95")
-            st.plotly_chart(_mini(_f), use_container_width=True)
+        _r1c1, _r1c2 = st.columns(2)
+        with _r1c1:
+            st.markdown("**Leads por día · Presencial vs Online**")
+            if not _ld.empty:
+                _f = px.area(_ld, x="fecha", y="Leads", color="Modalidad",
+                             color_discrete_map=_CMAP)
+                st.plotly_chart(_mini(_f, legend=True), use_container_width=True)
+            else:
+                st.info("Sin leads en el período/filtros.")
+        with _r1c2:
+            st.markdown("**Inversión por día (€)**")
+            if not _id.empty:
+                _f = px.bar(_id, x="fecha", y="Inversión")
+                _f.update_traces(marker_color="#5B8DEF")
+                st.plotly_chart(_mini(_f), use_container_width=True)
+            else:
+                st.info("Sin datos de inversión (Ads) en el período.")
+
+        _r2c1, _r2c2 = st.columns(2)
+        with _r2c1:
+            st.markdown("**Matrículas por día · Presencial vs Online**")
+            if not _md.empty:
+                _f = px.bar(_md, x="fecha", y="Matriculas", color="Modalidad",
+                            color_discrete_map=_CMAP)
+                st.plotly_chart(_mini(_f, legend=True), use_container_width=True)
+            else:
+                st.info("Sin matrículas en el período/filtros.")
+        with _r2c2:
+            st.markdown("**Facturación por día (€)**")
+            if not _md.empty:
+                _fd = _md.groupby("fecha")["Facturacion"].sum().reset_index()
+                _f = px.bar(_fd, x="fecha", y="Facturacion")
+                _f.update_traces(marker_color="#0D0E95")
+                st.plotly_chart(_mini(_f), use_container_width=True)
+            else:
+                st.info("Sin facturación en el período/filtros.")
+
+        # ── presencial vs online (tabla) ──────────────────────────────────────
+        st.markdown("#### Presencial vs Online")
+        _mrows = []
+        for _m in ["Presencial", "Online"]:
+            _lcm = _lc[_lc["modalidad"].str.contains(_m, case=False, na=False)] if not _lc.empty else _lc
+            _wm  = _won[_won["modalidad"].str.contains(_m, case=False, na=False)] if not _won.empty else _won
+            _nl  = len(_lcm)
+            _nm  = _wm["deal_id"].nunique() if not _wm.empty else 0
+            _ff  = float(_wm["amount"].sum()) if not _wm.empty else 0.0
+            _iv  = float(_inv_by.get(_m, 0.0))
+            _mrows.append({
+                "Modalidad":   _m,
+                "Inversión":   _fmt_eur0(_iv),
+                "Leads":       _fmt_int(_nl),
+                "Matrículas":  _fmt_int(_nm),
+                "Facturación": _fmt_eur0(_ff),
+                "CPL":         _fmt_eur(_iv / _nl) if (_iv and _nl) else "—",
+                "Coste/mat.":  _fmt_eur(_iv / _nm) if (_iv and _nm) else "—",
+                "ROI":         (f"{(_ff - _iv) / _iv * 100:.0f} %".replace(".", ",")) if _iv else "—",
+            })
+        st.dataframe(pd.DataFrame(_mrows), use_container_width=True, hide_index=True)
+        _sa = float(_inv_by.get("Sin asignar", 0.0))
+        if _sa:
+            st.caption(f"ℹ️ {_fmt_eur0(_sa)} de inversión en campañas cuyo nombre no indica "
+                       f"modalidad no se reparte entre presencial/online (sí cuenta en el total).")
 
         # ── tabla por curso ───────────────────────────────────────────────────
         st.markdown("#### Por curso")
-        _cc = (_lc.groupby("programa").size().rename("Contactos")
-               if not _lc.empty else pd.Series(dtype=int, name="Contactos"))
-        _wc = (_won.groupby("programa").agg(Cierres=("deal_id", "nunique"),
+        _cc = (_lc.groupby("programa").size().rename("Leads")
+               if not _lc.empty else pd.Series(dtype=int, name="Leads"))
+        _wc = (_won.groupby("programa").agg(Matriculas=("deal_id", "nunique"),
                                             Facturacion=("amount", "sum"))
-               if not _won.empty else pd.DataFrame(columns=["Cierres", "Facturacion"]))
+               if not _won.empty else pd.DataFrame(columns=["Matriculas", "Facturacion"]))
         _tab = pd.concat([_cc, _wc], axis=1).fillna(0)
         if not _tab.empty:
             _tab = _tab.reset_index().rename(columns={"index": "Curso", "programa": "Curso"})
             _tab = _tab.sort_values("Facturacion", ascending=False)
             _show = pd.DataFrame({
                 "Curso":        _tab["Curso"],
-                "Contactos":    _tab["Contactos"].astype(int).map(_mil),
-                "Cierres":      _tab["Cierres"].astype(int).map(_mil),
-                "Facturación":  _tab["Facturacion"].map(_eur),
-                "Ticket medio": _tab.apply(lambda r: _eur(r["Facturacion"] / r["Cierres"]) if r["Cierres"] else "—", axis=1),
+                "Leads":        _tab["Leads"].astype(int).map(_fmt_int),
+                "Matrículas":   _tab["Matriculas"].astype(int).map(_fmt_int),
+                "Facturación":  _tab["Facturacion"].map(_fmt_eur0),
+                "Ticket medio": _tab.apply(lambda r: _fmt_eur0(r["Facturacion"] / r["Matriculas"])
+                                           if r["Matriculas"] else "—", axis=1),
             })
             st.dataframe(_show, use_container_width=True, hide_index=True)
-
-        # ── presencial vs online ──────────────────────────────────────────────
-        st.markdown("#### Presencial vs Online")
-        _mrows = []
-        for _m in ["Presencial", "Online"]:
-            _lcm = _lc[_lc["modalidad"].str.contains(_m, case=False, na=False)] if not _lc.empty else _lc
-            _wm  = _won[_won["modalidad"].str.contains(_m, case=False, na=False)] if not _won.empty else _won
-            _mrows.append({
-                "Modalidad":   _m,
-                "Contactos":   _mil(len(_lcm)),
-                "Cierres":     _mil(_wm["deal_id"].nunique() if not _wm.empty else 0),
-                "Facturación": _eur(float(_wm["amount"].sum()) if not _wm.empty else 0.0),
-            })
-        st.dataframe(pd.DataFrame(_mrows), use_container_width=True, hide_index=True)
+            st.caption("ℹ️ La inversión de Ads no se reparte por curso: las campañas no "
+                       "siempre mapean a un curso concreto. Se muestra en el total y por modalidad.")
+        else:
+            st.info("Sin datos por curso en el período/filtros.")
 
     # ── Router de páginas ───────────────────────────────────────────────────
     {
