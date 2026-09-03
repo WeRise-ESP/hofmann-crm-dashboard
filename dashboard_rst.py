@@ -1161,9 +1161,9 @@ def fetch_data(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
     filters = []
     if fecha_inicio != "todos":
         fi_ts = int(datetime.fromisoformat(fecha_inicio)
-                    .replace(tzinfo=timezone.utc).timestamp() * 1000)
+                    .replace(tzinfo=_TZ_MADRID).timestamp() * 1000)
         ff_ts = (int(datetime.fromisoformat(fecha_fin)
-                     .replace(tzinfo=timezone.utc).timestamp() * 1000)
+                     .replace(tzinfo=_TZ_MADRID).timestamp() * 1000)
                  + 86_400_000 - 1)
         filters = [
             {"propertyName": "createdate", "operator": "GTE", "value": str(fi_ts)},
@@ -1423,9 +1423,9 @@ def fetch_negocios_cerrados(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
     ]
     if fecha_inicio != "todos":
         fi_ts = int(datetime.fromisoformat(fecha_inicio)
-                    .replace(tzinfo=timezone.utc).timestamp() * 1000)
+                    .replace(tzinfo=_TZ_MADRID).timestamp() * 1000)
         ff_ts = (int(datetime.fromisoformat(fecha_fin)
-                     .replace(tzinfo=timezone.utc).timestamp() * 1000)
+                     .replace(tzinfo=_TZ_MADRID).timestamp() * 1000)
                  + 86_400_000 - 1)
         filters_base += [
             {"propertyName": "closedate", "operator": "GTE", "value": str(fi_ts)},
@@ -1554,9 +1554,9 @@ def fetch_pipeline(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
     _base = [{"propertyName": "pipeline", "operator": "EQ", "value": PIPELINE_ID}]
     if fecha_inicio != "todos":
         fi_ts = int(datetime.fromisoformat(fecha_inicio)
-                    .replace(tzinfo=timezone.utc).timestamp() * 1000)
+                    .replace(tzinfo=_TZ_MADRID).timestamp() * 1000)
         ff_ts = (int(datetime.fromisoformat(fecha_fin)
-                     .replace(tzinfo=timezone.utc).timestamp() * 1000)
+                     .replace(tzinfo=_TZ_MADRID).timestamp() * 1000)
                  + 86_400_000 - 1)
         _creado = [{"propertyName": "createdate", "operator": "LTE", "value": str(ff_ts)}]
     else:
@@ -1664,9 +1664,9 @@ def fetch_pipeline_full(fecha_inicio: str, fecha_fin: str) -> pd.DataFrame:
         grupos = [("cohorte", _pipe_f)]
     else:
         fi_ts = int(datetime.fromisoformat(fecha_inicio)
-                    .replace(tzinfo=timezone.utc).timestamp() * 1000)
+                    .replace(tzinfo=_TZ_MADRID).timestamp() * 1000)
         ff_ts = (int(datetime.fromisoformat(fecha_fin)
-                     .replace(tzinfo=timezone.utc).timestamp() * 1000)
+                     .replace(tzinfo=_TZ_MADRID).timestamp() * 1000)
                  + 86_400_000 - 1)
 
         def _rango(prop):
