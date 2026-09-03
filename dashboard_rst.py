@@ -7252,12 +7252,14 @@ def main():
             _md["fecha"] = pd.to_datetime(_md["fecha"], errors="coerce")
         else:
             _md = pd.DataFrame(columns=["fecha", "Modalidad", "Matriculas", "Facturacion"])
-        # inversión/día
-        if not _ads.empty and "fecha" in _ads.columns:
-            _id = _ads.groupby("fecha")["gasto"].sum().rename("Inversión").reset_index()
-            _id["fecha"] = pd.to_datetime(_id["fecha"], errors="coerce")
+        # inversión por plataforma (Google y Meta solo dan el total del período,
+        # sin desglose por día → no se puede hacer una serie diaria fiable)
+        if not _ads.empty and "plataforma" in _ads.columns:
+            _ip = (_ads.groupby("plataforma")["gasto"].sum()
+                       .rename("Inversión").reset_index()
+                       .sort_values("Inversión", ascending=False))
         else:
-            _id = pd.DataFrame(columns=["fecha", "Inversión"])
+            _ip = pd.DataFrame(columns=["plataforma", "Inversión"])
 
         _r1c1, _r1c2 = st.columns(2)
         with _r1c1:
@@ -7273,14 +7275,14 @@ def main():
             else:
                 st.info("Sin leads en el período/filtros.")
         with _r1c2:
-            st.markdown("**Inversión por día (€)**")
-            if not _id.empty:
-                _id, _o, _tv = _dia(_id)
-                _f = px.bar(_id, x="dia", y="Inversión", category_orders={"dia": _o})
+            st.markdown("**Inversión por plataforma (€)**")
+            if not _ip.empty and _ip["Inversión"].sum() > 0:
+                _f = px.bar(_ip, x="plataforma", y="Inversión")
                 _f.update_traces(marker_color="#5B8DEF", texttemplate="%{y:,.0f} €",
-                                 textposition="outside", textfont_size=10, cliponaxis=False)
-                _f.update_xaxes(tickmode="array", tickvals=_tv)
+                                 textposition="outside", textfont_size=11, cliponaxis=False)
                 st.plotly_chart(_mini(_f), use_container_width=True)
+                st.caption("ℹ️ Google y Meta solo reportan el gasto total del período "
+                           "(sin desglose por día), por eso se muestra por plataforma.")
             else:
                 st.info("Sin datos de inversión (Ads) en el período.")
 
