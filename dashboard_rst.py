@@ -7573,6 +7573,7 @@ def main():
         _fuente_cols = ([c for c in _fuente_opts if c in _present]
                         + [c for c in _present if c not in _fuente_opts])
         _e0 = lambda v: (f"{float(v):,.0f}".replace(",", ".") + " €")
+        _ren_fuente = {"Social pagado": "Meta", "Búsqueda pagada": "Google Ads"}
 
         def _cuadro(mod):
             _lm = (_lc[_lc["modalidad"].str.contains(mod, case=False, na=False)]
@@ -7622,7 +7623,7 @@ def main():
             # cabeceras agrupadas: LEADS · MATRÍCULAS · FACTURACIÓN · OPEN DAY
             _out.columns = pd.MultiIndex.from_tuples(
                 [("", "Día")]
-                + [("LEADS", c) for c in _cols]
+                + [("LEADS", _ren_fuente.get(c, c)) for c in _cols]
                 + [("LEADS", "TOTAL"),
                    ("MATRÍCULAS", "Nº"),
                    ("FACTURACIÓN", "€"),
