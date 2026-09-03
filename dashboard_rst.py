@@ -2110,6 +2110,99 @@ def get_tiktok_ads_data(start: str, end: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+# ── Gasto de Ads POR DÍA (las 4 plataformas) ──────────────────────────────────
+@st.cache_data(ttl=3600, max_entries=6, show_spinner=False)
+def get_ads_daily(start: str, end: str) -> pd.DataFrame:
+    """Gasto diario de Google, Meta, LinkedIn y TikTok en formato largo
+    [fecha, campaña, gasto, plataforma].
+
+    Google y Meta se consultan aquí con granularidad de día (segments.date /
+    time_increment=1); LinkedIn y TikTok ya vienen por día de sus conectores.
+    La exclusión de webinars se aplica luego en la página, igual que en el total.
+    """
+    frames = []
+
+    # ── Google Ads (por día, nivel campaña) ──────────────────────────────────
+    if GA_AVAILABLE:
+        try:
+            from google.ads.googleads.client import GoogleAdsClient
+            cfg = {
+                "developer_token":   GA_DEVELOPER_TOKEN,
+                "client_id":         GA_CLIENT_ID,
+                "client_secret":     GA_CLIENT_SECRET,
+                "refresh_token":     GA_REFRESH_TOKEN,
+                "login_customer_id": GA_LOGIN_CID.replace("-", ""),
+                "use_proto_plus":    True,
+            }
+            client = GoogleAdsClient.load_from_dict(cfg)
+            svc    = client.get_service("GoogleAdsService")
+            q = f"""
+                SELECT segments.date, campaign.name, metrics.cost_micros
+                FROM campaign
+                WHERE segments.date BETWEEN '{start}' AND '{end}'
+                  AND campaign.status != 'REMOVED'
+                  AND metrics.cost_micros > 0
+            """
+            cid  = GA_CUSTOMER_ID.replace("-", "")
+            rows = []
+            for batch in svc.search_stream(customer_id=cid, query=q):
+                for row in batch.results:
+                    rows.append({"fecha": row.segments.date,
+                                 "campaña": row.campaign.name,
+                                 "gasto": row.metrics.cost_micros / 1_000_000,
+                                 "plataforma": "Google Ads"})
+            if rows:
+                frames.append(pd.DataFrame(rows))
+        except Exception as e:
+            st.warning(f"Google Ads (diario): {e}")
+
+    # ── Meta Ads (time_increment=1 → una fila por campaña y día) ──────────────
+    if META_AVAILABLE:
+        try:
+            url = f"https://graph.facebook.com/v21.0/act_{META_ACCOUNT_ID}/insights"
+            params = {
+                "access_token":   META_TOKEN,
+                "fields":         "campaign_name,spend",
+                "level":          "campaign",
+                "time_increment": 1,
+                "time_range":     json.dumps({"since": start, "until": end}),
+                "limit":          500,
+            }
+            rows = []
+            while True:
+                r = requests.get(url, params=params, timeout=30)
+                r.raise_for_status()
+                data = r.json()
+                for item in data.get("data", []):
+                    rows.append({"fecha": item.get("date_start", ""),
+                                 "campaña": item.get("campaign_name", ""),
+                                 "gasto": float(item.get("spend", 0) or 0),
+                                 "plataforma": "Meta Ads"})
+                nxt = data.get("paging", {}).get("next")
+                if not nxt:
+                    break
+                url, params = nxt, {}
+            if rows:
+                frames.append(pd.DataFrame(rows))
+        except Exception as e:
+            st.warning(f"Meta Ads (diario): {e}")
+
+    # ── LinkedIn y TikTok (ya son diarios) ────────────────────────────────────
+    for _f in (get_linkedin_sheets_data(start, end), get_tiktok_ads_data(start, end)):
+        if isinstance(_f, pd.DataFrame) and not _f.empty \
+                and {"fecha", "gasto", "campaña"} <= set(_f.columns):
+            _g = _f[["fecha", "campaña", "gasto"]].copy()
+            _g["plataforma"] = (_f["plataforma"] if "plataforma" in _f.columns else "")
+            frames.append(_g)
+
+    if not frames:
+        return pd.DataFrame(columns=["fecha", "campaña", "gasto", "plataforma"])
+    out = pd.concat(frames, ignore_index=True)
+    out["fecha"] = pd.to_datetime(out["fecha"], errors="coerce")
+    out = out.dropna(subset=["fecha"])
+    return out
+
+
 # ── Email Marketing fetch ─────────────────────────────────────────────────────
 
 @st.cache_data(ttl=600, max_entries=6, show_spinner=False)
@@ -7330,14 +7423,16 @@ def main():
             _md["fecha"] = pd.to_datetime(_md["fecha"], errors="coerce")
         else:
             _md = pd.DataFrame(columns=["fecha", "Modalidad", "Matriculas", "Facturacion"])
-        # inversión por plataforma (Google y Meta solo dan el total del período,
-        # sin desglose por día → no se puede hacer una serie diaria fiable)
-        if not _ads.empty and "plataforma" in _ads.columns:
-            _ip = (_ads.groupby("plataforma")["gasto"].sum()
-                       .rename("Inversión").reset_index()
-                       .sort_values("Inversión", ascending=False))
+        # inversión por día = gasto diario de las 4 plataformas, con la MISMA
+        # exclusión de webinars que aplica el total del período
+        _adsd = get_ads_daily(_ads_start, _ads_end)
+        if not _adsd.empty:
+            _adsd = _adsd[~_adsd["campaña"].fillna("").apply(webinar_excluible)]
+        if not _adsd.empty:
+            _invd = (_adsd.groupby("fecha")["gasto"].sum()
+                          .rename("Inversión").reset_index())
         else:
-            _ip = pd.DataFrame(columns=["plataforma", "Inversión"])
+            _invd = pd.DataFrame(columns=["fecha", "Inversión"])
 
         _r1c1, _r1c2 = st.columns(2)
         with _r1c1:
@@ -7353,14 +7448,16 @@ def main():
             else:
                 st.info("Sin leads en el período/filtros.")
         with _r1c2:
-            st.markdown("**Inversión por plataforma (€)**")
-            if not _ip.empty and _ip["Inversión"].sum() > 0:
-                _f = px.bar(_ip, x="plataforma", y="Inversión")
+            st.markdown("**Inversión por día (€)**")
+            if not _invd.empty and _invd["Inversión"].sum() > 0:
+                _invd, _o, _tv = _dia(_invd)
+                _f = px.bar(_invd, x="dia", y="Inversión", category_orders={"dia": _o})
                 _f.update_traces(marker_color="#5B8DEF", texttemplate="%{y:,.0f} €",
-                                 textposition="outside", textfont_size=11, cliponaxis=False)
+                                 textposition="outside", textfont_size=10, cliponaxis=False)
+                _f.update_xaxes(tickmode="array", tickvals=_tv)
                 st.plotly_chart(_mini(_f), use_container_width=True)
-                st.caption("ℹ️ Google y Meta solo reportan el gasto total del período "
-                           "(sin desglose por día), por eso se muestra por plataforma.")
+                st.caption("Suma diaria de Google, Meta, LinkedIn y TikTok "
+                           "(mismo criterio de exclusión de webinars que el total).")
             else:
                 st.info("Sin datos de inversión (Ads) en el período.")
 
