@@ -7641,7 +7641,7 @@ def main():
                 {"selector": "td", "props": [("text-align", "center"), ("padding", "3px 10px"),
                                              ("white-space", "nowrap")]},
                 {"selector": "table", "props": [("border-collapse", "collapse"),
-                                                ("font-size", "13px")]},
+                                                ("font-size", "13px"), ("width", "100%")]},
                 {"selector": "tbody tr:last-child td",
                  "props": [("font-weight", "700"),
                            ("border-top", "1px solid rgba(128,128,128,.55)")]},
