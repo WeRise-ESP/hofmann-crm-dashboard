@@ -7635,18 +7635,18 @@ def main():
         def _show_tabla(out):
             """Renderiza la tabla en HTML con las cabeceras de grupo centradas."""
             _sty = [
-                {"selector": "th", "props": [("text-align", "center"), ("padding", "4px 10px"),
+                {"selector": "th", "props": [("text-align", "center"), ("padding", "5px 12px"),
                                              ("border-bottom", "1px solid rgba(128,128,128,.35)"),
                                              ("white-space", "nowrap")]},
-                {"selector": "td", "props": [("text-align", "center"), ("padding", "3px 10px"),
+                {"selector": "td", "props": [("text-align", "center"), ("padding", "4px 12px"),
                                              ("white-space", "nowrap")]},
-                {"selector": "table", "props": [("border-collapse", "collapse"),
-                                                ("font-size", "13px"), ("width", "100%")]},
                 {"selector": "tbody tr:last-child td",
                  "props": [("font-weight", "700"),
                            ("border-top", "1px solid rgba(128,128,128,.55)")]},
             ]
-            _html = out.style.hide(axis="index").set_table_styles(_sty).to_html()
+            _html = (out.style.hide(axis="index")
+                     .set_table_attributes('style="width:100%;border-collapse:collapse;font-size:13.5px"')
+                     .set_table_styles(_sty).to_html())
             st.markdown(f'<div style="overflow-x:auto">{_html}</div>', unsafe_allow_html=True)
 
         def _cuadro(mod):
