@@ -7538,6 +7538,64 @@ def main():
         else:
             st.info("Sin datos por curso en el período/filtros.")
 
+        # ── cuadro diario por fuente de tráfico (Presencial / Online) ─────────
+        st.markdown("#### Cuadro diario por fuente de tráfico")
+        st.caption("Leads del día desglosados por su fuente de tráfico original, "
+                   "con matrículas y facturación. Una pestaña por modalidad.")
+        _present = list(_lc["fuente"].dropna().unique()) if not _lc.empty else []
+        _fuente_cols = ([c for c in _fuente_opts if c in _present]
+                        + [c for c in _present if c not in _fuente_opts])
+        _e0 = lambda v: (f"{float(v):,.0f}".replace(",", ".") + " €")
+
+        def _cuadro(mod):
+            _lm = (_lc[_lc["modalidad"].str.contains(mod, case=False, na=False)]
+                   if not _lc.empty else _lc)
+            _wm = (_won[_won["modalidad"].str.contains(mod, case=False, na=False)]
+                   if not _won.empty else _won)
+            if _lm.empty and _wm.empty:
+                return None
+            piv = (_lm.groupby(["fecha", "fuente"]).size().unstack("fuente", fill_value=0)
+                   if not _lm.empty else pd.DataFrame())
+            if not _wm.empty:
+                wg = _wm.groupby("fecha_cierre").agg(Matriculas=("deal_id", "nunique"),
+                                                     Facturacion=("amount", "sum"))
+            else:
+                wg = pd.DataFrame(columns=["Matriculas", "Facturacion"])
+            wg.index.name = "fecha"
+            tab = piv.join(wg, how="outer").fillna(0).sort_index()
+            if tab.empty:
+                return None
+            _cols = [c for c in _fuente_cols if c in piv.columns]
+            tab["Total"] = tab[_cols].sum(axis=1) if _cols else 0
+            disp = pd.DataFrame()
+            disp["Día"] = pd.to_datetime(tab.index, errors="coerce").strftime("%d/%m/%Y")
+            for c in _cols:
+                disp[c] = tab[c].astype(int).values
+            disp["Total"]       = tab["Total"].astype(int).values
+            disp["Matrículas"]  = tab["Matriculas"].astype(int).values
+            disp["Facturación"] = [_e0(v) for v in tab["Facturacion"].values]
+            _tot = {"Día": "TOTAL"}
+            for c in _cols:
+                _tot[c] = int(tab[c].sum())
+            _tot["Total"]       = int(tab["Total"].sum())
+            _tot["Matrículas"]  = int(tab["Matriculas"].sum())
+            _tot["Facturación"] = _e0(tab["Facturacion"].sum())
+            return pd.concat([disp, pd.DataFrame([_tot])], ignore_index=True)
+
+        _t_pres, _t_onl = st.tabs(["🏫 Presencial", "🌐 Online"])
+        with _t_pres:
+            _cp = _cuadro("Presencial")
+            if _cp is not None:
+                st.dataframe(_cp, use_container_width=True, hide_index=True)
+            else:
+                st.info("Sin datos presenciales en el período/filtros.")
+        with _t_onl:
+            _co = _cuadro("Online")
+            if _co is not None:
+                st.dataframe(_co, use_container_width=True, hide_index=True)
+            else:
+                st.info("Sin datos online en el período/filtros.")
+
     # ── Router de páginas ───────────────────────────────────────────────────
     {
         "💰 Contactos, Conversión & ROI": page_roi,
