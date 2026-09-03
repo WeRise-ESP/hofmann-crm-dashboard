@@ -7221,6 +7221,7 @@ def main():
                               xaxis_title=None, yaxis_title=None,
                               legend_title_text="", showlegend=legend,
                               legend=dict(orientation="h", y=1.12, x=0),
+                              hovermode="x unified",
                               plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
             # Eje X y hover solo con el día (sin hora)
             fig.update_xaxes(tickformat="%d/%m/%Y", hoverformat="%d/%m/%Y")
@@ -7254,8 +7255,8 @@ def main():
         with _r1c1:
             st.markdown("**Leads por día · Presencial vs Online**")
             if not _ld.empty:
-                _f = px.area(_ld, x="fecha", y="Leads", color="Modalidad",
-                             color_discrete_map=_CMAP)
+                _f = px.bar(_ld, x="fecha", y="Leads", color="Modalidad",
+                            color_discrete_map=_CMAP)
                 st.plotly_chart(_mini(_f, legend=True), use_container_width=True)
             else:
                 st.info("Sin leads en el período/filtros.")
