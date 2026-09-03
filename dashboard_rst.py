@@ -3037,7 +3037,7 @@ def main():
     with st.sidebar:
         st.markdown(f"<h2 style='color:{BARCA['gold']};margin-bottom:8px'>📁 Páginas</h2>",
                     unsafe_allow_html=True)
-        _PAGINAS = ["💰 Contactos, Conversión & ROI", "📊 RST Dashboard", "📍 Leads por Campaña", "📚 Contactos y ventas por curso"]
+        _PAGINAS = ["💰 Contactos, Conversión & ROI", "📊 RST Dashboard", "📍 Leads por Campaña", "📅 Cuadro Diario"]
         _qp_load("f_pagina", "str")
         if st.session_state.get("f_pagina") not in _PAGINAS:
             st.session_state.pop("f_pagina", None)
@@ -7309,11 +7309,11 @@ def main():
         _EXPORT.clear()
         st.markdown(f"""
         <div style="font-size:12px;color:{_RF['muted']};margin:0 0 6px">
-            Dashboard › <b style="color:{_RF['ink_soft']}">Contactos y ventas por curso</b>
+            Dashboard › <b style="color:{_RF['ink_soft']}">Cuadro Diario</b>
         </div>
         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 6px">
             <span style="font-size:29px;font-weight:800;color:{_RF['ink']};
-                         letter-spacing:-.6px">📚 Contactos y ventas por curso</span>
+                         letter-spacing:-.6px">📅 Cuadro Diario</span>
             <span style="background:{_RF['chip_bg']};color:{_RF['chip_tx']};font-size:12.5px;
                          font-weight:700;padding:4px 12px;border-radius:20px">{periodo_txt}</span>
         </div>
@@ -7543,7 +7543,7 @@ def main():
         "💰 Contactos, Conversión & ROI": page_roi,
         "📊 RST Dashboard":               page_rst,
         "📍 Leads por Campaña":           page_campana,
-        "📚 Contactos y ventas por curso": page_cursos,
+        "📅 Cuadro Diario": page_cursos,
     }[_pagina]()
 
     # ── Footer ──────────────────────────────────────────────────────────────────
