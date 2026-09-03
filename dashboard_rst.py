@@ -7567,8 +7567,8 @@ def main():
 
         # ── cuadro diario por fuente de tráfico (Presencial / Online) ─────────
         st.markdown("#### Cuadro diario por fuente de tráfico")
-        st.caption("Leads del día desglosados por su fuente de tráfico original, "
-                   "con matrículas y facturación. Una pestaña por modalidad.")
+        st.caption("Leads, matrículas y facturación del día por su fuente de tráfico "
+                   "original. Una pestaña por modalidad.")
         _e0 = lambda v: (f"{float(v):,.0f}".replace(",", ".") + " €")
         # Dentro del social de pago, separar Meta / TikTok / LinkedIn según red_social
         _RED2PLAT = {"facebook": "Meta", "instagram": "Meta", "meta": "Meta", "fb": "Meta",
@@ -7582,18 +7582,63 @@ def main():
                 return _RED2PLAT.get(str(red).strip().lower(), "Social pagado")
             return fuente
 
+        # Orden agrupado: PAID · ORGÁNICO · OTROS
         _ORDEN_DISP = ["Google Ads", "Meta", "TikTok", "LinkedIn", "Social pagado",
-                       "Redes sociales", "Búsqueda orgánica", "Tráfico directo",
-                       "Otras campañas", "Offline", "Referencias", "Referral IA",
-                       "Email marketing", "Sin datos"]
-        if not _lc.empty:
-            _red_lc = (_lc["red_social"] if "red_social" in _lc.columns
-                       else pd.Series([""] * len(_lc), index=_lc.index))
-            _present = list(dict.fromkeys(_fdisp(f, r) for f, r in zip(_lc["fuente"], _red_lc)))
-        else:
-            _present = []
-        _fuente_cols = ([c for c in _ORDEN_DISP if c in _present]
-                        + [c for c in _present if c not in _ORDEN_DISP])
+                       "Búsqueda orgánica", "Tráfico directo", "Redes sociales",
+                       "Otras campañas", "Offline", "Email marketing",
+                       "Referencias", "Referral IA", "Sin datos"]
+        _GRUPO = {"Google Ads": "PAID", "Meta": "PAID", "TikTok": "PAID",
+                  "LinkedIn": "PAID", "Social pagado": "PAID",
+                  "Búsqueda orgánica": "ORGÁNICO", "Tráfico directo": "ORGÁNICO",
+                  "Redes sociales": "ORGÁNICO"}   # el resto → OTROS
+
+        # Los negocios no traen red_social (es del contacto): se cruza por email
+        # para poder separar el social de pago en Meta/TikTok/LinkedIn.
+        _red_by_email = {}
+        for _srcdf in (df, df_evento):
+            if (isinstance(_srcdf, pd.DataFrame) and not _srcdf.empty
+                    and {"email", "red_social"} <= set(_srcdf.columns)):
+                for _e, _r in zip(_srcdf["email"], _srcdf["red_social"]):
+                    _e = _e or ""
+                    if _e and _e not in _red_by_email:
+                        _red_by_email[_e] = _r
+
+        def _render_tabla(matriz, euro, total_label, extras=()):
+            """Tabla día × fuente (agrupada PAID/ORGÁNICO/OTROS) + total + fila TOTAL."""
+            idx = matriz.index if matriz is not None else pd.Index([])
+            for (_t, _s, _ser, _e) in extras:
+                idx = idx.union(_ser.index)
+            idx = idx.sort_values()
+            if len(idx) == 0:
+                return None
+            matriz = (matriz.reindex(idx, fill_value=0)
+                      if (matriz is not None and not matriz.empty) else pd.DataFrame(index=idx))
+            _cols = ([c for c in _ORDEN_DISP if c in matriz.columns]
+                     + [c for c in matriz.columns if c not in _ORDEN_DISP])
+            _fmt = (lambda v: _e0(v)) if euro else (lambda v: int(round(float(v))))
+            disp = pd.DataFrame()
+            disp["Día"] = pd.to_datetime(idx, errors="coerce").strftime("%d/%m/%Y")
+            for c in _cols:
+                disp[c] = [_fmt(v) for v in matriz[c].values]
+            _totser = (matriz[_cols].sum(axis=1) if _cols
+                       else pd.Series([0] * len(idx), index=idx))
+            disp[total_label] = [_fmt(v) for v in _totser.values]
+            for i, (_t, _s, _ser, _e) in enumerate(extras):
+                _sv = _ser.reindex(idx, fill_value=0)
+                disp[f"__x{i}"] = [(_e0(v) if _e else int(round(float(v)))) for v in _sv.values]
+            _tot = {"Día": "TOTAL"}
+            for c in _cols:
+                _tot[c] = _fmt(matriz[c].sum())
+            _tot[total_label] = _fmt(_totser.sum())
+            for i, (_t, _s, _ser, _e) in enumerate(extras):
+                _tot[f"__x{i}"] = _e0(_ser.sum()) if _e else int(round(float(_ser.sum())))
+            out = pd.concat([disp, pd.DataFrame([_tot])], ignore_index=True)
+            tuples = ([("", "Día")]
+                      + [(_GRUPO.get(c, "OTROS"), c) for c in _cols]
+                      + [("", total_label)]
+                      + [(_t, _s) for (_t, _s, _ser, _e) in extras])
+            out.columns = pd.MultiIndex.from_tuples(tuples)
+            return out
 
         def _cuadro(mod):
             _lm = (_lc[_lc["modalidad"].str.contains(mod, case=False, na=False)]
@@ -7607,69 +7652,60 @@ def main():
             if not _om.empty:
                 _om = _om[_om["modalidad"].str.contains(mod, case=False, na=False)]
             if _lm.empty and _wm.empty and _om.empty:
-                return None
+                st.info("Sin datos en el período/filtros.")
+                return
+
+            # ── Leads por fuente (+ Open Day) ──────────────────────────────────
             if not _lm.empty:
                 _lm = _lm.copy()
                 _red_lm = (_lm["red_social"] if "red_social" in _lm.columns
                            else pd.Series([""] * len(_lm), index=_lm.index))
                 _lm["_fd"] = [_fdisp(f, r) for f, r in zip(_lm["fuente"], _red_lm)]
-                piv = _lm.groupby(["fecha", "_fd"]).size().unstack("_fd", fill_value=0)
+                _piv_l = _lm.groupby(["fecha", "_fd"]).size().unstack("_fd", fill_value=0)
             else:
-                piv = pd.DataFrame()
+                _piv_l = pd.DataFrame()
+            _od = _om.groupby("fecha").size() if not _om.empty else pd.Series(dtype="int64")
+            _tab_l = _render_tabla(_piv_l, False, "TOTAL leads",
+                                   extras=[("OPEN DAY", "Nº", _od, False)])
+            st.markdown("**Leads por fuente**")
+            if _tab_l is not None:
+                st.dataframe(_tab_l, use_container_width=True, hide_index=True)
+            else:
+                st.info("Sin leads en el período/filtros.")
+
+            # ── Matrículas y facturación por fuente (negocios ganados) ─────────
             if not _wm.empty:
-                wg = _wm.groupby("fecha_cierre").agg(Matriculas=("deal_id", "nunique"),
-                                                     Facturacion=("amount", "sum"))
+                _wm = _wm.copy()
+                _mail = (_wm["email"] if "email" in _wm.columns
+                         else pd.Series([""] * len(_wm), index=_wm.index))
+                _rede = [_red_by_email.get(e or "", "") for e in _mail]
+                _wm["_fd"] = [_fdisp(f, r) for f, r in zip(_wm["fuente"], _rede)]
+                _piv_m = (_wm.groupby(["fecha_cierre", "_fd"])["deal_id"].nunique()
+                          .unstack("_fd", fill_value=0))
+                _piv_f = (_wm.groupby(["fecha_cierre", "_fd"])["amount"].sum()
+                          .unstack("_fd", fill_value=0))
             else:
-                wg = pd.DataFrame(columns=["Matriculas", "Facturacion"])
-            wg.index.name = "fecha"
-            og = (_om.groupby("fecha").size().to_frame("OpenDay") if not _om.empty
-                  else pd.DataFrame(columns=["OpenDay"]))
-            og.index.name = "fecha"
-            tab = piv.join(wg, how="outer").join(og, how="outer").fillna(0).sort_index()
-            if tab.empty:
-                return None
-            _cols = [c for c in _fuente_cols if c in piv.columns]
-            tab["Total"] = tab[_cols].sum(axis=1) if _cols else 0
-            disp = pd.DataFrame()
-            disp["Día"] = pd.to_datetime(tab.index, errors="coerce").strftime("%d/%m/%Y")
-            for c in _cols:
-                disp[c] = tab[c].astype(int).values
-            disp["Total"]       = tab["Total"].astype(int).values
-            disp["Matrículas"]  = tab["Matriculas"].astype(int).values
-            disp["Facturación"] = [_e0(v) for v in tab["Facturacion"].values]
-            disp["Open Day"]    = tab["OpenDay"].astype(int).values
-            _tot = {"Día": "TOTAL"}
-            for c in _cols:
-                _tot[c] = int(tab[c].sum())
-            _tot["Total"]       = int(tab["Total"].sum())
-            _tot["Matrículas"]  = int(tab["Matriculas"].sum())
-            _tot["Facturación"] = _e0(tab["Facturacion"].sum())
-            _tot["Open Day"]    = int(tab["OpenDay"].sum())
-            _out = pd.concat([disp, pd.DataFrame([_tot])], ignore_index=True)
-            # cabeceras agrupadas: LEADS · MATRÍCULAS · FACTURACIÓN · OPEN DAY
-            _out.columns = pd.MultiIndex.from_tuples(
-                [("", "Día")]
-                + [("LEADS", c) for c in _cols]
-                + [("LEADS", "TOTAL"),
-                   ("MATRÍCULAS", "Nº"),
-                   ("FACTURACIÓN", "€"),
-                   ("OPEN DAY", "Nº")]
-            )
-            return _out
+                _piv_m = pd.DataFrame(); _piv_f = pd.DataFrame()
+
+            _tab_m = _render_tabla(_piv_m, False, "TOTAL matrículas")
+            st.markdown("**Matrículas por fuente**")
+            if _tab_m is not None:
+                st.dataframe(_tab_m, use_container_width=True, hide_index=True)
+            else:
+                st.info("Sin matrículas en el período/filtros.")
+
+            _tab_f = _render_tabla(_piv_f, True, "TOTAL facturación")
+            st.markdown("**Facturación por fuente (€)**")
+            if _tab_f is not None:
+                st.dataframe(_tab_f, use_container_width=True, hide_index=True)
+            else:
+                st.info("Sin facturación en el período/filtros.")
 
         _t_pres, _t_onl = st.tabs(["🏫 Presencial", "🌐 Online"])
         with _t_pres:
-            _cp = _cuadro("Presencial")
-            if _cp is not None:
-                st.dataframe(_cp, use_container_width=True, hide_index=True)
-            else:
-                st.info("Sin datos presenciales en el período/filtros.")
+            _cuadro("Presencial")
         with _t_onl:
-            _co = _cuadro("Online")
-            if _co is not None:
-                st.dataframe(_co, use_container_width=True, hide_index=True)
-            else:
-                st.info("Sin datos online en el período/filtros.")
+            _cuadro("Online")
 
     # ── Router de páginas ───────────────────────────────────────────────────
     {
