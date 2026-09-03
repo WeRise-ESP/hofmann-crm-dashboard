@@ -2874,7 +2874,7 @@ def main():
     with st.sidebar:
         st.markdown(f"<h2 style='color:{BARCA['gold']};margin-bottom:8px'>📁 Páginas</h2>",
                     unsafe_allow_html=True)
-        _PAGINAS = ["💰 Contactos, Conversión & ROI", "📊 RST Dashboard", "📍 Leads por Campaña"]
+        _PAGINAS = ["💰 Contactos, Conversión & ROI", "📊 RST Dashboard", "📍 Leads por Campaña", "📚 Contactos y ventas por curso"]
         _qp_load("f_pagina", "str")
         if st.session_state.get("f_pagina") not in _PAGINAS:
             st.session_state.pop("f_pagina", None)
@@ -7142,11 +7142,135 @@ def main():
                     )
 
 
+    def page_cursos():
+        _EXPORT.clear()
+        st.markdown(f"""
+        <div style="font-size:12px;color:{_RF['muted']};margin:0 0 6px">
+            Dashboard › <b style="color:{_RF['ink_soft']}">Contactos y ventas por curso</b>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 6px">
+            <span style="font-size:29px;font-weight:800;color:{_RF['ink']};
+                         letter-spacing:-.6px">📚 Contactos y ventas por curso</span>
+            <span style="background:{_RF['chip_bg']};color:{_RF['chip_tx']};font-size:12.5px;
+                         font-weight:700;padding:4px 12px;border-radius:20px">{periodo_txt}</span>
+        </div>
+        <div style="color:{_RF['muted']};font-size:13.5px;margin:0 0 16px;max-width:1150px">
+            Serie diaria de contactos creados y cierres ganados con su facturación, desglosado
+            por curso y por modalidad (presencial / online) · Fuente: HubSpot CRM
+        </div>
+        """, unsafe_allow_html=True)
+
+        _eur = lambda v: (f"{float(v):,.0f}".replace(",", ".") + " €")
+        _mil = lambda v: (f"{int(v):,}".replace(",", "."))
+
+        # ── datasets con los filtros del sidebar ──────────────────────────────
+        _lc = df.copy()
+        _pp = df_pip_full.copy()
+        if not _lc.empty:
+            if filtro_fuente:              _lc = _lc[_lc["fuente"].isin(filtro_fuente)]
+            if filtro_pais:                _lc = _lc[_lc["pais"].isin(filtro_pais)]
+            if filtro_categoria:           _lc = _lc[_lc["categoria"].isin(filtro_categoria)]
+            if filtro_modalidad_contacto:  _lc = _lc[_lc["modalidad"].isin(filtro_modalidad_contacto)]
+        if not _pp.empty:
+            if filtro_fuente:              _pp = _pp[_pp["fuente"].isin(filtro_fuente)]
+            if filtro_pais:                _pp = _pp[_pp["pais"].isin(filtro_pais)]
+            if filtro_modalidad_negocio:   _pp = _pp[_pp["modalidad"].isin(filtro_modalidad_negocio)]
+        _won = (_pp[_pp["gano_periodo"]] if (not _pp.empty and "gano_periodo" in _pp.columns)
+                else pd.DataFrame(columns=_pp.columns if not _pp.empty else ["deal_id", "amount", "programa", "modalidad", "fecha_cierre"]))
+
+        # ── KPIs ──────────────────────────────────────────────────────────────
+        _n_cont = len(_lc)
+        _n_won  = _won["deal_id"].nunique() if not _won.empty else 0
+        _fact   = float(_won["amount"].sum()) if not _won.empty else 0.0
+        _ticket = (_fact / _n_won) if _n_won else 0.0
+        _k1, _k2, _k3, _k4 = st.columns(4)
+        _k1.metric("Contactos", _mil(_n_cont))
+        _k2.metric("Cierres ganados", _mil(_n_won))
+        _k3.metric("Facturación", _eur(_fact))
+        _k4.metric("Ticket medio", _eur(_ticket) if _n_won else "—")
+
+        # ── serie diaria ──────────────────────────────────────────────────────
+        _cd = (_lc.groupby("fecha").size().rename("Contactos").reset_index()
+               if not _lc.empty else pd.DataFrame(columns=["fecha", "Contactos"]))
+        if not _won.empty:
+            _wd = (_won.groupby("fecha_cierre")
+                       .agg(Cierres=("deal_id", "nunique"), Facturacion=("amount", "sum"))
+                       .reset_index().rename(columns={"fecha_cierre": "fecha"}))
+        else:
+            _wd = pd.DataFrame(columns=["fecha", "Cierres", "Facturacion"])
+        if not _cd.empty: _cd["fecha"] = pd.to_datetime(_cd["fecha"], errors="coerce")
+        if not _wd.empty: _wd["fecha"] = pd.to_datetime(_wd["fecha"], errors="coerce")
+
+        def _mini(fig):
+            fig.update_layout(height=250, margin=dict(l=0, r=0, t=8, b=0),
+                              xaxis_title=None, yaxis_title=None,
+                              plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)")
+            return fig
+
+        _c1, _c2 = st.columns(2)
+        with _c1:
+            st.markdown("**Contactos por día**")
+            if not _cd.empty:
+                _f = px.area(_cd, x="fecha", y="Contactos")
+                _f.update_traces(line_color="#0D0E95", fillcolor="rgba(13,14,149,.12)")
+                st.plotly_chart(_mini(_f), use_container_width=True)
+            else:
+                st.info("Sin contactos en el período/filtros.")
+        with _c2:
+            st.markdown("**Cierres ganados por día**")
+            if not _wd.empty:
+                _f = px.bar(_wd, x="fecha", y="Cierres")
+                _f.update_traces(marker_color="#ECAB0F")
+                st.plotly_chart(_mini(_f), use_container_width=True)
+            else:
+                st.info("Sin cierres en el período/filtros.")
+
+        st.markdown("**Facturación por día (€)**")
+        if not _wd.empty:
+            _f = px.bar(_wd, x="fecha", y="Facturacion")
+            _f.update_traces(marker_color="#0D0E95")
+            st.plotly_chart(_mini(_f), use_container_width=True)
+
+        # ── tabla por curso ───────────────────────────────────────────────────
+        st.markdown("#### Por curso")
+        _cc = (_lc.groupby("programa").size().rename("Contactos")
+               if not _lc.empty else pd.Series(dtype=int, name="Contactos"))
+        _wc = (_won.groupby("programa").agg(Cierres=("deal_id", "nunique"),
+                                            Facturacion=("amount", "sum"))
+               if not _won.empty else pd.DataFrame(columns=["Cierres", "Facturacion"]))
+        _tab = pd.concat([_cc, _wc], axis=1).fillna(0)
+        if not _tab.empty:
+            _tab = _tab.reset_index().rename(columns={"index": "Curso", "programa": "Curso"})
+            _tab = _tab.sort_values("Facturacion", ascending=False)
+            _show = pd.DataFrame({
+                "Curso":        _tab["Curso"],
+                "Contactos":    _tab["Contactos"].astype(int).map(_mil),
+                "Cierres":      _tab["Cierres"].astype(int).map(_mil),
+                "Facturación":  _tab["Facturacion"].map(_eur),
+                "Ticket medio": _tab.apply(lambda r: _eur(r["Facturacion"] / r["Cierres"]) if r["Cierres"] else "—", axis=1),
+            })
+            st.dataframe(_show, use_container_width=True, hide_index=True)
+
+        # ── presencial vs online ──────────────────────────────────────────────
+        st.markdown("#### Presencial vs Online")
+        _mrows = []
+        for _m in ["Presencial", "Online"]:
+            _lcm = _lc[_lc["modalidad"].str.contains(_m, case=False, na=False)] if not _lc.empty else _lc
+            _wm  = _won[_won["modalidad"].str.contains(_m, case=False, na=False)] if not _won.empty else _won
+            _mrows.append({
+                "Modalidad":   _m,
+                "Contactos":   _mil(len(_lcm)),
+                "Cierres":     _mil(_wm["deal_id"].nunique() if not _wm.empty else 0),
+                "Facturación": _eur(float(_wm["amount"].sum()) if not _wm.empty else 0.0),
+            })
+        st.dataframe(pd.DataFrame(_mrows), use_container_width=True, hide_index=True)
+
     # ── Router de páginas ───────────────────────────────────────────────────
     {
         "💰 Contactos, Conversión & ROI": page_roi,
         "📊 RST Dashboard":               page_rst,
         "📍 Leads por Campaña":           page_campana,
+        "📚 Contactos y ventas por curso": page_cursos,
     }[_pagina]()
 
     # ── Footer ──────────────────────────────────────────────────────────────────
