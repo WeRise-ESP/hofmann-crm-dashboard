@@ -3307,7 +3307,11 @@ def main():
     # Se detectan por categoría, formulario de conversión o campaña de origen;
     # un Cierre Ganado se queda aunque venga de un evento (la matrícula manda).
     if not df.empty:
-        df = df[~mask_leads_evento(df)]
+        _evt_mask = mask_leads_evento(df)
+        df_evento = df[_evt_mask].copy()      # eventos (webinar/open day) para la página Cuadro Diario
+        df = df[~_evt_mask]
+    else:
+        df_evento = df.copy()
 
     # Aplicar filtro de modalidad de negocio al pipeline
     if filtro_modalidad_negocio and not df_pipeline_periodo.empty:
@@ -7555,7 +7559,13 @@ def main():
                    if not _lc.empty else _lc)
             _wm = (_won[_won["modalidad"].str.contains(mod, case=False, na=False)]
                    if not _won.empty else _won)
-            if _lm.empty and _wm.empty:
+            # Open Day = contactos con formulario de Open Day (excluidos de los leads)
+            _om = (df_evento[df_evento["form_conv"].str.contains("open day", case=False, na=False)]
+                   if (isinstance(df_evento, pd.DataFrame) and not df_evento.empty
+                       and "form_conv" in df_evento.columns) else pd.DataFrame(columns=["fecha", "modalidad"]))
+            if not _om.empty:
+                _om = _om[_om["modalidad"].str.contains(mod, case=False, na=False)]
+            if _lm.empty and _wm.empty and _om.empty:
                 return None
             piv = (_lm.groupby(["fecha", "fuente"]).size().unstack("fuente", fill_value=0)
                    if not _lm.empty else pd.DataFrame())
@@ -7565,7 +7575,10 @@ def main():
             else:
                 wg = pd.DataFrame(columns=["Matriculas", "Facturacion"])
             wg.index.name = "fecha"
-            tab = piv.join(wg, how="outer").fillna(0).sort_index()
+            og = (_om.groupby("fecha").size().to_frame("OpenDay") if not _om.empty
+                  else pd.DataFrame(columns=["OpenDay"]))
+            og.index.name = "fecha"
+            tab = piv.join(wg, how="outer").join(og, how="outer").fillna(0).sort_index()
             if tab.empty:
                 return None
             _cols = [c for c in _fuente_cols if c in piv.columns]
@@ -7577,20 +7590,23 @@ def main():
             disp["Total"]       = tab["Total"].astype(int).values
             disp["Matrículas"]  = tab["Matriculas"].astype(int).values
             disp["Facturación"] = [_e0(v) for v in tab["Facturacion"].values]
+            disp["Open Day"]    = tab["OpenDay"].astype(int).values
             _tot = {"Día": "TOTAL"}
             for c in _cols:
                 _tot[c] = int(tab[c].sum())
             _tot["Total"]       = int(tab["Total"].sum())
             _tot["Matrículas"]  = int(tab["Matriculas"].sum())
             _tot["Facturación"] = _e0(tab["Facturacion"].sum())
+            _tot["Open Day"]    = int(tab["OpenDay"].sum())
             _out = pd.concat([disp, pd.DataFrame([_tot])], ignore_index=True)
-            # cabeceras agrupadas: LEADS · MATRÍCULAS · FACTURACIÓN
+            # cabeceras agrupadas: LEADS · MATRÍCULAS · FACTURACIÓN · OPEN DAY
             _out.columns = pd.MultiIndex.from_tuples(
                 [("", "Día")]
                 + [("LEADS", c) for c in _cols]
                 + [("LEADS", "TOTAL"),
                    ("MATRÍCULAS", "Nº"),
-                   ("FACTURACIÓN", "€")]
+                   ("FACTURACIÓN", "€"),
+                   ("OPEN DAY", "Nº")]
             )
             return _out
 
