@@ -7579,7 +7579,7 @@ def main():
             if fuente == "Búsqueda pagada":
                 return "Google Ads"
             if fuente == "Social pagado":
-                return _RED2PLAT.get(str(red).strip().lower(), "Social pagado")
+                return _RED2PLAT.get(str(red).strip().lower(), "Meta")  # sin red → Meta
             return fuente
 
         # Orden agrupado: ORGÁNICO · PAID · OTROS
