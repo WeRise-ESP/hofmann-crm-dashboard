@@ -7582,10 +7582,10 @@ def main():
                 return _RED2PLAT.get(str(red).strip().lower(), "Social pagado")
             return fuente
 
-        # Orden agrupado: PAID · ORGÁNICO · OTROS
-        _ORDEN_DISP = ["Google Ads", "Meta", "TikTok", "LinkedIn", "Social pagado",
-                       "Búsqueda orgánica", "Tráfico directo", "Redes sociales",
-                       "Otras campañas", "Offline", "Email marketing",
+        # Orden agrupado: ORGÁNICO · PAID · OTROS
+        _ORDEN_DISP = ["Búsqueda orgánica", "Tráfico directo", "Redes sociales",
+                       "Google Ads", "Meta", "TikTok", "LinkedIn", "Social pagado",
+                       "Otras campañas", "Offline", "Open Day", "Email marketing",
                        "Referencias", "Referral IA", "Sin datos"]
         _GRUPO = {"Google Ads": "PAID", "Meta": "PAID", "TikTok": "PAID",
                   "LinkedIn": "PAID", "Social pagado": "PAID",
@@ -7603,42 +7603,51 @@ def main():
                     if _e and _e not in _red_by_email:
                         _red_by_email[_e] = _r
 
-        def _render_tabla(matriz, euro, total_label, extras=()):
-            """Tabla día × fuente (agrupada PAID/ORGÁNICO/OTROS) + total + fila TOTAL."""
-            idx = matriz.index if matriz is not None else pd.Index([])
-            for (_t, _s, _ser, _e) in extras:
-                idx = idx.union(_ser.index)
-            idx = idx.sort_values()
-            if len(idx) == 0:
+        def _render_tabla(matriz, euro, total_label, no_total=()):
+            """Tabla día × fuente (agrupada ORGÁNICO/PAID/OTROS) + total + fila TOTAL.
+            `no_total`: columnas que se muestran pero NO suman al total (p. ej. Open Day)."""
+            if matriz is None or matriz.empty:
                 return None
-            matriz = (matriz.reindex(idx, fill_value=0)
-                      if (matriz is not None and not matriz.empty) else pd.DataFrame(index=idx))
+            idx = matriz.index.sort_values()
+            matriz = matriz.reindex(idx, fill_value=0)
             _cols = ([c for c in _ORDEN_DISP if c in matriz.columns]
                      + [c for c in matriz.columns if c not in _ORDEN_DISP])
+            _totcols = [c for c in _cols if c not in no_total]
             _fmt = (lambda v: _e0(v)) if euro else (lambda v: int(round(float(v))))
             disp = pd.DataFrame()
             disp["Día"] = pd.to_datetime(idx, errors="coerce").strftime("%d/%m/%Y")
             for c in _cols:
                 disp[c] = [_fmt(v) for v in matriz[c].values]
-            _totser = (matriz[_cols].sum(axis=1) if _cols
+            _totser = (matriz[_totcols].sum(axis=1) if _totcols
                        else pd.Series([0] * len(idx), index=idx))
             disp[total_label] = [_fmt(v) for v in _totser.values]
-            for i, (_t, _s, _ser, _e) in enumerate(extras):
-                _sv = _ser.reindex(idx, fill_value=0)
-                disp[f"__x{i}"] = [(_e0(v) if _e else int(round(float(v)))) for v in _sv.values]
             _tot = {"Día": "TOTAL"}
             for c in _cols:
                 _tot[c] = _fmt(matriz[c].sum())
             _tot[total_label] = _fmt(_totser.sum())
-            for i, (_t, _s, _ser, _e) in enumerate(extras):
-                _tot[f"__x{i}"] = _e0(_ser.sum()) if _e else int(round(float(_ser.sum())))
             out = pd.concat([disp, pd.DataFrame([_tot])], ignore_index=True)
             tuples = ([("", "Día")]
                       + [(_GRUPO.get(c, "OTROS"), c) for c in _cols]
-                      + [("", total_label)]
-                      + [(_t, _s) for (_t, _s, _ser, _e) in extras])
+                      + [("", total_label)])
             out.columns = pd.MultiIndex.from_tuples(tuples)
             return out
+
+        def _show_tabla(out):
+            """Renderiza la tabla en HTML con las cabeceras de grupo centradas."""
+            _sty = [
+                {"selector": "th", "props": [("text-align", "center"), ("padding", "4px 10px"),
+                                             ("border-bottom", "1px solid rgba(128,128,128,.35)"),
+                                             ("white-space", "nowrap")]},
+                {"selector": "td", "props": [("text-align", "center"), ("padding", "3px 10px"),
+                                             ("white-space", "nowrap")]},
+                {"selector": "table", "props": [("border-collapse", "collapse"),
+                                                ("font-size", "13px")]},
+                {"selector": "tbody tr:last-child td",
+                 "props": [("font-weight", "700"),
+                           ("border-top", "1px solid rgba(128,128,128,.55)")]},
+            ]
+            _html = out.style.hide(axis="index").set_table_styles(_sty).to_html()
+            st.markdown(f'<div style="overflow-x:auto">{_html}</div>', unsafe_allow_html=True)
 
         def _cuadro(mod):
             _lm = (_lc[_lc["modalidad"].str.contains(mod, case=False, na=False)]
@@ -7664,12 +7673,17 @@ def main():
                 _piv_l = _lm.groupby(["fecha", "_fd"]).size().unstack("_fd", fill_value=0)
             else:
                 _piv_l = pd.DataFrame()
+            # Open Day como columna de OTROS (tras Offline), sin sumar al total
             _od = _om.groupby("fecha").size() if not _om.empty else pd.Series(dtype="int64")
-            _tab_l = _render_tabla(_piv_l, False, "TOTAL leads",
-                                   extras=[("OPEN DAY", "Nº", _od, False)])
+            if not _od.empty:
+                _od.name = "Open Day"
+                _piv_l = (_piv_l.join(_od, how="outer") if not _piv_l.empty
+                          else _od.to_frame())
+            _piv_l = _piv_l.fillna(0)
+            _tab_l = _render_tabla(_piv_l, False, "TOTAL leads", no_total=("Open Day",))
             st.markdown("**Leads por fuente**")
             if _tab_l is not None:
-                st.dataframe(_tab_l, use_container_width=True, hide_index=True)
+                _show_tabla(_tab_l)
             else:
                 st.info("Sin leads en el período/filtros.")
 
@@ -7690,14 +7704,14 @@ def main():
             _tab_m = _render_tabla(_piv_m, False, "TOTAL matrículas")
             st.markdown("**Matrículas por fuente**")
             if _tab_m is not None:
-                st.dataframe(_tab_m, use_container_width=True, hide_index=True)
+                _show_tabla(_tab_m)
             else:
                 st.info("Sin matrículas en el período/filtros.")
 
             _tab_f = _render_tabla(_piv_f, True, "TOTAL facturación")
             st.markdown("**Facturación por fuente (€)**")
             if _tab_f is not None:
-                st.dataframe(_tab_f, use_container_width=True, hide_index=True)
+                _show_tabla(_tab_f)
             else:
                 st.info("Sin facturación en el período/filtros.")
 
