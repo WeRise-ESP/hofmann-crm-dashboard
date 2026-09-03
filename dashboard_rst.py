@@ -7572,7 +7572,8 @@ def main():
         _e0 = lambda v: (f"{float(v):,.0f}".replace(",", ".") + " €")
         # Dentro del social de pago, separar Meta / TikTok / LinkedIn según red_social
         _RED2PLAT = {"facebook": "Meta", "instagram": "Meta", "meta": "Meta", "fb": "Meta",
-                     "linkedin": "LinkedIn", "tiktok": "TikTok"}
+                     "linkedin": "LinkedIn", "tiktok": "TikTok",
+                     "youtube": "Google Ads"}  # PMax sirve en YouTube pero es Google Ads
 
         def _fdisp(fuente, red):
             if fuente == "Búsqueda pagada":
