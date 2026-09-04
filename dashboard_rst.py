@@ -7418,6 +7418,8 @@ def main():
         st.caption("**Leads** = contactos nuevos creados ese día (por su fuente de "
                    "tráfico) · **Matrículas** = cierres ganados / deals · "
                    "**Facturación** = importe de esos cierres ganados.")
+        st.caption("💸 La **inversión** incluye la comisión de plataforma en toda la "
+                   "página: **Google +2 %** y **Meta +3 %** (TikTok y LinkedIn sin tasa).")
 
         def _mini(fig, legend=False):
             fig.update_layout(height=280, margin=dict(l=0, r=0, t=8, b=0),
@@ -7542,6 +7544,16 @@ def main():
                 "Coste/mat.":  _fmt_eur(_iv / _nm) if (_iv and _nm) else "—",
                 "ROI":         (f"{(_ff - _iv) / _iv * 100:.0f} %".replace(".", ",")) if _iv else "—",
             })
+        _mrows.append({
+            "Modalidad":   "TOTAL",
+            "Inversión":   _fmt_eur0(_inv_tot),
+            "Leads":       _fmt_int(_n_leads),
+            "Matrículas":  _fmt_int(_n_won),
+            "Facturación": _fmt_eur0(_fact),
+            "CPL":         _fmt_eur(_inv_tot / _n_leads) if (_inv_tot and _n_leads) else "—",
+            "Coste/mat.":  _fmt_eur(_inv_tot / _n_won) if (_inv_tot and _n_won) else "—",
+            "ROI":         (f"{(_fact - _inv_tot) / _inv_tot * 100:.0f} %".replace(".", ",")) if _inv_tot else "—",
+        })
         st.dataframe(pd.DataFrame(_mrows), use_container_width=True, hide_index=True)
         _sa = float(_inv_by.get("Sin asignar", 0.0))
         if _sa:
@@ -7567,6 +7579,13 @@ def main():
                 "Ticket medio": _tab.apply(lambda r: _fmt_eur0(r["Facturacion"] / r["Matriculas"])
                                            if r["Matriculas"] else "—", axis=1),
             })
+            _tl = int(_tab["Leads"].sum()); _tm = int(_tab["Matriculas"].sum())
+            _tf = float(_tab["Facturacion"].sum())
+            _show = pd.concat([_show, pd.DataFrame([{
+                "Curso": "TOTAL", "Leads": _fmt_int(_tl), "Matrículas": _fmt_int(_tm),
+                "Facturación": _fmt_eur0(_tf),
+                "Ticket medio": _fmt_eur0(_tf / _tm) if _tm else "—",
+            }])], ignore_index=True)
             st.dataframe(_show, use_container_width=True, hide_index=True)
             st.caption("ℹ️ La inversión de Ads no se reparte por curso: las campañas no "
                        "siempre mapean a un curso concreto. Se muestra en el total y por modalidad.")
