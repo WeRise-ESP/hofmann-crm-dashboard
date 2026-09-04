@@ -7612,21 +7612,17 @@ def main():
             _dias = list(matriz.index.sort_values())
             _cols_f = ([c for c in _ORDEN_DISP if c in matriz.columns]
                        + [c for c in matriz.columns if c not in _ORDEN_DISP])
-            _fmt = (lambda v: _e0(v)) if euro else (lambda v: int(round(float(v))))
+            _fmt = (lambda v: _e0(v)) if euro else (lambda v: str(int(round(float(v)))))
             _tt = matriz.reindex(index=_dias, columns=_cols_f).fillna(0).T   # fila=fuente, col=fecha
             _lbl = [pd.to_datetime(d, errors="coerce").strftime("%d/%m") for d in _dias]
-            _rows, _idx = [], []
-            for f in _cols_f:
-                _rows.append([_fmt(v) for v in _tt.loc[f].values] + [_fmt(_tt.loc[f].sum())])
-                _idx.append((_GRUPO.get(f, "OTROS"), f))
+            _filas = [(_GRUPO.get(f, "OTROS"), f,
+                       [_fmt(v) for v in _tt.loc[f].values], _fmt(_tt.loc[f].sum()))
+                      for f in _cols_f]
             _tcols = [f for f in _cols_f if f not in no_total]
             _dtot = [_fmt(_tt.loc[_tcols, d].sum()) for d in _dias] if _tcols else [_fmt(0)] * len(_dias)
             _gtot = _fmt(_tt.loc[_tcols].values.sum()) if _tcols else _fmt(0)
-            _rows.append(_dtot + [_gtot])
-            _idx.append(("", total_label))
-            out = pd.DataFrame(_rows, columns=_lbl + ["TOTAL"])
-            out.index = pd.MultiIndex.from_tuples(_idx)
-            return out
+            return {"dias": _lbl, "filas": _filas, "total_label": total_label,
+                    "total": _dtot, "grand": _gtot}
 
         def _tabla_conversion(piv_l, piv_m):
             """Conversión a matrícula = matrículas / leads, por día y fuente.
@@ -7648,64 +7644,62 @@ def main():
                 return (f"{m / l * 100:.1f} %".replace(".", ",")) if l else "—"
 
             _lbl = [pd.to_datetime(d, errors="coerce").strftime("%d/%m") for d in _dias]
-            _rows, _idx = [], []
-            for f in cols:
-                vals = [_pct(m, l) for m, l in zip(pm[f].values, pl[f].values)]
-                vals.append(_pct(pm[f].sum(), pl[f].sum()))
-                _rows.append(vals)
-                _idx.append((_GRUPO.get(f, "OTROS"), f))
+            _filas = [(_GRUPO.get(f, "OTROS"), f,
+                       [_pct(m, l) for m, l in zip(pm[f].values, pl[f].values)],
+                       _pct(pm[f].sum(), pl[f].sum())) for f in cols]
             _dtot = [_pct(pm.loc[d].sum(), pl.loc[d].sum()) for d in _dias]
-            _dtot.append(_pct(pm.values.sum(), pl.values.sum()))
-            _rows.append(_dtot)
-            _idx.append(("", "TOTAL"))
-            out = pd.DataFrame(_rows, columns=_lbl + ["TOTAL"])
-            out.index = pd.MultiIndex.from_tuples(_idx)
-            return out
+            _grand = _pct(pm.values.sum(), pl.values.sum())
+            return {"dias": _lbl, "filas": _filas, "total_label": "TOTAL",
+                    "total": _dtot, "grand": _grand}
 
-        def _show_tabla(out):
-            """Renderiza la tabla en HTML; fija las 2 primeras columnas (grupo y
-            fuente) al hacer scroll horizontal."""
+        def _show_tabla(d):
+            """Construye el HTML a mano: grupo fusionado (rowspan) + fuente, ambas
+            columnas fijas (sticky) al hacer scroll horizontal."""
             try:
                 _bg = (st.get_option("theme.backgroundColor")
                        or ("#0e1117" if st.get_option("theme.base") == "dark" else "#ffffff"))
             except Exception:
                 _bg = "#ffffff"
+            # agrupar filas por grupo (para el rowspan)
+            _grupos = []
+            for _g, _f, _vals, _tot in d["filas"]:
+                if _grupos and _grupos[-1][0] == _g:
+                    _grupos[-1][1].append((_f, _vals, _tot))
+                else:
+                    _grupos.append((_g, [(_f, _vals, _tot)]))
+            _days_th = "".join(f"<th>{x}</th>" for x in d["dias"]) + "<th>TOTAL</th>"
+            _body = ""
+            for _g, _items in _grupos:
+                for _i, (_f, _vals, _tot) in enumerate(_items):
+                    _gc = (f'<td class="cg" rowspan="{len(_items)}">{_g}</td>'
+                           if _i == 0 else "")
+                    _cells = "".join(f"<td>{v}</td>" for v in _vals) + f"<td>{_tot}</td>"
+                    _body += f"<tr>{_gc}<td class='cf'>{_f}</td>{_cells}</tr>"
+            _tc = "".join(f"<td>{v}</td>" for v in d["total"]) + f"<td>{d['grand']}</td>"
+            _body += (f"<tr class='tot'><td class='cg'></td>"
+                      f"<td class='cf'>{d['total_label']}</td>{_tc}</tr>")
             _css = (
                 "<style>"
                 "div.cuadro-sticky{overflow-x:auto}"
-                f"div.cuadro-sticky th.row_heading,div.cuadro-sticky th.blank"
-                f"{{position:sticky;z-index:3;background:{_bg};text-align:left;"
-                f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}"
-                # columna 1 = grupo (cuerpo level0 · esquina th.blank sin level)
-                "div.cuadro-sticky th.row_heading.level0,"
-                "div.cuadro-sticky th.blank:not(.level0)"
-                "{left:0;width:104px;min-width:104px;max-width:104px;"
-                "vertical-align:middle;font-weight:700}"
-                # columna 2 = fuente (cuerpo level1 · esquina th.blank.level0)
-                "div.cuadro-sticky th.row_heading.level1,"
-                "div.cuadro-sticky th.blank.level0"
-                "{left:104px;width:172px;min-width:172px;max-width:172px;"
-                "box-shadow:1px 0 0 rgba(128,128,128,.4)}"
+                "table.ct{width:100%;border-collapse:separate;border-spacing:0;font-size:13.5px}"
+                "table.ct th,table.ct td{padding:5px 12px;white-space:nowrap;text-align:center;"
+                "border-bottom:1px solid rgba(128,128,128,.15)}"
+                "table.ct thead th{border-bottom:1px solid rgba(128,128,128,.4)}"
+                f"table.ct td.cg,table.ct th.cg{{position:sticky;left:0;background:{_bg};z-index:3;"
+                "width:104px;min-width:104px;max-width:104px;font-weight:700;"
+                "text-transform:uppercase;font-size:11px;vertical-align:middle;"
+                "border-right:1px solid rgba(128,128,128,.15)}"
+                f"table.ct td.cf,table.ct th.cf{{position:sticky;left:104px;background:{_bg};z-index:3;"
+                "min-width:172px;max-width:172px;text-align:left;"
+                "box-shadow:1px 0 0 rgba(128,128,128,.35)}"
+                "table.ct thead th.cg,table.ct thead th.cf{z-index:4}"
+                "table.ct tr.tot td{font-weight:700;border-top:1px solid rgba(128,128,128,.5)}"
                 "</style>"
             )
-            _sty = [
-                {"selector": "th", "props": [("text-align", "center"), ("padding", "5px 12px"),
-                                             ("border-bottom", "1px solid rgba(128,128,128,.35)"),
-                                             ("white-space", "nowrap")]},
-                {"selector": "td", "props": [("text-align", "center"), ("padding", "4px 12px"),
-                                             ("white-space", "nowrap")]},
-                {"selector": "tbody tr:last-child td",
-                 "props": [("font-weight", "700"),
-                           ("border-top", "1px solid rgba(128,128,128,.55)")]},
-                {"selector": "tbody tr:last-child th",
-                 "props": [("font-weight", "700"),
-                           ("border-top", "1px solid rgba(128,128,128,.55)")]},
-            ]
-            _html = (out.style
-                     .set_table_attributes('style="width:100%;border-collapse:separate;'
-                                           'border-spacing:0;font-size:13.5px"')
-                     .set_table_styles(_sty).to_html())
-            st.markdown(f'{_css}<div class="cuadro-sticky">{_html}</div>', unsafe_allow_html=True)
+            st.markdown(f"{_css}<div class='cuadro-sticky'><table class='ct'>"
+                        f"<thead><tr><th class='cg'></th><th class='cf'>Fuente</th>"
+                        f"{_days_th}</tr></thead><tbody>{_body}</tbody></table></div>",
+                        unsafe_allow_html=True)
 
         def _cuadro(mod):
             # mod=None → General (todas las modalidades)
