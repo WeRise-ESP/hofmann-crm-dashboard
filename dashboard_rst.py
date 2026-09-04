@@ -7776,6 +7776,29 @@ def main():
             else:
                 st.info("Sin datos para calcular la conversión.")
 
+            # ── Inversión por plataforma × día (gasto de Ads) ──────────────────
+            _PLAT2DISP = {"Google Ads": "Google Ads", "Meta Ads": "Meta",
+                          "LinkedIn Ads": "LinkedIn", "TikTok Ads": "TikTok"}
+            if isinstance(_adsd, pd.DataFrame) and not _adsd.empty:
+                _ai = _adsd.copy()
+                if mod:  # filtrar por modalidad de la campaña (nombre)
+                    _ai = _ai[_ai["campaña"].apply(clasificar_modalidad_camp)
+                              .str.contains(mod, case=False, na=False)]
+                if not _ai.empty:
+                    _ai["_plat"] = _ai["plataforma"].map(lambda p: _PLAT2DISP.get(p, p))
+                    _piv_inv = (_ai.groupby(["fecha", "_plat"])["gasto"].sum()
+                                .unstack("_plat", fill_value=0))
+                else:
+                    _piv_inv = pd.DataFrame()
+            else:
+                _piv_inv = pd.DataFrame()
+            _tab_inv = _render_tabla(_piv_inv, True, "TOTAL inversión")
+            st.markdown("**Inversión por plataforma (€)**")
+            if _tab_inv is not None:
+                _show_tabla(_tab_inv)
+            else:
+                st.info("Sin datos de inversión (Ads) en el período.")
+
             _tab_f = _render_tabla(_piv_f, True, "TOTAL facturación")
             st.markdown("**Facturación por fuente (€)**")
             if _tab_f is not None:
