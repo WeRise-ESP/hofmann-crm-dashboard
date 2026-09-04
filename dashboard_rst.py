@@ -7581,25 +7581,35 @@ def main():
         if not _tab.empty:
             _tab = _tab.reset_index().rename(columns={"index": "Curso", "programa": "Curso"})
             _tab = _tab.sort_values("Facturacion", ascending=False)
-            _show = pd.DataFrame({
-                "Curso":        _tab["Curso"],
-                "Leads":        _tab["Leads"].astype(int).map(_fmt_int),
-                "Matrículas":   _tab["Matriculas"].astype(int).map(_fmt_int),
-                "Facturación":  _tab["Facturacion"].map(_fmt_eur0),
-                "Ticket medio": _tab.apply(lambda r: _fmt_eur0(r["Facturacion"] / r["Matriculas"])
-                                           if r["Matriculas"] else "—", axis=1),
-            })
+            _tab["Leads"] = _tab["Leads"].astype(int)
+            _tab["Matriculas"] = _tab["Matriculas"].astype(int)
+            _tab["Conversion"] = _tab.apply(
+                lambda r: (r["Matriculas"] / r["Leads"] * 100) if r["Leads"] else float("nan"), axis=1)
+            _tab["Ticket"] = _tab.apply(
+                lambda r: (r["Facturacion"] / r["Matriculas"]) if r["Matriculas"] else float("nan"), axis=1)
             _tl = int(_tab["Leads"].sum()); _tm = int(_tab["Matriculas"].sum())
             _tf = float(_tab["Facturacion"].sum())
-            _show = pd.concat([pd.DataFrame([{      # TOTAL arriba, siempre visible
-                "Curso": "TOTAL", "Leads": _fmt_int(_tl), "Matrículas": _fmt_int(_tm),
-                "Facturación": _fmt_eur0(_tf),
-                "Ticket medio": _fmt_eur0(_tf / _tm) if _tm else "—",
-            }]), _show], ignore_index=True)
-            st.dataframe(_show, use_container_width=True, hide_index=True,
-                         height=min(600, 44 + 35 * (len(_show) + 1)))
-            st.caption("ℹ️ La inversión de Ads no se reparte por curso: las campañas no "
-                       "siempre mapean a un curso concreto. Se muestra en el total y por modalidad.")
+            _total = pd.DataFrame([{
+                "Curso": "TOTAL", "Leads": _tl, "Matriculas": _tm,
+                "Conversion": (_tm / _tl * 100) if _tl else float("nan"),
+                "Facturacion": _tf, "Ticket": (_tf / _tm) if _tm else float("nan"),
+            }])
+            _num = pd.concat([_tab[["Curso", "Leads", "Matriculas", "Conversion",
+                                    "Facturacion", "Ticket"]], _total], ignore_index=True)  # TOTAL abajo
+            _num = _num.rename(columns={"Matriculas": "Matrículas", "Conversion": "Conversión",
+                                        "Facturacion": "Facturación", "Ticket": "Ticket medio"})
+            _f_pct = lambda v: (f"{v:.1f} %".replace(".", ",")) if pd.notna(v) else "—"
+            _f_eur = lambda v: (_fmt_eur0(v) if pd.notna(v) and v else "—")
+            _sty = (_num.style
+                    .format({"Leads": _fmt_int, "Matrículas": _fmt_int, "Conversión": _f_pct,
+                             "Facturación": _f_eur, "Ticket medio": _f_eur})
+                    .background_gradient(cmap="RdYlGn",
+                                         subset=pd.IndexSlice[_num.index[:-1], "Conversión"]))
+            st.dataframe(_sty, use_container_width=True, hide_index=True,
+                         height=min(1400, 44 + 35 * (len(_num) + 1)))
+            st.caption("ℹ️ Conversión = matrículas ÷ leads del curso (verde = más alta, rojo = "
+                       "más baja). La inversión de Ads no se reparte por curso (campañas no "
+                       "siempre mapeadas a un curso): se ve en el total y por modalidad.")
         else:
             st.info("Sin datos por curso en el período/filtros.")
 
