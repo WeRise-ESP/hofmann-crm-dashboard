@@ -7375,18 +7375,16 @@ def main():
                                   ["deal_id", "amount", "programa", "modalidad", "fecha_cierre"]))
 
         # ── inversión (gasto de Ads, ya sin webinars) ─────────────────────────
-        _ads_l = [d for d in [df_google, df_meta, df_linkedin, df_tiktok]
-                  if isinstance(d, pd.DataFrame) and not d.empty and "gasto" in d.columns]
-        _ads = (pd.concat(_ads_l, ignore_index=True) if _ads_l
-                else pd.DataFrame(columns=["fecha", "gasto", "modalidad_camp"]))
-        # Comisión de plataforma aplicada a TODA la página (Google +2%, Meta +3%)
-        _TASA_PLAT = {"Google Ads": 0.02, "Meta Ads": 0.03}
-        if not _ads.empty and "plataforma" in _ads.columns:
-            _ads = _ads.copy()
-            _ads["gasto"] = _ads["gasto"] * (1 + _ads["plataforma"].map(_TASA_PLAT).fillna(0.0))
-        _inv_tot = float(_ads["gasto"].sum()) if not _ads.empty else 0.0
-        _inv_by  = (_ads.groupby("modalidad_camp")["gasto"].sum().to_dict()
-                    if not _ads.empty and "modalidad_camp" in _ads.columns else {})
+        # ── Inversión (Ads): el gasto DIARIO (_adsd) es la ÚNICA fuente de toda la
+        #    página (KPI, CPL/ROAS, gráfico, tablas), para que todo cuadre entre sí.
+        _TASA_PLAT = {"Google Ads": 0.02, "Meta Ads": 0.03}  # comisión de plataforma
+        _adsd = get_ads_daily(_ads_start, _ads_end)
+        if not _adsd.empty:
+            _adsd = _adsd[~_adsd["campaña"].fillna("").apply(webinar_excluible)].copy()
+            _adsd["gasto"] = _adsd["gasto"] * (1 + _adsd["plataforma"].map(_TASA_PLAT).fillna(0.0))
+        _inv_tot = float(_adsd["gasto"].sum()) if not _adsd.empty else 0.0
+        _inv_by  = (_adsd.groupby(_adsd["campaña"].apply(clasificar_modalidad_camp))["gasto"]
+                    .sum().to_dict() if not _adsd.empty else {})
 
         # ── KPIs (embudo) ──────────────────────────────────────────────────────
         _n_leads = len(_lc)
@@ -7457,14 +7455,7 @@ def main():
             _md["fecha"] = pd.to_datetime(_md["fecha"], errors="coerce")
         else:
             _md = pd.DataFrame(columns=["fecha", "Modalidad", "Matriculas", "Facturacion"])
-        # inversión por día = gasto diario de las 4 plataformas, con la MISMA
-        # exclusión de webinars que aplica el total del período
-        _adsd = get_ads_daily(_ads_start, _ads_end)
-        if not _adsd.empty:
-            _adsd = _adsd[~_adsd["campaña"].fillna("").apply(webinar_excluible)]
-        if not _adsd.empty and "plataforma" in _adsd.columns:  # misma tasa que el total
-            _adsd = _adsd.copy()
-            _adsd["gasto"] = _adsd["gasto"] * (1 + _adsd["plataforma"].map(_TASA_PLAT).fillna(0.0))
+        # inversión por día para el gráfico (misma fuente _adsd, ya con tasa)
         if not _adsd.empty:
             _invd = (_adsd.groupby("fecha")["gasto"].sum()
                           .rename("Inversión").reset_index())
