@@ -7591,12 +7591,13 @@ def main():
             })
             _tl = int(_tab["Leads"].sum()); _tm = int(_tab["Matriculas"].sum())
             _tf = float(_tab["Facturacion"].sum())
-            _show = pd.concat([_show, pd.DataFrame([{
+            _show = pd.concat([pd.DataFrame([{      # TOTAL arriba, siempre visible
                 "Curso": "TOTAL", "Leads": _fmt_int(_tl), "Matrículas": _fmt_int(_tm),
                 "Facturación": _fmt_eur0(_tf),
                 "Ticket medio": _fmt_eur0(_tf / _tm) if _tm else "—",
-            }])], ignore_index=True)
-            st.dataframe(_show, use_container_width=True, hide_index=True)
+            }]), _show], ignore_index=True)
+            st.dataframe(_show, use_container_width=True, hide_index=True,
+                         height=min(600, 44 + 35 * (len(_show) + 1)))
             st.caption("ℹ️ La inversión de Ads no se reparte por curso: las campañas no "
                        "siempre mapean a un curso concreto. Se muestra en el total y por modalidad.")
         else:
