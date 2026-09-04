@@ -7663,7 +7663,24 @@ def main():
             return out
 
         def _show_tabla(out):
-            """Renderiza la tabla en HTML con las cabeceras de grupo centradas."""
+            """Renderiza la tabla en HTML; fija las 2 primeras columnas (grupo y
+            fuente) al hacer scroll horizontal."""
+            try:
+                _bg = (st.get_option("theme.backgroundColor")
+                       or ("#0e1117" if st.get_option("theme.base") == "dark" else "#ffffff"))
+            except Exception:
+                _bg = "#ffffff"
+            _css = (
+                "<style>"
+                "div.cuadro-sticky{overflow-x:auto}"
+                f"div.cuadro-sticky th.row_heading,div.cuadro-sticky th.blank"
+                f"{{position:sticky;z-index:2;background:{_bg}}}"
+                "div.cuadro-sticky th.row_heading.level0,div.cuadro-sticky th.blank.level0"
+                "{left:0;min-width:80px}"
+                "div.cuadro-sticky th.row_heading.level1,div.cuadro-sticky th.blank.level1"
+                "{left:80px;min-width:155px;box-shadow:1px 0 0 rgba(128,128,128,.35)}"
+                "</style>"
+            )
             _sty = [
                 {"selector": "th", "props": [("text-align", "center"), ("padding", "5px 12px"),
                                              ("border-bottom", "1px solid rgba(128,128,128,.35)"),
@@ -7681,7 +7698,7 @@ def main():
             _html = (out.style
                      .set_table_attributes('style="width:100%;border-collapse:collapse;font-size:13.5px"')
                      .set_table_styles(_sty).to_html())
-            st.markdown(f'<div style="overflow-x:auto">{_html}</div>', unsafe_allow_html=True)
+            st.markdown(f'{_css}<div class="cuadro-sticky">{_html}</div>', unsafe_allow_html=True)
 
         def _cuadro(mod):
             # mod=None → General (todas las modalidades)
