@@ -7718,7 +7718,7 @@ def main():
                 _piv_l = (_piv_l.join(_od, how="outer") if not _piv_l.empty
                           else _od.to_frame())
             _piv_l = _piv_l.fillna(0)
-            _tab_l = _render_tabla(_piv_l, False, "TOTAL leads", no_total=("Open Day",))
+            _tab_l = _render_tabla(_piv_l, False, "TOTAL leads")  # Open Day incluido en el total
             st.markdown("**Leads por fuente**")
             if _tab_l is not None:
                 _show_tabla(_tab_l)
