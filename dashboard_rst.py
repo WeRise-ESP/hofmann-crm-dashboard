@@ -7684,15 +7684,19 @@ def main():
             st.markdown(f'<div style="overflow-x:auto">{_html}</div>', unsafe_allow_html=True)
 
         def _cuadro(mod):
-            _lm = (_lc[_lc["modalidad"].str.contains(mod, case=False, na=False)]
-                   if not _lc.empty else _lc)
-            _wm = (_won[_won["modalidad"].str.contains(mod, case=False, na=False)]
-                   if not _won.empty else _won)
+            # mod=None → General (todas las modalidades)
+            if mod:
+                _lm = (_lc[_lc["modalidad"].str.contains(mod, case=False, na=False)]
+                       if not _lc.empty else _lc)
+                _wm = (_won[_won["modalidad"].str.contains(mod, case=False, na=False)]
+                       if not _won.empty else _won)
+            else:
+                _lm, _wm = _lc, _won
             # Open Day = contactos con formulario de Open Day (excluidos de los leads)
             _om = (df_evento[df_evento["form_conv"].str.contains("open day", case=False, na=False)]
                    if (isinstance(df_evento, pd.DataFrame) and not df_evento.empty
                        and "form_conv" in df_evento.columns) else pd.DataFrame(columns=["fecha", "modalidad"]))
-            if not _om.empty:
+            if mod and not _om.empty:
                 _om = _om[_om["modalidad"].str.contains(mod, case=False, na=False)]
             if _lm.empty and _wm.empty and _om.empty:
                 st.info("Sin datos en el período/filtros.")
@@ -7760,7 +7764,9 @@ def main():
             else:
                 st.info("Sin facturación en el período/filtros.")
 
-        _t_pres, _t_onl = st.tabs(["🏫 Presencial", "🌐 Online"])
+        _t_gen, _t_pres, _t_onl = st.tabs(["📊 General", "🏫 Presencial", "🌐 Online"])
+        with _t_gen:
+            _cuadro(None)
         with _t_pres:
             _cuadro("Presencial")
         with _t_onl:
