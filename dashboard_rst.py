@@ -7674,11 +7674,13 @@ def main():
                 "<style>"
                 "div.cuadro-sticky{overflow-x:auto}"
                 f"div.cuadro-sticky th.row_heading,div.cuadro-sticky th.blank"
-                f"{{position:sticky;z-index:2;background:{_bg}}}"
+                f"{{position:sticky;z-index:3;background:{_bg};overflow:hidden;"
+                f"text-overflow:ellipsis}}"
                 "div.cuadro-sticky th.row_heading.level0,div.cuadro-sticky th.blank.level0"
-                "{left:0;min-width:80px}"
+                "{left:0;width:104px;min-width:104px;max-width:104px}"
                 "div.cuadro-sticky th.row_heading.level1,div.cuadro-sticky th.blank.level1"
-                "{left:80px;min-width:155px;box-shadow:1px 0 0 rgba(128,128,128,.35)}"
+                "{left:104px;width:166px;min-width:166px;max-width:166px;"
+                "box-shadow:1px 0 0 rgba(128,128,128,.4)}"
                 "</style>"
             )
             _sty = [
@@ -7696,7 +7698,8 @@ def main():
                            ("border-top", "1px solid rgba(128,128,128,.55)")]},
             ]
             _html = (out.style
-                     .set_table_attributes('style="width:100%;border-collapse:collapse;font-size:13.5px"')
+                     .set_table_attributes('style="width:100%;border-collapse:separate;'
+                                           'border-spacing:0;font-size:13.5px"')
                      .set_table_styles(_sty).to_html())
             st.markdown(f'{_css}<div class="cuadro-sticky">{_html}</div>', unsafe_allow_html=True)
 
