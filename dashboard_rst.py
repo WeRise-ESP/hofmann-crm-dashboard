@@ -7375,16 +7375,35 @@ def main():
                                   ["deal_id", "amount", "programa", "modalidad", "fecha_cierre"]))
 
         # ── inversión (gasto de Ads, ya sin webinars) ─────────────────────────
-        # ── Inversión (Ads): el gasto DIARIO (_adsd) es la ÚNICA fuente de toda la
-        #    página (KPI, CPL/ROAS, gráfico, tablas), para que todo cuadre entre sí.
+        # ── Inversión (Ads): los TOTALES salen de los conectores por campaña
+        #    (igual que la página ROI); el gasto diario (_adsd) da la forma por día,
+        #    escalado por plataforma para que sume el total del conector → cuadra.
         _TASA_PLAT = {"Google Ads": 0.02, "Meta Ads": 0.03}  # comisión de plataforma
+
+        def _con_tasa(_d):
+            _d = _d.copy()
+            _d["gasto"] = _d["gasto"] * (1 + _d["plataforma"].map(_TASA_PLAT).fillna(0.0))
+            return _d
+
+        _ads_l = [_con_tasa(d) for d in [df_google, df_meta, df_linkedin, df_tiktok]
+                  if isinstance(d, pd.DataFrame) and not d.empty
+                  and {"gasto", "plataforma"} <= set(d.columns)]
+        _ads = (pd.concat(_ads_l, ignore_index=True) if _ads_l
+                else pd.DataFrame(columns=["gasto", "modalidad_camp", "plataforma"]))
+        _inv_tot = float(_ads["gasto"].sum()) if not _ads.empty else 0.0
+        _inv_by  = (_ads.groupby("modalidad_camp")["gasto"].sum().to_dict()
+                    if not _ads.empty and "modalidad_camp" in _ads.columns else {})
+
+        # gasto diario, escalado por plataforma al total del conector
         _adsd = get_ads_daily(_ads_start, _ads_end)
         if not _adsd.empty:
             _adsd = _adsd[~_adsd["campaña"].fillna("").apply(webinar_excluible)].copy()
             _adsd["gasto"] = _adsd["gasto"] * (1 + _adsd["plataforma"].map(_TASA_PLAT).fillna(0.0))
-        _inv_tot = float(_adsd["gasto"].sum()) if not _adsd.empty else 0.0
-        _inv_by  = (_adsd.groupby(_adsd["campaña"].apply(clasificar_modalidad_camp))["gasto"]
-                    .sum().to_dict() if not _adsd.empty else {})
+            _tp = (_ads.groupby("plataforma")["gasto"].sum()
+                   if not _ads.empty and "plataforma" in _ads.columns else pd.Series(dtype=float))
+            _dp = _adsd.groupby("plataforma")["gasto"].sum()
+            _adsd["gasto"] = _adsd["gasto"] * _adsd["plataforma"].map(
+                lambda p: (_tp.get(p, 0.0) / _dp.get(p)) if _dp.get(p, 0) else 1.0)
 
         # ── KPIs (embudo) ──────────────────────────────────────────────────────
         _n_leads = len(_lc)
