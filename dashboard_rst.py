@@ -7379,6 +7379,11 @@ def main():
                   if isinstance(d, pd.DataFrame) and not d.empty and "gasto" in d.columns]
         _ads = (pd.concat(_ads_l, ignore_index=True) if _ads_l
                 else pd.DataFrame(columns=["fecha", "gasto", "modalidad_camp"]))
+        # Comisión de plataforma aplicada a TODA la página (Google +2%, Meta +3%)
+        _TASA_PLAT = {"Google Ads": 0.02, "Meta Ads": 0.03}
+        if not _ads.empty and "plataforma" in _ads.columns:
+            _ads = _ads.copy()
+            _ads["gasto"] = _ads["gasto"] * (1 + _ads["plataforma"].map(_TASA_PLAT).fillna(0.0))
         _inv_tot = float(_ads["gasto"].sum()) if not _ads.empty else 0.0
         _inv_by  = (_ads.groupby("modalidad_camp")["gasto"].sum().to_dict()
                     if not _ads.empty and "modalidad_camp" in _ads.columns else {})
@@ -7455,6 +7460,9 @@ def main():
         _adsd = get_ads_daily(_ads_start, _ads_end)
         if not _adsd.empty:
             _adsd = _adsd[~_adsd["campaña"].fillna("").apply(webinar_excluible)]
+        if not _adsd.empty and "plataforma" in _adsd.columns:  # misma tasa que el total
+            _adsd = _adsd.copy()
+            _adsd["gasto"] = _adsd["gasto"] * (1 + _adsd["plataforma"].map(_TASA_PLAT).fillna(0.0))
         if not _adsd.empty:
             _invd = (_adsd.groupby("fecha")["gasto"].sum()
                           .rename("Inversión").reset_index())
@@ -7775,7 +7783,7 @@ table.ct tr.tot td{font-weight:700;border-top:1px solid rgba(128,128,128,.5)}
             _PLAT2DISP = {"Google Ads": "Google Ads", "Meta Ads": "Meta",
                           "LinkedIn Ads": "LinkedIn", "TikTok Ads": "TikTok"}
             if isinstance(_adsd, pd.DataFrame) and not _adsd.empty:
-                _ai = _adsd.copy()
+                _ai = _adsd.copy()   # la tasa ya viene aplicada en _adsd
                 if mod:  # filtrar por modalidad de la campaña (nombre)
                     _ai = _ai[_ai["campaña"].apply(clasificar_modalidad_camp)
                               .str.contains(mod, case=False, na=False)]
@@ -7788,7 +7796,7 @@ table.ct tr.tot td{font-weight:700;border-top:1px solid rgba(128,128,128,.5)}
             else:
                 _piv_inv = pd.DataFrame()
             _tab_inv = _render_tabla(_piv_inv, True, "TOTAL inversión")
-            st.markdown("**Inversión por plataforma (€)**")
+            st.markdown("**Inversión por plataforma (€)** · incluye tasa: Google +2 %, Meta +3 %")
             if _tab_inv is not None:
                 _show_tabla(_tab_inv)
             else:
