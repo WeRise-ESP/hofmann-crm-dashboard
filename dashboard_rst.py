@@ -7604,32 +7604,28 @@ def main():
                         _red_by_email[_e] = _r
 
         def _render_tabla(matriz, euro, total_label, no_total=()):
-            """Tabla día × fuente (agrupada ORGÁNICO/PAID/OTROS) + total + fila TOTAL.
-            `no_total`: columnas que se muestran pero NO suman al total (p. ej. Open Day)."""
+            """Tabla fuente (filas, agrupadas ORGÁNICO/PAID/OTROS) × día (columnas),
+            con TOTAL por fuente (última columna) y fila TOTAL por día.
+            `no_total`: fuentes que se muestran pero NO suman a la fila TOTAL."""
             if matriz is None or matriz.empty:
                 return None
-            idx = matriz.index.sort_values()
-            matriz = matriz.reindex(idx, fill_value=0)
-            _cols = ([c for c in _ORDEN_DISP if c in matriz.columns]
-                     + [c for c in matriz.columns if c not in _ORDEN_DISP])
-            _totcols = [c for c in _cols if c not in no_total]
+            _dias = list(matriz.index.sort_values())
+            _cols_f = ([c for c in _ORDEN_DISP if c in matriz.columns]
+                       + [c for c in matriz.columns if c not in _ORDEN_DISP])
             _fmt = (lambda v: _e0(v)) if euro else (lambda v: int(round(float(v))))
-            disp = pd.DataFrame()
-            disp["Día"] = pd.to_datetime(idx, errors="coerce").strftime("%d/%m/%Y")
-            for c in _cols:
-                disp[c] = [_fmt(v) for v in matriz[c].values]
-            _totser = (matriz[_totcols].sum(axis=1) if _totcols
-                       else pd.Series([0] * len(idx), index=idx))
-            disp[total_label] = [_fmt(v) for v in _totser.values]
-            _tot = {"Día": "TOTAL"}
-            for c in _cols:
-                _tot[c] = _fmt(matriz[c].sum())
-            _tot[total_label] = _fmt(_totser.sum())
-            out = pd.concat([disp, pd.DataFrame([_tot])], ignore_index=True)
-            tuples = ([("", "Día")]
-                      + [(_GRUPO.get(c, "OTROS"), c) for c in _cols]
-                      + [("", total_label)])
-            out.columns = pd.MultiIndex.from_tuples(tuples)
+            _tt = matriz.reindex(index=_dias, columns=_cols_f).fillna(0).T   # fila=fuente, col=fecha
+            _lbl = [pd.to_datetime(d, errors="coerce").strftime("%d/%m") for d in _dias]
+            _rows, _idx = [], []
+            for f in _cols_f:
+                _rows.append([_fmt(v) for v in _tt.loc[f].values] + [_fmt(_tt.loc[f].sum())])
+                _idx.append((_GRUPO.get(f, "OTROS"), f))
+            _tcols = [f for f in _cols_f if f not in no_total]
+            _dtot = [_fmt(_tt.loc[_tcols, d].sum()) for d in _dias] if _tcols else [_fmt(0)] * len(_dias)
+            _gtot = _fmt(_tt.loc[_tcols].values.sum()) if _tcols else _fmt(0)
+            _rows.append(_dtot + [_gtot])
+            _idx.append(("", total_label))
+            out = pd.DataFrame(_rows, columns=_lbl + ["TOTAL"])
+            out.index = pd.MultiIndex.from_tuples(_idx)
             return out
 
         def _tabla_conversion(piv_l, piv_m):
@@ -7641,29 +7637,29 @@ def main():
             pm = piv_m if piv_m is not None else pd.DataFrame()
             if pl.empty and pm.empty:
                 return None
-            idx = pl.index.union(pm.index).sort_values()
+            _dias = list(pl.index.union(pm.index).sort_values())
             cols = [c for c in _ORDEN_DISP if (c in pl.columns or c in pm.columns)]
             cols += [c for c in list(pl.columns) + list(pm.columns)
                      if c not in _ORDEN_DISP and c != "Open Day" and c not in cols]
-            pl = pl.reindex(index=idx, columns=cols, fill_value=0)
-            pm = pm.reindex(index=idx, columns=cols, fill_value=0)
+            pl = pl.reindex(index=_dias, columns=cols, fill_value=0)
+            pm = pm.reindex(index=_dias, columns=cols, fill_value=0)
 
             def _pct(m, l):
                 return (f"{m / l * 100:.1f} %".replace(".", ",")) if l else "—"
 
-            disp = pd.DataFrame()
-            disp["Día"] = pd.to_datetime(idx, errors="coerce").strftime("%d/%m/%Y")
-            for c in cols:
-                disp[c] = [_pct(m, l) for m, l in zip(pm[c].values, pl[c].values)]
-            _lt, _mt = pl[cols].sum(axis=1), pm[cols].sum(axis=1)
-            disp["TOTAL"] = [_pct(m, l) for m, l in zip(_mt.values, _lt.values)]
-            _tot = {"Día": "TOTAL"}
-            for c in cols:
-                _tot[c] = _pct(pm[c].sum(), pl[c].sum())
-            _tot["TOTAL"] = _pct(pm[cols].sum().sum(), pl[cols].sum().sum())
-            out = pd.concat([disp, pd.DataFrame([_tot])], ignore_index=True)
-            out.columns = pd.MultiIndex.from_tuples(
-                [("", "Día")] + [(_GRUPO.get(c, "OTROS"), c) for c in cols] + [("", "TOTAL")])
+            _lbl = [pd.to_datetime(d, errors="coerce").strftime("%d/%m") for d in _dias]
+            _rows, _idx = [], []
+            for f in cols:
+                vals = [_pct(m, l) for m, l in zip(pm[f].values, pl[f].values)]
+                vals.append(_pct(pm[f].sum(), pl[f].sum()))
+                _rows.append(vals)
+                _idx.append((_GRUPO.get(f, "OTROS"), f))
+            _dtot = [_pct(pm.loc[d].sum(), pl.loc[d].sum()) for d in _dias]
+            _dtot.append(_pct(pm.values.sum(), pl.values.sum()))
+            _rows.append(_dtot)
+            _idx.append(("", "TOTAL"))
+            out = pd.DataFrame(_rows, columns=_lbl + ["TOTAL"])
+            out.index = pd.MultiIndex.from_tuples(_idx)
             return out
 
         def _show_tabla(out):
@@ -7674,11 +7670,15 @@ def main():
                                              ("white-space", "nowrap")]},
                 {"selector": "td", "props": [("text-align", "center"), ("padding", "4px 12px"),
                                              ("white-space", "nowrap")]},
+                {"selector": "tbody th", "props": [("text-align", "left")]},
                 {"selector": "tbody tr:last-child td",
                  "props": [("font-weight", "700"),
                            ("border-top", "1px solid rgba(128,128,128,.55)")]},
+                {"selector": "tbody tr:last-child th",
+                 "props": [("font-weight", "700"),
+                           ("border-top", "1px solid rgba(128,128,128,.55)")]},
             ]
-            _html = (out.style.hide(axis="index")
+            _html = (out.style
                      .set_table_attributes('style="width:100%;border-collapse:collapse;font-size:13.5px"')
                      .set_table_styles(_sty).to_html())
             st.markdown(f'<div style="overflow-x:auto">{_html}</div>', unsafe_allow_html=True)
