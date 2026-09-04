@@ -2207,8 +2207,8 @@ def get_ads_daily(start: str, end: str) -> pd.DataFrame:
         except Exception as e:
             st.warning(f"Meta Ads (diario): {e}")
 
-    # ── LinkedIn y TikTok (ya son diarios) ────────────────────────────────────
-    for _f in (get_linkedin_sheets_data(start, end), get_tiktok_ads_data(start, end)):
+    # ── LinkedIn (API diaria o Sheet) y TikTok (ya son diarios) ───────────────
+    for _f in (get_linkedin_ads_data(start, end), get_tiktok_ads_data(start, end)):
         if isinstance(_f, pd.DataFrame) and not _f.empty \
                 and {"fecha", "gasto", "campaña"} <= set(_f.columns):
             _g = _f[["fecha", "campaña", "gasto"]].copy()
