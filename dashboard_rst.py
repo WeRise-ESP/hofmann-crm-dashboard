@@ -7615,17 +7615,18 @@ def main():
             _fmt = (lambda v: _e0(v)) if euro else (lambda v: int(round(float(v))))
             _tt = matriz.reindex(index=_dias, columns=_cols_f).fillna(0).T   # fila=fuente, col=fecha
             _lbl = [pd.to_datetime(d, errors="coerce").strftime("%d/%m") for d in _dias]
-            _rows, _lastg = [], None
+            _rows, _lastg = [], object()
             for f in _cols_f:
                 _g = _GRUPO.get(f, "OTROS")
-                _rows.append([(_g if _g != _lastg else ""), f]
-                             + [_fmt(v) for v in _tt.loc[f].values] + [_fmt(_tt.loc[f].sum())])
-                _lastg = _g
+                if _g != _lastg:                       # fila-cabecera de grupo
+                    _rows.append([_g] + [""] * (len(_dias) + 1))
+                    _lastg = _g
+                _rows.append([f] + [_fmt(v) for v in _tt.loc[f].values] + [_fmt(_tt.loc[f].sum())])
             _tcols = [f for f in _cols_f if f not in no_total]
             _dtot = [_fmt(_tt.loc[_tcols, d].sum()) for d in _dias] if _tcols else [_fmt(0)] * len(_dias)
             _gtot = _fmt(_tt.loc[_tcols].values.sum()) if _tcols else _fmt(0)
-            _rows.append(["", total_label] + _dtot + [_gtot])
-            return pd.DataFrame(_rows, columns=["", "Fuente"] + _lbl + ["TOTAL"])
+            _rows.append([total_label] + _dtot + [_gtot])
+            return pd.DataFrame(_rows, columns=["Fuente"] + _lbl + ["TOTAL"])
 
         def _tabla_conversion(piv_l, piv_m):
             """Conversión a matrícula = matrículas / leads, por día y fuente.
@@ -7647,17 +7648,19 @@ def main():
                 return (f"{m / l * 100:.1f} %".replace(".", ",")) if l else "—"
 
             _lbl = [pd.to_datetime(d, errors="coerce").strftime("%d/%m") for d in _dias]
-            _rows, _lastg = [], None
+            _rows, _lastg = [], object()
             for f in cols:
                 _g = _GRUPO.get(f, "OTROS")
+                if _g != _lastg:
+                    _rows.append([_g] + [""] * (len(_dias) + 1))
+                    _lastg = _g
                 vals = [_pct(m, l) for m, l in zip(pm[f].values, pl[f].values)]
                 vals.append(_pct(pm[f].sum(), pl[f].sum()))
-                _rows.append([(_g if _g != _lastg else ""), f] + vals)
-                _lastg = _g
+                _rows.append([f] + vals)
             _dtot = [_pct(pm.loc[d].sum(), pl.loc[d].sum()) for d in _dias]
             _dtot.append(_pct(pm.values.sum(), pl.values.sum()))
-            _rows.append(["", "TOTAL"] + _dtot)
-            return pd.DataFrame(_rows, columns=["", "Fuente"] + _lbl + ["TOTAL"])
+            _rows.append(["TOTAL"] + _dtot)
+            return pd.DataFrame(_rows, columns=["Fuente"] + _lbl + ["TOTAL"])
 
         def _show_tabla(out):
             """Renderiza la tabla en HTML; fija las 2 primeras columnas (grupo y
@@ -7671,18 +7674,18 @@ def main():
                 "<style>"
                 "div.cuadro-sticky{overflow-x:auto}"
                 f"div.cuadro-sticky td:nth-child(1),div.cuadro-sticky th:nth-child(1)"
-                f"{{position:sticky;left:0;background:{_bg};z-index:3;width:104px;"
-                f"min-width:104px;max-width:104px;overflow:hidden;text-overflow:ellipsis}}"
-                f"div.cuadro-sticky td:nth-child(2),div.cuadro-sticky th:nth-child(2)"
-                f"{{position:sticky;left:104px;background:{_bg};z-index:3;width:166px;"
-                f"min-width:166px;max-width:166px;overflow:hidden;text-overflow:ellipsis;"
-                f"box-shadow:1px 0 0 rgba(128,128,128,.4)}}"
+                f"{{position:sticky;left:0;background:{_bg};z-index:3;min-width:185px;"
+                f"max-width:185px;text-align:left;box-shadow:1px 0 0 rgba(128,128,128,.4)}}"
                 "</style>"
             )
 
-            def _sep(row):
-                _b = "1px solid rgba(128,128,128,.28)" if str(row.iloc[0]).strip() else ""
-                return [f"border-top:{_b}" for _ in row]
+            def _rowstyle(row):
+                # fila-cabecera de grupo = celdas de día vacías
+                if str(row.iloc[1]).strip() == "" and str(row.iloc[0]).strip():
+                    return ["font-weight:700;background:rgba(128,128,128,.12);"
+                            "text-transform:uppercase;font-size:11.5px;"
+                            "letter-spacing:.4px"] * len(row)
+                return [""] * len(row)
 
             _sty = [
                 {"selector": "th", "props": [("text-align", "center"), ("padding", "5px 12px"),
@@ -7690,13 +7693,12 @@ def main():
                                              ("white-space", "nowrap")]},
                 {"selector": "td", "props": [("text-align", "center"), ("padding", "4px 12px"),
                                              ("white-space", "nowrap")]},
-                {"selector": "td:nth-child(1)", "props": [("font-weight", "700")]},
-                {"selector": "td:nth-child(2)", "props": [("text-align", "left")]},
+                {"selector": "td:nth-child(1)", "props": [("text-align", "left")]},
                 {"selector": "tbody tr:last-child td",
                  "props": [("font-weight", "700"),
                            ("border-top", "1px solid rgba(128,128,128,.55)")]},
             ]
-            _html = (out.style.hide(axis="index").apply(_sep, axis=1)
+            _html = (out.style.hide(axis="index").apply(_rowstyle, axis=1)
                      .set_table_attributes('style="width:100%;border-collapse:separate;'
                                            'border-spacing:0;font-size:13.5px"')
                      .set_table_styles(_sty).to_html())
