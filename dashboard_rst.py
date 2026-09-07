@@ -7707,28 +7707,36 @@ def main():
             _tab["ObjLeads"] = _tab["Curso"].map(lambda c: int(_obj(c).get("leads", 0)))
             _tab["ObjMat"]   = _tab["Curso"].map(lambda c: int(_obj(c).get("matriculas", 0)))
             _tab["ObjFact"]  = _tab["Curso"].map(lambda c: float(_obj(c).get("facturacion", 0.0)))
+            _cum = lambda real, obj: (real / obj * 100) if obj else float("nan")
+            _tab["CumLeads"] = _tab.apply(lambda r: _cum(r["Leads"], r["ObjLeads"]), axis=1)
+            _tab["CumMat"]   = _tab.apply(lambda r: _cum(r["Matriculas"], r["ObjMat"]), axis=1)
+            _tab["CumFact"]  = _tab.apply(lambda r: _cum(r["Facturacion"], r["ObjFact"]), axis=1)
             _tl = int(_tab["Leads"].sum()); _tm = int(_tab["Matriculas"].sum())
             _tf = float(_tab["Facturacion"].sum())
+            _ol = int(_tab["ObjLeads"].sum()); _om2 = int(_tab["ObjMat"].sum()); _of2 = float(_tab["ObjFact"].sum())
             _total = pd.DataFrame([{
                 "Curso": "TOTAL", "Leads": _tl, "Matriculas": _tm,
                 "Conversion": (_tm / _tl * 100) if _tl else float("nan"),
                 "Facturacion": _tf, "Ticket": (_tf / _tm) if _tm else float("nan"),
-                "ObjLeads": int(_tab["ObjLeads"].sum()), "ObjMat": int(_tab["ObjMat"].sum()),
-                "ObjFact": float(_tab["ObjFact"].sum()),
+                "ObjLeads": _ol, "ObjMat": _om2, "ObjFact": _of2,
+                "CumLeads": _cum(_tl, _ol), "CumMat": _cum(_tm, _om2), "CumFact": _cum(_tf, _of2),
             }])
-            _co = ["Curso", "Leads", "ObjLeads", "Matriculas", "ObjMat", "Conversion",
-                   "Facturacion", "ObjFact", "Ticket"]
+            _co = ["Curso", "Leads", "ObjLeads", "CumLeads", "Matriculas", "ObjMat", "CumMat",
+                   "Conversion", "Facturacion", "ObjFact", "CumFact", "Ticket"]
             _num = pd.concat([_tab[_co], _total[_co]], ignore_index=True)  # TOTAL abajo
-            _num = _num.rename(columns={"ObjLeads": "Obj. leads", "Matriculas": "Matrículas",
-                                        "ObjMat": "Obj. matr.", "Conversion": "Conversión",
+            _num = _num.rename(columns={"ObjLeads": "Obj. leads", "CumLeads": "% leads",
+                                        "Matriculas": "Matrículas", "ObjMat": "Obj. matr.",
+                                        "CumMat": "% matr.", "Conversion": "Conversión",
                                         "Facturacion": "Facturación", "ObjFact": "Obj. fact.",
-                                        "Ticket": "Ticket medio"})
+                                        "CumFact": "% fact.", "Ticket": "Ticket medio"})
             _f_pct = lambda v: (f"{v:.1f} %".replace(".", ",")) if pd.notna(v) else "—"
+            _f_cum = lambda v: (f"{v:.0f} %") if pd.notna(v) else "—"
             _f_eur = lambda v: (_fmt_eur0(v) if pd.notna(v) and v else "—")
             _sty = (_num.style
-                    .format({"Leads": _fmt_int, "Obj. leads": _fmt_int, "Matrículas": _fmt_int,
-                             "Obj. matr.": _fmt_int, "Conversión": _f_pct,
-                             "Facturación": _f_eur, "Obj. fact.": _f_eur, "Ticket medio": _f_eur})
+                    .format({"Leads": _fmt_int, "Obj. leads": _fmt_int, "% leads": _f_cum,
+                             "Matrículas": _fmt_int, "Obj. matr.": _fmt_int, "% matr.": _f_cum,
+                             "Conversión": _f_pct, "Facturación": _f_eur, "Obj. fact.": _f_eur,
+                             "% fact.": _f_cum, "Ticket medio": _f_eur})
                     .background_gradient(cmap="RdYlGn",
                                          subset=pd.IndexSlice[_num.index[:-1], "Conversión"]))
             st.dataframe(_sty, use_container_width=True, hide_index=True,
