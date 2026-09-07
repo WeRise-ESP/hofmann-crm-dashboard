@@ -2158,12 +2158,18 @@ def get_objetivos_mes() -> dict:
 
         out = {}
         for _, row in df.iterrows():
-            _r = list(row)
-            if len(_r) < 5:
-                continue
+            _r = list(row) + [""] * 30
             _k = str(_r[2]).strip().upper()
-            if _k in ("PRESENCIAL", "ONLINE", "TOTAL") and _k.title() not in out and _num(_r[3]) > 0:
-                out[_k.title()] = {"matriculas": int(_num(_r[3])), "facturacion": _num(_r[4])}
+            _kk = _k.title() if _k in ("PRESENCIAL", "ONLINE") else "Total"
+            # matrículas y facturación (Obj matris / Obj fact)
+            if _k in ("PRESENCIAL", "ONLINE", "TOTAL") and _num(_r[3]) > 0 \
+                    and "matriculas" not in out.get(_k.title(), {}):
+                out.setdefault(_k.title(), {}).update(
+                    {"matriculas": int(_num(_r[3])), "facturacion": _num(_r[4])})
+            # leads e inversión (Obj final leads / Obj final inv)
+            if _num(_r[7]) > 0 and "leads" not in out.get(_kk, {}):
+                out.setdefault(_kk, {}).update(
+                    {"leads": int(_num(_r[7])), "inversion": _num(_r[8])})
         return out
     except Exception as e:
         st.warning(f"Objetivos (Sheet): {e}")
@@ -7691,10 +7697,11 @@ def main():
                     if _e and _e not in _red_by_email:
                         _red_by_email[_e] = _r
 
-        def _render_tabla(matriz, euro, total_label, no_total=()):
+        def _render_tabla(matriz, euro, total_label, no_total=(), plan=None):
             """Tabla fuente (filas) × día (columnas). Grupo y fuente como las dos
             primeras columnas (se fijan al hacer scroll). `no_total`: fuentes que se
-            muestran pero NO suman a la fila TOTAL."""
+            muestran pero NO suman a la fila TOTAL. `plan`: objetivo mensual (nº) →
+            añade filas Plani/día, Tendencia y % s/ plani."""
             if matriz is None or matriz.empty:
                 return None
             _dias = list(matriz.index.sort_values())
@@ -7709,8 +7716,22 @@ def main():
             _tcols = [f for f in _cols_f if f not in no_total]
             _dtot = [_fmt(_tt.loc[_tcols, d].sum()) for d in _dias] if _tcols else [_fmt(0)] * len(_dias)
             _gtot = _fmt(_tt.loc[_tcols].values.sum()) if _tcols else _fmt(0)
+            _extra = []
+            if plan and _dias:
+                _ds = pd.to_datetime(_dias, errors="coerce")
+                _D = pd.Period(_ds.min(), "M").days_in_month          # días del mes
+                _d = (_ds.max() - _ds.min()).days + 1                 # días transcurridos
+                _R = float(_tt.loc[_tcols].values.sum()) if _tcols else 0.0
+                _pdia = plan / _D
+                _tend = (_R / _d * _D) if _d else 0.0
+                _pct = (_R / (plan * _d / _D) * 100) if (plan and _d) else 0.0
+                _extra = [
+                    ("Plani/día", [_fmt(_pdia)] * len(_dias), _fmt(plan)),
+                    ("Tendencia mes", [""] * len(_dias), _fmt(_tend)),
+                    ("% s/ plani hoy", [""] * len(_dias), f"{_pct:.0f} %".replace(".", ",")),
+                ]
             return {"dias": _lbl, "filas": _filas, "total_label": total_label,
-                    "total": _dtot, "grand": _gtot}
+                    "total": _dtot, "grand": _gtot, "extra": _extra}
 
         def _tabla_conversion(piv_l, piv_m):
             """Conversión a matrícula = matrículas / leads, por día y fuente.
@@ -7766,6 +7787,10 @@ def main():
             _tc = "".join(f"<td>{v}</td>" for v in d["total"]) + f"<td class='tt'>{d['grand']}</td>"
             _body += (f"<tr class='tot'><td class='cg'></td>"
                       f"<td class='cf'>{d['total_label']}</td>{_tc}</tr>")
+            for _lab, _cells, _tot in d.get("extra", []):
+                _rc = "".join(f"<td>{v}</td>" for v in _cells) + f"<td class='tt'>{_tot}</td>"
+                _body += (f"<tr class='plan'><td class='cg'></td>"
+                          f"<td class='cf'>{_lab}</td>{_rc}</tr>")
             _tpl = """<!doctype html><html><head><meta charset='utf-8'><style>
 body{margin:0;background:__BG__;color:__FG__;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif}
 .wrap{overflow-x:auto}
@@ -7777,13 +7802,15 @@ table.ct td.cf,table.ct th.cf{position:sticky;left:96px;background:__BG__;z-inde
 table.ct thead th.cg,table.ct thead th.cf{z-index:4}
 table.ct td.tt{font-weight:700}
 table.ct tr.tot td{font-weight:700;border-top:1px solid rgba(128,128,128,.5)}
+table.ct tr.plan td{font-style:italic;color:#8a6d00;background:rgba(236,171,15,.09)}
+table.ct tr.plan td.cf{font-style:italic;font-weight:600}
 </style></head><body><div class='wrap'><table class='ct'>
 <thead><tr><th class='cg'></th><th class='cf'>Fuente</th>__DAYS__</tr></thead>
 <tbody>__BODY__</tbody></table></div></body></html>"""
             _html = (_tpl.replace("__BG__", _bg).replace("__FG__", _fg)
                      .replace("__DAYS__", _days_th).replace("__BODY__", _body))
-            _n = len(d["filas"]) + 1
-            _comp_html(_html, height=min(640, 70 + 34 * _n), scrolling=True)
+            _n = len(d["filas"]) + 1 + len(d.get("extra", []))
+            _comp_html(_html, height=min(720, 70 + 34 * _n), scrolling=True)
 
         def _cuadro(mod):
             # mod=None → General (todas las modalidades)
@@ -7837,7 +7864,8 @@ table.ct tr.tot td{font-weight:700;border-top:1px solid rgba(128,128,128,.5)}
                 _piv_l = (_piv_l.join(_od, how="outer") if not _piv_l.empty
                           else _od.to_frame())
             _piv_l = _piv_l.fillna(0)
-            _tab_l = _render_tabla(_piv_l, False, "TOTAL leads")  # Open Day incluido en el total
+            _tab_l = _render_tabla(_piv_l, False, "TOTAL leads",  # Open Day incluido en el total
+                                   plan=_obj.get("leads"))
             st.markdown("**Leads por fuente**")
             if _tab_l is not None:
                 _show_tabla(_tab_l)
@@ -7858,7 +7886,7 @@ table.ct tr.tot td{font-weight:700;border-top:1px solid rgba(128,128,128,.5)}
             else:
                 _piv_m = pd.DataFrame(); _piv_f = pd.DataFrame()
 
-            _tab_m = _render_tabla(_piv_m, False, "TOTAL matrículas")
+            _tab_m = _render_tabla(_piv_m, False, "TOTAL matrículas", plan=_obj.get("matriculas"))
             st.markdown("**Matrículas por fuente**")
             if _tab_m is not None:
                 _show_tabla(_tab_m)
@@ -7892,14 +7920,14 @@ table.ct tr.tot td{font-weight:700;border-top:1px solid rgba(128,128,128,.5)}
                     _piv_inv = pd.DataFrame()
             else:
                 _piv_inv = pd.DataFrame()
-            _tab_inv = _render_tabla(_piv_inv, True, "TOTAL inversión")
+            _tab_inv = _render_tabla(_piv_inv, True, "TOTAL inversión", plan=_obj.get("inversion"))
             st.markdown("**Inversión por plataforma (€)** · incluye tasa: Google +2 %, Meta +3 %")
             if _tab_inv is not None:
                 _show_tabla(_tab_inv)
             else:
                 st.info("Sin datos de inversión (Ads) en el período.")
 
-            _tab_f = _render_tabla(_piv_f, True, "TOTAL facturación")
+            _tab_f = _render_tabla(_piv_f, True, "TOTAL facturación", plan=_obj.get("facturacion"))
             st.markdown("**Facturación por fuente (€)**")
             if _tab_f is not None:
                 _show_tabla(_tab_f)
