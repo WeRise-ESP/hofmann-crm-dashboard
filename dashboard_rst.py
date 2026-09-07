@@ -2176,6 +2176,74 @@ def get_objetivos_mes() -> dict:
         return {}
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
+def get_objetivos_programa() -> dict:
+    """Objetivos POR PROGRAMA desde el Sheet (tabla de programas, filas 16+):
+    {nombre_programa_sheet: {leads, matriculas, facturacion}}."""
+    url = _s("OBJETIVOS_SHEET_URL",
+             "https://docs.google.com/spreadsheets/d/1_mWlfRgK8t0tVwthATnnrLbyx3wF2tYI"
+             "/export?format=csv&gid=1699224653")
+    if not url:
+        return {}
+    try:
+        r = requests.get(url, timeout=20)
+        r.raise_for_status()
+        df = pd.read_csv(StringIO(r.content.decode("utf-8-sig")), header=None,
+                         dtype=str, keep_default_na=False)
+
+        def _num(s):
+            s = re.sub(r"[^\d,.\-]", "", str(s))
+            if not s or s == "-":
+                return 0.0
+            try:
+                return float(s.replace(".", "").replace(",", "."))
+            except Exception:
+                return 0.0
+
+        out = {}
+        for _, row in df.iterrows():
+            _r = list(row) + [""] * 30
+            prog = str(_r[2]).strip()
+            if not prog or prog.upper() == "TOTAL":
+                continue
+            _m, _l = _num(_r[6]), _num(_r[8])       # col6 Obj matris · col8 Obj leads
+            if _m <= 0 and _l <= 0:
+                continue
+            out[prog] = {"matriculas": int(_m), "leads": int(_l),
+                         "facturacion": _num(_r[26]) + _num(_r[27])}   # fact nac + lat
+        return out
+    except Exception as e:
+        st.warning(f"Objetivos por programa (Sheet): {e}")
+        return {}
+
+
+def match_programa_objetivo(nombre_crm: str) -> str:
+    """Nombre de programa del CRM → clave del programa en el Sheet de objetivos
+    (reglas por palabra clave para evitar ambigüedades de nombres)."""
+    s = _sin_acentos(str(nombre_crm or "")).lower()
+    if "beyond" in s:                              return "Máster Beyond Food Experience"
+    if "innovaci" in s:                            return "Máster Innovación y Gestión"
+    if "branding" in s or "comunicaci" in s:       return "Máster Comunicación y Marketing"
+    if "vino" in s:                                return "Máster Negocio Vinos"
+    if "master" in s and "saludable" in s:         return "Máster Gastronomía Saludable"
+    if "direccion" in s or "gestion de rest" in s or "gestion rest" in s:
+        return "Máster Dirección de Restaurantes" if "online" in s else "Máster Dirección Restaurantes"
+    if "coctel" in s:                              return "Diploma de Coctelería"
+    if "cata" in s:                                return "Cata y Sumillería"
+    if "bolleria" in s or "briocher" in s:         return "Bollería Profesional"
+    if "gran diploma" in s:
+        return "Gran Diploma Pastelería" if ("pastel" in s and "hosteler" not in s) else "Gran Diploma"
+    if "diploma" in s and "cocina" in s:           return "Diploma de Cocina"
+    if "diploma" in s and "pastel" in s:           return "Diploma de Pastelería"
+    if "desarrollo" in s:                          return "Cocina y Desarrollo Profesional"
+    if "cocina" in s and ("avanzada" in s or "vanguardia" in s): return "Cocina Avanzada"
+    if "cocina" in s and "saludable" in s:         return "Cocina Saludable"
+    if "intensivo" in s and "pastel" in s:         return "Intensivo de Pastelería"
+    if "pastel" in s and "avanzada" in s:          return "Pastelería Avanzada"
+    if "pastel" in s:                              return "Pastelería Profesional"
+    return ""
+
+
 # ── Gasto de Ads POR DÍA (las 4 plataformas) ──────────────────────────────────
 @st.cache_data(ttl=3600, max_entries=6, show_spinner=False)
 def get_ads_daily(start: str, end: str) -> pd.DataFrame:
@@ -7633,29 +7701,41 @@ def main():
                 lambda r: (r["Matriculas"] / r["Leads"] * 100) if r["Leads"] else float("nan"), axis=1)
             _tab["Ticket"] = _tab.apply(
                 lambda r: (r["Facturacion"] / r["Matriculas"]) if r["Matriculas"] else float("nan"), axis=1)
+            # ── objetivos (plani) por programa desde el Sheet ──────────────────
+            _objp = get_objetivos_programa()
+            _obj = lambda c: _objp.get(match_programa_objetivo(c), {})
+            _tab["ObjLeads"] = _tab["Curso"].map(lambda c: int(_obj(c).get("leads", 0)))
+            _tab["ObjMat"]   = _tab["Curso"].map(lambda c: int(_obj(c).get("matriculas", 0)))
+            _tab["ObjFact"]  = _tab["Curso"].map(lambda c: float(_obj(c).get("facturacion", 0.0)))
             _tl = int(_tab["Leads"].sum()); _tm = int(_tab["Matriculas"].sum())
             _tf = float(_tab["Facturacion"].sum())
             _total = pd.DataFrame([{
                 "Curso": "TOTAL", "Leads": _tl, "Matriculas": _tm,
                 "Conversion": (_tm / _tl * 100) if _tl else float("nan"),
                 "Facturacion": _tf, "Ticket": (_tf / _tm) if _tm else float("nan"),
+                "ObjLeads": int(_tab["ObjLeads"].sum()), "ObjMat": int(_tab["ObjMat"].sum()),
+                "ObjFact": float(_tab["ObjFact"].sum()),
             }])
-            _num = pd.concat([_tab[["Curso", "Leads", "Matriculas", "Conversion",
-                                    "Facturacion", "Ticket"]], _total], ignore_index=True)  # TOTAL abajo
-            _num = _num.rename(columns={"Matriculas": "Matrículas", "Conversion": "Conversión",
-                                        "Facturacion": "Facturación", "Ticket": "Ticket medio"})
+            _co = ["Curso", "Leads", "ObjLeads", "Matriculas", "ObjMat", "Conversion",
+                   "Facturacion", "ObjFact", "Ticket"]
+            _num = pd.concat([_tab[_co], _total[_co]], ignore_index=True)  # TOTAL abajo
+            _num = _num.rename(columns={"ObjLeads": "Obj. leads", "Matriculas": "Matrículas",
+                                        "ObjMat": "Obj. matr.", "Conversion": "Conversión",
+                                        "Facturacion": "Facturación", "ObjFact": "Obj. fact.",
+                                        "Ticket": "Ticket medio"})
             _f_pct = lambda v: (f"{v:.1f} %".replace(".", ",")) if pd.notna(v) else "—"
             _f_eur = lambda v: (_fmt_eur0(v) if pd.notna(v) and v else "—")
             _sty = (_num.style
-                    .format({"Leads": _fmt_int, "Matrículas": _fmt_int, "Conversión": _f_pct,
-                             "Facturación": _f_eur, "Ticket medio": _f_eur})
+                    .format({"Leads": _fmt_int, "Obj. leads": _fmt_int, "Matrículas": _fmt_int,
+                             "Obj. matr.": _fmt_int, "Conversión": _f_pct,
+                             "Facturación": _f_eur, "Obj. fact.": _f_eur, "Ticket medio": _f_eur})
                     .background_gradient(cmap="RdYlGn",
                                          subset=pd.IndexSlice[_num.index[:-1], "Conversión"]))
             st.dataframe(_sty, use_container_width=True, hide_index=True,
                          height=min(1400, 44 + 35 * (len(_num) + 1)))
-            st.caption("ℹ️ Conversión = matrículas ÷ leads del curso (verde = más alta, rojo = "
-                       "más baja). La inversión de Ads no se reparte por curso (campañas no "
-                       "siempre mapeadas a un curso): se ve en el total y por modalidad.")
+            st.caption("ℹ️ **Obj.** = objetivo del mes por programa (del Sheet de planificación), "
+                       "casado por nombre con el curso del CRM. Conversión = matrículas ÷ leads "
+                       "(verde = más alta, rojo = más baja).")
         else:
             st.info("Sin datos por curso en el período/filtros.")
 
