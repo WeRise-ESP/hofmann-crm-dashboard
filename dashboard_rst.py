@@ -7738,10 +7738,8 @@ def main():
                              "Matrículas": _fmt_int, "Obj. matr.": _fmt_int, "% matr.": _f_cum,
                              "Conversión": _f_pct, "Facturación": _f_eur, "Obj. fact.": _f_eur,
                              "% fact.": _f_cum, "Ticket medio": _f_eur})
-                    .background_gradient(cmap="RdYlGn",
-                                         subset=pd.IndexSlice[_num.index[:-1], "Conversión"])
                     .background_gradient(cmap="RdYlGn", vmin=0, vmax=100,
-                                         subset=["% leads", "% matr.", "% fact."]))
+                                         subset=["Conversión", "% leads", "% matr.", "% fact."]))
             st.dataframe(_sty, use_container_width=True, hide_index=True,
                          height=min(1400, 44 + 35 * (len(_num) + 1)))
             st.caption("ℹ️ **Obj.** = objetivo del mes por programa (del Sheet de planificación), "
