@@ -7733,12 +7733,6 @@ def main():
             _f_cum = lambda v: (f"{v:.0f} %") if pd.notna(v) else "—"
             _f_eur = lambda v: (_fmt_eur0(v) if pd.notna(v) and v else "—")
 
-            def _c_cum(v):   # verde si cumple objetivo (>=100%), rojo si por debajo
-                if pd.isna(v):
-                    return ""
-                return ("background-color:#1a9850;color:#fff" if v >= 100
-                        else "background-color:#d73027;color:#fff")
-
             _sty = (_num.style
                     .format({"Leads": _fmt_int, "Obj. leads": _fmt_int, "% leads": _f_cum,
                              "Matrículas": _fmt_int, "Obj. matr.": _fmt_int, "% matr.": _f_cum,
@@ -7746,8 +7740,8 @@ def main():
                              "% fact.": _f_cum, "Ticket medio": _f_eur})
                     .background_gradient(cmap="RdYlGn",
                                          subset=pd.IndexSlice[_num.index[:-1], "Conversión"])
-                    .apply(lambda col: [_c_cum(v) for v in col],
-                           subset=["% leads", "% matr.", "% fact."]))
+                    .background_gradient(cmap="RdYlGn", vmin=0, vmax=100,
+                                         subset=["% leads", "% matr.", "% fact."]))
             st.dataframe(_sty, use_container_width=True, hide_index=True,
                          height=min(1400, 44 + 35 * (len(_num) + 1)))
             st.caption("ℹ️ **Obj.** = objetivo del mes por programa (del Sheet de planificación), "
