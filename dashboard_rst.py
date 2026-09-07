@@ -2130,6 +2130,46 @@ def get_tiktok_ads_data(start: str, end: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+# ── Objetivos del mes (planificación) desde Google Sheet ──────────────────────
+@st.cache_data(ttl=1800, show_spinner=False)
+def get_objetivos_mes() -> dict:
+    """Objetivos del mes (matrículas y facturación por modalidad) desde un Google
+    Sheet publicado en CSV. Devuelve
+    {"Presencial": {matriculas, facturacion}, "Online": {...}, "Total": {...}}."""
+    url = _s("OBJETIVOS_SHEET_URL",
+             "https://docs.google.com/spreadsheets/d/1_mWlfRgK8t0tVwthATnnrLbyx3wF2tYI"
+             "/export?format=csv&gid=1699224653")
+    if not url:
+        return {}
+    try:
+        r = requests.get(url, timeout=20)
+        r.raise_for_status()
+        df = pd.read_csv(StringIO(r.content.decode("utf-8-sig")), header=None,
+                         dtype=str, keep_default_na=False)
+
+        def _num(s):
+            s = re.sub(r"[^\d,.\-]", "", str(s))
+            if not s or s == "-":
+                return 0.0
+            try:
+                return float(s.replace(".", "").replace(",", "."))
+            except Exception:
+                return 0.0
+
+        out = {}
+        for _, row in df.iterrows():
+            _r = list(row)
+            if len(_r) < 5:
+                continue
+            _k = str(_r[2]).strip().upper()
+            if _k in ("PRESENCIAL", "ONLINE", "TOTAL") and _k.title() not in out and _num(_r[3]) > 0:
+                out[_k.title()] = {"matriculas": int(_num(_r[3])), "facturacion": _num(_r[4])}
+        return out
+    except Exception as e:
+        st.warning(f"Objetivos (Sheet): {e}")
+        return {}
+
+
 # ── Gasto de Ads POR DÍA (las 4 plataformas) ──────────────────────────────────
 @st.cache_data(ttl=3600, max_entries=6, show_spinner=False)
 def get_ads_daily(start: str, end: str) -> pd.DataFrame:
@@ -7763,6 +7803,23 @@ table.ct tr.tot td{font-weight:700;border-top:1px solid rgba(128,128,128,.5)}
             if _lm.empty and _wm.empty and _om.empty:
                 st.info("Sin datos en el período/filtros.")
                 return
+
+            # ── Planificación del mes (objetivo vs real) ───────────────────────
+            _obj = get_objetivos_mes().get("Total" if mod is None else mod, {})
+            if _obj:
+                _rm = _wm["deal_id"].nunique() if (isinstance(_wm, pd.DataFrame) and not _wm.empty) else 0
+                _rf = float(_wm["amount"].sum()) if (isinstance(_wm, pd.DataFrame) and not _wm.empty) else 0.0
+                _om_o, _of_o = _obj.get("matriculas", 0), _obj.get("facturacion", 0.0)
+                st.markdown("#### 🎯 Planificación del mes")
+                _q1, _q2 = st.columns(2)
+                _q1.metric(f"Matrículas · objetivo {_om_o}", _fmt_int(_rm),
+                           (f"{_rm / _om_o * 100:.0f} % del objetivo".replace(".", ",")) if _om_o else None,
+                           delta_color="off")
+                _q2.metric(f"Facturación · objetivo {_fmt_eur0(_of_o)}", _fmt_eur0(_rf),
+                           (f"{_rf / _of_o * 100:.0f} % del objetivo".replace(".", ",")) if _of_o else None,
+                           delta_color="off")
+                st.caption("Objetivo mensual (Sheet de planificación) vs real del período "
+                           "seleccionado — filtra por el mes para que la comparación cuadre.")
 
             # ── Leads por fuente (+ Open Day) ──────────────────────────────────
             if not _lm.empty:
