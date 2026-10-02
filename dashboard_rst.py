@@ -6844,7 +6844,10 @@ def main():
             _prog_opts = sorted(df_cpn["programa"].dropna().unique().tolist())
 
             with _filt_col2:
-                _filtro_plat = st.multiselect("Fuente", _plat_opts, default=_plat_opts, key="cpn_plat")
+                _filtro_plat = st.multiselect(
+                    "Fuente original", _plat_opts, default=_plat_opts, key="cpn_plat",
+                    help="Fuente de tráfico original (primer toque que trajo al contacto). "
+                         "Si no hay dato original, se usa la más reciente.")
             with _filt_col3:
                 _filtro_pais = st.multiselect("País", _pais_opts, default=_pais_opts, key="cpn_pais")
             with _filt_col4:
