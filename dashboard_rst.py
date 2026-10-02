@@ -7162,14 +7162,6 @@ def main():
                     "Matrículas = negocios en Cierre Ganado del período."
                 )
 
-                # Filtro de fuente original local a esta tabla
-                _conv_src_opts = ["Todas"] + sorted(df_cpn["fuente"].dropna().unique().tolist())
-                _conv_src = st.selectbox(
-                    "Fuente original de tráfico", _conv_src_opts, key="conv_src_sel",
-                    help="Fuente del primer toque que trajo al contacto. Filtra solo esta tabla.")
-                _df_conv = (df_cpn if _conv_src == "Todas"
-                            else df_cpn[df_cpn["fuente"] == _conv_src])
-
                 # Etiqueta de campaña del lead, alineada con la del negocio
                 # (campaña original; si no la hay, la reciente).
                 def _camp_lead(_r):
@@ -7179,11 +7171,35 @@ def main():
                     _c2 = (_r.get("campana_reciente") or "").strip()
                     return _c2 if (_c2 and _c2 != "Sin campaña") else "Sin campaña"
 
+                # Filtros locales de esta tabla: fuente original + campaña
+                _lv_opts = df_cpn[df_cpn["lead_valido"] == "Válido"].copy()
+                _lv_opts["Campaña"] = (_lv_opts.apply(_camp_lead, axis=1)
+                                       if not _lv_opts.empty else pd.Series(dtype=str))
+                _src_opts  = ["Todas"] + sorted(df_cpn["fuente"].dropna().unique().tolist())
+                _camp_opts = ["Todas"] + sorted(
+                    c for c in _lv_opts["Campaña"].unique().tolist()
+                    if c and c != "Sin campaña")
+                _cf1, _cf2 = st.columns(2)
+                with _cf1:
+                    _conv_src = st.selectbox(
+                        "Fuente original de tráfico", _src_opts, key="conv_src_sel",
+                        help="Fuente del primer toque que trajo al contacto. Filtra solo esta tabla.")
+                with _cf2:
+                    _conv_camp = st.selectbox(
+                        "Campaña", _camp_opts, key="conv_camp_sel",
+                        help="Campaña de origen del contacto. Filtra solo esta tabla.")
+
+                _df_conv = df_cpn.copy()
+                if _conv_src != "Todas":
+                    _df_conv = _df_conv[_df_conv["fuente"] == _conv_src]
+
                 _lv = _df_conv[_df_conv["lead_valido"] == "Válido"].copy()
                 if _lv.empty:
                     st.info("No hay leads válidos con los filtros aplicados.")
                 else:
                     _lv["Campaña"] = _lv.apply(_camp_lead, axis=1)
+                    if _conv_camp != "Todas":
+                        _lv = _lv[_lv["Campaña"] == _conv_camp]
                     _den = (_lv.groupby(["pais", "Campaña"]).size()
                             .reset_index(name="Leads válidos"))
 
@@ -7194,6 +7210,7 @@ def main():
                         if _filtro_pais: _won = _won[_won["pais"].isin(_filtro_pais)]
                         if _filtro_prog: _won = _won[_won["programa"].isin(_filtro_prog)]
                         if _conv_src != "Todas": _won = _won[_won["fuente"] == _conv_src]
+                        if _conv_camp != "Todas": _won = _won[_won["campaña"] == _conv_camp]
                         _num_m = (_won.groupby(["pais", "campaña"]).size()
                                   .reset_index(name="Matrículas")
                                   .rename(columns={"campaña": "Campaña"}))
