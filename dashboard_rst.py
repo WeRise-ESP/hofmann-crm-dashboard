@@ -7158,9 +7158,17 @@ def main():
                 st.markdown("### 🎯 Conversión a matrícula por País y Campaña")
                 st.caption(
                     "Cierres ganados (matrículas) ÷ leads válidos, desglosado por país y "
-                    "campaña. Respeta los filtros de arriba (fuente, país, programa). "
+                    "campaña. Respeta los filtros de arriba y el de fuente de aquí abajo. "
                     "Matrículas = negocios en Cierre Ganado del período."
                 )
+
+                # Filtro de fuente original local a esta tabla
+                _conv_src_opts = ["Todas"] + sorted(df_cpn["fuente"].dropna().unique().tolist())
+                _conv_src = st.selectbox(
+                    "Fuente original de tráfico", _conv_src_opts, key="conv_src_sel",
+                    help="Fuente del primer toque que trajo al contacto. Filtra solo esta tabla.")
+                _df_conv = (df_cpn if _conv_src == "Todas"
+                            else df_cpn[df_cpn["fuente"] == _conv_src])
 
                 # Etiqueta de campaña del lead, alineada con la del negocio
                 # (campaña original; si no la hay, la reciente).
@@ -7171,7 +7179,7 @@ def main():
                     _c2 = (_r.get("campana_reciente") or "").strip()
                     return _c2 if (_c2 and _c2 != "Sin campaña") else "Sin campaña"
 
-                _lv = df_cpn[df_cpn["lead_valido"] == "Válido"].copy()
+                _lv = _df_conv[_df_conv["lead_valido"] == "Válido"].copy()
                 if _lv.empty:
                     st.info("No hay leads válidos con los filtros aplicados.")
                 else:
@@ -7185,6 +7193,7 @@ def main():
                         if _filtro_plat: _won = _won[_won["fuente"].isin(_filtro_plat)]
                         if _filtro_pais: _won = _won[_won["pais"].isin(_filtro_pais)]
                         if _filtro_prog: _won = _won[_won["programa"].isin(_filtro_prog)]
+                        if _conv_src != "Todas": _won = _won[_won["fuente"] == _conv_src]
                         _num_m = (_won.groupby(["pais", "campaña"]).size()
                                   .reset_index(name="Matrículas")
                                   .rename(columns={"campaña": "Campaña"}))
