@@ -7151,6 +7151,80 @@ def main():
 
                 st.divider()
 
+                # ── Conversión a matrícula por País y Campaña ────────────────────────
+                st.markdown("### 🎯 Conversión a matrícula por País y Campaña")
+                st.caption(
+                    "Cierres ganados (matrículas) ÷ leads válidos, desglosado por país y "
+                    "campaña. Respeta los filtros de arriba (fuente, país, programa). "
+                    "Matrículas = negocios en Cierre Ganado del período."
+                )
+
+                # Etiqueta de campaña del lead, alineada con la del negocio
+                # (campaña original; si no la hay, la reciente).
+                def _camp_lead(_r):
+                    _c = (_r.get("campana") or "").strip()
+                    if _c and _c != "Sin campaña":
+                        return _c
+                    _c2 = (_r.get("campana_reciente") or "").strip()
+                    return _c2 if (_c2 and _c2 != "Sin campaña") else "Sin campaña"
+
+                _lv = df_cpn[df_cpn["lead_valido"] == "Válido"].copy()
+                if _lv.empty:
+                    st.info("No hay leads válidos con los filtros aplicados.")
+                else:
+                    _lv["Campaña"] = _lv.apply(_camp_lead, axis=1)
+                    _den = (_lv.groupby(["pais", "Campaña"]).size()
+                            .reset_index(name="Leads válidos"))
+
+                    # Matrículas (cierres ganados) por país + campaña, mismos filtros
+                    if (not df_pip_full.empty and "gano_periodo" in df_pip_full.columns):
+                        _won = df_pip_full[df_pip_full["gano_periodo"]].copy()
+                        if _filtro_plat: _won = _won[_won["fuente"].isin(_filtro_plat)]
+                        if _filtro_pais: _won = _won[_won["pais"].isin(_filtro_pais)]
+                        if _filtro_prog: _won = _won[_won["programa"].isin(_filtro_prog)]
+                        _num_m = (_won.groupby(["pais", "campaña"]).size()
+                                  .reset_index(name="Matrículas")
+                                  .rename(columns={"campaña": "Campaña"}))
+                    else:
+                        _num_m = pd.DataFrame(columns=["pais", "Campaña", "Matrículas"])
+
+                    _conv = _den.merge(_num_m, on=["pais", "Campaña"], how="outer")
+                    _conv["Leads válidos"] = _conv["Leads válidos"].fillna(0).astype(int)
+                    _conv["Matrículas"]    = _conv["Matrículas"].fillna(0).astype(int)
+                    _conv["Conversión"] = _conv.apply(
+                        lambda r: (r["Matrículas"] / r["Leads válidos"] * 100)
+                                  if r["Leads válidos"] else float("nan"), axis=1)
+                    _conv = (_conv.rename(columns={"pais": "País"})
+                             .sort_values(["Matrículas", "Leads válidos"], ascending=False))
+
+                    _tlv  = int(_conv["Leads válidos"].sum())
+                    _tmat = int(_conv["Matrículas"].sum())
+                    _tot = pd.DataFrame([{
+                        "País": "TOTAL", "Campaña": "",
+                        "Leads válidos": _tlv, "Matrículas": _tmat,
+                        "Conversión": (_tmat / _tlv * 100) if _tlv else float("nan"),
+                    }])
+                    _conv = pd.concat(
+                        [_conv[["País", "Campaña", "Leads válidos", "Matrículas", "Conversión"]],
+                         _tot], ignore_index=True)
+
+                    _fi0 = lambda v: (f"{int(v):,}".replace(",", ".")) if pd.notna(v) else "—"
+                    _fpc = lambda v: (f"{v:.1f} %".replace(".", ",")) if pd.notna(v) else "—"
+                    _styc = (_conv.style
+                             .format({"Leads válidos": _fi0, "Matrículas": _fi0,
+                                      "Conversión": _fpc})
+                             .background_gradient(cmap="RdYlGn", vmin=0, vmax=100,
+                                                  subset=["Conversión"]))
+                    st.dataframe(_styc, use_container_width=True, hide_index=True,
+                                 height=min(1200, 44 + 35 * (len(_conv) + 1)))
+                    st.caption(
+                        "ℹ️ Conversión = matrículas ÷ leads válidos (verde = más alta, "
+                        "rojo = más baja). Una campaña con matrículas pero sin leads "
+                        "válidos en el período muestra «—» en conversión."
+                    )
+
+                st.divider()
+
                 # ── Tabla principal: Fuente × País × Programa ────────────────────────
                 st.markdown("### 📋 Detalle por Fuente, País y Programa")
                 _det_f1, _det_f2 = st.columns(2)
